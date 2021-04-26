@@ -24,13 +24,30 @@
 
 #define MAX_SESSIONS    1
 
-#define HSE_KEY_HANDLE    0x00010600
+#define HSE_SRVDESC_SRAM   0x2000
+#define HSE_KEYINFO_SRAM   0x2200
+#define HSE_PKEY0_SRAM     0x2400
+#define HSE_PKEY1_SRAM     0x2600
+#define HSE_PKEY2_SRAM     0x2800
+#define HSE_INPUT_SRAM     0x3000
+#define HSE_OUTPUT_SRAM    0x3400
+#define HSE_OUTPUTLEN_SRAM 0x3800
 
-#define HSE_SRV_DESC_SRAM 0x2000
-#define HSE_KEY_INFO_SRAM 0x2300
-#define HSE_MODULUS_SRAM  0x2500
-#define HSE_PUB_EXP_SRAM  0x2700
-#define HSE_PRIV_EXP_SRAM 0x2900
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+#endif
+
+struct hse_cryptCtx {
+	CK_BBOOL init;
+	CK_OBJECT_HANDLE keyHandle;
+	CK_MECHANISM *mechanism;
+};
+
+struct hse_signCtx {
+	CK_BBOOL init;
+	CK_OBJECT_HANDLE keyHandle;
+	CK_MECHANISM *mechanism;
+};
 
 /*
  * struct hse_find_ctx - context used for info during object search
@@ -41,29 +58,6 @@
 struct hse_findCtx {
 	CK_BBOOL init;
 	CK_OBJECT_CLASS *obj_class;
-};
-
-/*
- * struct globalCtx - global context for PKCS11 operations
- *
- * @cryptokiInit:     check if cryptoki has been initialized
- * @session:          session info
- * @slot:             slot info
- * @token:            token info
- * @objects:          list of objects/keys
- * @mechanismNum:     number of mechanisms supported
- * @mechanismList:    list of supported mechanisms
- * @find_ctx:         context for finding objects
- */
-struct globalCtx {
-        CK_BBOOL cryptokiInit;
-        CK_SESSION_INFO session;
-        CK_SLOT_INFO slot;
-        CK_TOKEN_INFO token;
-		list_t objects;
-        CK_ULONG mechanismNum;
-        const CK_MECHANISM_TYPE_PTR mechanismList;
-		struct hse_findCtx findCtx;
 };
 
 /*
@@ -85,6 +79,32 @@ struct hse_keyObject {
 	CK_ULONG label_len;
 	CK_BYTE *id;
 	CK_ULONG id_len;
+};
+
+/*
+ * struct globalCtx - global context for PKCS11 operations
+ *
+ * @cryptokiInit:     check if cryptoki has been initialized
+ * @session:          session info
+ * @slot:             slot info
+ * @token:            token info
+ * @objects:          list of objects/keys
+ * @mechanismNum:     number of mechanisms supported
+ * @mechanismList:    list of supported mechanisms
+ * @find_ctx:         context for finding objects
+ */
+struct globalCtx {
+	CK_BBOOL cryptokiInit;
+	CK_SESSION_INFO session;
+	CK_SLOT_INFO slot;
+	CK_TOKEN_INFO token;
+	list_t objects;
+	struct hse_findCtx findCtx;
+	struct hse_cryptCtx cryptCtx;
+	struct hse_signCtx signCtx;
+
+	/* private data */
+	struct hse_private *_priv;
 };
 
 extern struct globalCtx gCtx;

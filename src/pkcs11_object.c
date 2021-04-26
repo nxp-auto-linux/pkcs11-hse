@@ -5,9 +5,60 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "pkcs11_context.h"
 #include "simclist.h"
+
+static uint16_t getkeybitlen(hseEccCurveId_t eccCurveId)
+{
+    switch(eccCurveId) {
+        case HSE_EC_SEC_SECP256R1:
+            return 256u;
+        case HSE_EC_SEC_SECP384R1:
+            return 384u;
+        case HSE_EC_SEC_SECP521R1:
+            return 521u;
+        case HSE_EC_BRAINPOOL_BRAINPOOLP256R1:
+            return 256u;
+        case HSE_EC_BRAINPOOL_BRAINPOOLP320R1:
+            return 320u;
+        case HSE_EC_BRAINPOOL_BRAINPOOLP384R1:
+            return 384u;
+        case HSE_EC_BRAINPOOL_BRAINPOOLP512R1:
+            return 512u;
+        case HSE_EC_25519_ED25519:
+            return 256u;
+        case HSE_EC_25519_CURVE25519:
+            return 256u;
+        default:
+            return 0u;
+    }
+}
+
+static uint8_t gethsecurveid(char *oid)
+{
+	if (strcmp(oid, "\x06\x08\x2A\x86\x48\xCE\x3D\x03\x01\x07") == 0)
+		return HSE_EC_SEC_SECP256R1;
+	else if (strcmp(oid, "\x06\x05\x2B\x81\x04\x00\x22") == 0)
+		return HSE_EC_SEC_SECP384R1;
+	else if (strcmp(oid, "\x06\x05\x2B\x81\x04\x00\x23") == 0)
+		return HSE_EC_SEC_SECP521R1;
+	else if (strcmp(oid, "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x07") == 0)
+		return HSE_EC_BRAINPOOL_BRAINPOOLP256R1;
+	else if (strcmp(oid, "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x09") == 0)
+		return HSE_EC_BRAINPOOL_BRAINPOOLP320R1;
+	else if (strcmp(oid, "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x0B") == 0)
+		return HSE_EC_BRAINPOOL_BRAINPOOLP384R1;
+	else if (strcmp(oid, "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x0D") == 0)
+		return HSE_EC_BRAINPOOL_BRAINPOOLP512R1;
+	else if (strcmp(oid, "\x06\x09\x2B\x06\x01\x04\x01\xDA\x47\x0F\x01") == 0)
+		return HSE_EC_25519_ED25519;
+	else if (strcmp(oid, "\x06\x03\x2B\x65\x6E") == 0)
+		return HSE_EC_25519_CURVE25519;
+	else
+		return HSE_EC_CURVE_NONE;
+}
 
 static void *getattr_pval(CK_ATTRIBUTE_PTR template,
 		CK_ATTRIBUTE_TYPE attribute,
@@ -39,7 +90,7 @@ static CK_ULONG getattr_len(CK_ATTRIBUTE_PTR template,
 	return -1;
 }
 
-static inline void memcpy(void *dst, void *src, size_t n)
+static inline void hse_memcpy(void *dst, void *src, size_t n)
 {
 	uint8_t *s = (uint8_t *)src;
 	uint8_t *d = (uint8_t *)dst;
@@ -63,7 +114,7 @@ static int attrcpy(void *dest, CK_ATTRIBUTE_PTR template,
 	if (temp == NULL)
 		return 1;
 
-	memcpy(dest, temp, temp_size);
+	hse_memcpy(dest, temp, temp_size);
 
 	return 0;
 }
@@ -75,20 +126,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		CK_OBJECT_HANDLE_PTR phObject
 )
 {
-	void *key_info_sram;
-	hseKeyInfo_t key_info;
-
-	void *srv_desc_sram;
 	hseSrvDescriptor_t srv_desc;
-
+	hseKeyInfo_t key_info;
+	hseImportKeySrv_t *import_key_req;
+	void *_srv_desc, *_key_info, *_pkey0, *_pkey1, *_pkey2, *_ecc_oid;
+	struct hse_keyObject *key;
 	CK_UTF8CHAR *labeltemp;
 	CK_BYTE *idtemp;
-	void *mod, *pub_exp, *priv_exp;
-
-	struct hse_keyObject *key;
-	hseImportKeySrv_t *import_key_req;
-	int err;
 	CK_RV rc = CKR_OK;
+	int err;
 
 	if (gCtx.cryptokiInit == CK_FALSE) {
 		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -105,25 +151,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		goto gen_err;
 	}
 
-	srv_desc_sram = hse_get_shared_mem_addr(HSE_SRV_DESC_SRAM);
-	key_info_sram = hse_get_shared_mem_addr(HSE_KEY_INFO_SRAM);
-	mod = hse_get_shared_mem_addr(HSE_MODULUS_SRAM);
-	pub_exp = hse_get_shared_mem_addr(HSE_PUB_EXP_SRAM);
-	priv_exp = hse_get_shared_mem_addr(HSE_PRIV_EXP_SRAM);
+	_srv_desc = hse_get_shared_mem_addr(HSE_SRVDESC_SRAM);
+	_key_info = hse_get_shared_mem_addr(HSE_KEYINFO_SRAM);
 
-	if (attrcpy(mod, pTemplate, CKA_MODULUS, ulCount)) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto gen_err;
-	}
-	if (attrcpy(pub_exp, pTemplate, CKA_PUBLIC_EXPONENT, ulCount)) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto gen_err;
-	}
-	if (attrcpy(priv_exp, pTemplate, CKA_PRIVATE_EXPONENT, ulCount)) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto gen_err;
-	}
-	
 	key = malloc(sizeof(*key));
 	if (key == NULL) {
 		rc = CKR_HOST_MEMORY;
@@ -142,7 +172,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		rc = CKR_ARGUMENTS_BAD;
 		goto id_err;
 	}
-	memcpy(key->id, idtemp, key->id_len);
+	hse_memcpy(key->id, idtemp, key->id_len);
 
 	key->key_handle = GET_KEY_HANDLE(key->id[2], key->id[1], key->id[0]);
 
@@ -171,46 +201,121 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		rc = CKR_ARGUMENTS_BAD;
 		goto label_err;
 	}
-	memcpy(key->label, labeltemp, key->label_len);
-
-	if ((CK_ULONG *)getattr_pval(pTemplate, CKA_CLASS, ulCount) == NULL || 
-		*(CK_ULONG *)getattr_pval(pTemplate, CKA_CLASS, ulCount) != CKO_PRIVATE_KEY) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto class_err;
-	}
+	hse_memcpy(key->label, labeltemp, key->label_len);
 
 	import_key_req = &srv_desc.hseSrv.importKeyReq;
 
 	/* extract info needed for hse */
-	key_info.keyFlags = (HSE_KF_USAGE_VERIFY | HSE_KF_USAGE_AUTHORIZATION);
-	key_info.keyBitLen = getattr_len(pTemplate, CKA_MODULUS, ulCount) * 8;
+	key_info.keyFlags = (HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY |
+							   HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT);
 	key_info.keyCounter = 0ul;
 	key_info.smrFlags = 0ul;
-	key_info.keyType = HSE_KEY_TYPE_RSA_PAIR;
-	key_info.specific.pubExponentSize = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
-	import_key_req->targetKeyHandle = GET_KEY_HANDLE(key->id[2], key->id[1], key->id[0]);
-	import_key_req->pKeyInfo = hse_virt_to_phys(key_info_sram);
-	import_key_req->pKey[0] = hse_virt_to_phys(mod);
-	import_key_req->pKey[1] = hse_virt_to_phys(pub_exp);
-	import_key_req->pKey[2] = hse_virt_to_phys(priv_exp);
-	import_key_req->keyLen[0] = getattr_len(pTemplate, CKA_MODULUS, ulCount);
-	import_key_req->keyLen[1] = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
-	import_key_req->keyLen[2] = getattr_len(pTemplate, CKA_PRIVATE_EXPONENT, ulCount);
+	import_key_req->pKeyInfo = hse_virt_to_phys(_key_info);
+	import_key_req->targetKeyHandle = key->key_handle;
 	import_key_req->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	import_key_req->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 
-	memcpy(srv_desc_sram, &srv_desc, sizeof(srv_desc));
-	memcpy(key_info_sram, &key_info, sizeof(key_info));
+	switch (key->key_type) {
+		case CKK_RSA:
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, hse_virt_to_phys(srv_desc_sram));
+			_pkey0 = hse_get_shared_mem_addr(HSE_PKEY0_SRAM);
+			if (attrcpy(_pkey0, pTemplate, CKA_MODULUS, ulCount)) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto label_err;
+			}
+
+			_pkey1 = hse_get_shared_mem_addr(HSE_PKEY1_SRAM);
+			if (attrcpy(_pkey1, pTemplate, CKA_PUBLIC_EXPONENT, ulCount)) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto label_err;
+			}
+
+			key_info.keyBitLen = getattr_len(pTemplate, CKA_MODULUS, ulCount) * 8;
+			key_info.specific.pubExponentSize = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
+			key_info.keyType = HSE_KEY_TYPE_RSA_PUB;
+
+			import_key_req->pKey[0] = hse_virt_to_phys(_pkey0); /* public modulus */
+			import_key_req->pKey[1] = hse_virt_to_phys(_pkey1); /* public exponent */
+			import_key_req->pKey[2] = 0u;
+			import_key_req->keyLen[0] = getattr_len(pTemplate, CKA_MODULUS, ulCount);
+			import_key_req->keyLen[1] = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
+			import_key_req->keyLen[2] = 0u;
+
+			if (key->key_class == CKO_PRIVATE_KEY) {
+
+				_pkey2 = hse_get_shared_mem_addr(HSE_PKEY2_SRAM);
+				if (attrcpy(_pkey2, pTemplate, CKA_PRIVATE_EXPONENT, ulCount)) {
+					rc = CKR_ARGUMENTS_BAD;
+					goto label_err;
+				}
+
+				key_info.keyType = HSE_KEY_TYPE_RSA_PAIR;
+
+				import_key_req->pKey[2] = hse_virt_to_phys(_pkey2); /* private exponent */
+				import_key_req->keyLen[2] = getattr_len(pTemplate, CKA_PRIVATE_EXPONENT, ulCount);
+			}
+
+			break;
+		case CKK_EC:
+
+			_pkey0 = hse_get_shared_mem_addr(HSE_PKEY0_SRAM);
+			if (attrcpy(_pkey0, pTemplate, CKA_EC_POINT, ulCount)) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto label_err;
+			}
+			/* bypass DER encoding header, we don't support it */
+			_pkey0 = (uint8_t *)_pkey0 + 3;
+
+			_ecc_oid = getattr_pval(pTemplate, CKA_EC_PARAMS, ulCount);
+			if (_ecc_oid == NULL) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto label_err;
+			}
+
+			key_info.specific.eccCurveId = gethsecurveid((char *)_ecc_oid);
+			key_info.keyBitLen = getkeybitlen(key_info.specific.eccCurveId);
+
+			key_info.keyType = HSE_KEY_TYPE_ECC_PUB;
+
+			import_key_req->pKey[0] = hse_virt_to_phys(_pkey0); /* public x & y coords of ec */
+			import_key_req->pKey[1] = 0u;
+			import_key_req->pKey[2] = 0u;
+			import_key_req->keyLen[0] = getattr_len(pTemplate, CKA_EC_POINT, ulCount) - 3; /* bypass DER encoding header */
+			import_key_req->keyLen[1] = 0u;
+			import_key_req->keyLen[2] = 0u;
+
+			if (key->key_class == CKO_PRIVATE_KEY) {
+
+				_pkey2 = hse_get_shared_mem_addr(HSE_PKEY2_SRAM);
+				if (attrcpy(_pkey2, pTemplate, CKA_VALUE, ulCount)) {
+					rc = CKR_ARGUMENTS_BAD;
+					goto label_err;
+				}
+
+				key_info.keyType = HSE_KEY_TYPE_ECC_PAIR;
+
+				import_key_req->pKey[2] = hse_virt_to_phys(_pkey2); /* ec private scalar/order */
+				import_key_req->keyLen[2] = getattr_len(pTemplate, CKA_VALUE, ulCount);
+			}
+
+			break;
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+			goto label_err;
+	}
+
+	hse_memcpy(_srv_desc, &srv_desc, sizeof(hseSrvDescriptor_t));
+	hse_memcpy(_key_info, &key_info, sizeof(hseKeyInfo_t));
+
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, hse_virt_to_phys(_srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto class_err;
 	}
 
-	*phObject = GET_KEY_HANDLE(key->id[2], key->id[1], key->id[0]);
+	*phObject = key->key_handle;
 
 	list_append(&gCtx.objects, key);
 
@@ -230,9 +335,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 		CK_OBJECT_HANDLE hObject
 )
 {
-	struct hse_keyObject *pkey;
-	void *srv_desc_sram;
 	hseSrvDescriptor_t srv_desc;
+	void *_srv_desc;
+	struct hse_keyObject *pkey;
 	int err;
 
 	if (gCtx.cryptokiInit == CK_FALSE)
@@ -241,18 +346,19 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	srv_desc_sram = hse_get_shared_mem_addr(HSE_SRV_DESC_SRAM);
-
 	pkey = (struct hse_keyObject *)list_seek(&gCtx.objects, &hObject);
 	if (pkey == NULL)
 		return CKR_OBJECT_HANDLE_INVALID;
 
+	_srv_desc = hse_get_shared_mem_addr(HSE_SRVDESC_SRAM);
+
 	srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
-	srv_desc.hseSrv.eraseKeyReq.keyHandle = GET_KEY_HANDLE(pkey->id[2], pkey->id[1], pkey->id[0]);
+	srv_desc.hseSrv.eraseKeyReq.keyHandle = pkey->key_handle;
 	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
 
-	memcpy(srv_desc_sram, &srv_desc, sizeof(srv_desc));
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, hse_virt_to_phys(srv_desc_sram));
+	hse_memcpy(_srv_desc, &srv_desc, sizeof(hseSrvDescriptor_t));
+
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, hse_virt_to_phys(_srv_desc));
 	if (err)
 		return CKR_FUNCTION_FAILED;
 

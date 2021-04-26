@@ -15,6 +15,12 @@ struct globalCtx gCtx = {
     .cryptokiInit = CK_FALSE,
 };
 
+static const CK_MECHANISM_TYPE mechanismList[] = {
+	CKM_RSA_PKCS,
+	CKM_RSA_PKCS_OAEP,
+	CKM_SHA256_RSA_PKCS
+};
+
 static CK_FUNCTION_LIST gFunctionList = {
     .version =                              {CRYPTOKI_VERSION_MAJOR,
                                              CRYPTOKI_VERSION_MINOR},
@@ -158,8 +164,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
     pToken->firmwareVersion.major = 0;
     pToken->firmwareVersion.minor = 8;
 
-    gCtx.cryptokiInit = CK_TRUE;
-
 	if (list_init(&gCtx.objects) != 0)
 		return CKR_HOST_MEMORY;
 	list_attributes_seeker(&gCtx.objects, object_list_seeker);
@@ -167,6 +171,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 
 	if (hse_usr_initialize())
 		return CKR_HOST_MEMORY;
+
+    gCtx.cryptokiInit = CK_TRUE;
 
     return CKR_OK;
 }
@@ -314,16 +320,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismList)(
     if (pMechanismList == NULL)
 		goto ret_count;
 
-	if (*pulCount < gCtx.mechanismNum) {
+	if (*pulCount < ARRAY_SIZE(mechanismList)) {
 		rv = CKR_BUFFER_TOO_SMALL;
 		goto ret_count;
     }
 
-    memcpy(pMechanismList, gCtx.mechanismList,
-		gCtx.mechanismNum * sizeof(CK_MECHANISM_TYPE));
+    memcpy(pMechanismList, mechanismList,
+			ARRAY_SIZE(mechanismList) * sizeof(CK_MECHANISM_TYPE));
 
 ret_count:
-    *pulCount = gCtx.mechanismNum;
+    *pulCount = ARRAY_SIZE(mechanismList);
 
     return rv;
 }
