@@ -232,6 +232,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				goto label_err;
 			}
 
+			/* rsa can be used for sign/verify */
+			key_info.keyFlags = HSE_KF_USAGE_VERIFY;
 			key_info.keyBitLen = getattr_len(pTemplate, CKA_MODULUS, ulCount) * 8;
 			key_info.specific.pubExponentSize = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
 			key_info.keyType = HSE_KEY_TYPE_RSA_PUB;
@@ -251,6 +253,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 					goto label_err;
 				}
 
+				key_info.keyFlags |= HSE_KF_USAGE_SIGN;
 				key_info.keyType = HSE_KEY_TYPE_RSA_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_phys(_pkey2); /* private exponent */
@@ -274,6 +277,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				goto label_err;
 			}
 
+			/* ecc keys can only be used for sign/verify */
+			key_info.keyFlags = HSE_KF_USAGE_VERIFY;
 			key_info.specific.eccCurveId = gethsecurveid((char *)_ecc_oid);
 			key_info.keyBitLen = getkeybitlen(key_info.specific.eccCurveId);
 
@@ -294,11 +299,33 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 					goto label_err;
 				}
 
+				key_info.keyFlags |= HSE_KF_USAGE_SIGN;
 				key_info.keyType = HSE_KEY_TYPE_ECC_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_phys(_pkey2); /* ec private scalar/order */
 				import_key_req->keyLen[2] = getattr_len(pTemplate, CKA_VALUE, ulCount);
 			}
+
+			break;
+		case CKK_AES:
+
+			_pkey2 = hse_get_shared_mem_addr(HSE_PKEY2_SRAM);
+			if (attrcpy(_pkey2, pTemplate, CKA_VALUE, ulCount)) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto label_err;
+			}
+
+			/* aes keys can only be used for encrypt/decrypt */
+			key_info.keyFlags =	(HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT);
+			key_info.keyBitLen = getattr_len(pTemplate, CKA_VALUE, ulCount) * 8;
+			key_info.keyType = HSE_KEY_TYPE_AES;
+
+			import_key_req->pKey[0] = 0u;
+			import_key_req->pKey[1] = 0u;
+			import_key_req->pKey[2] = hse_virt_to_phys(_pkey2); /* sym key */
+			import_key_req->keyLen[0] = 0u;
+			import_key_req->keyLen[1] = 0u;
+			import_key_req->keyLen[2] = getattr_len(pTemplate, CKA_VALUE, ulCount);
 
 			break;
 		default:
