@@ -32,17 +32,34 @@
 #define HSE_INPUT_SRAM     0x3000
 #define HSE_OUTPUT_SRAM    0x3400
 #define HSE_OUTPUTLEN_SRAM 0x3800
+#define HSE_SIGN0_SRAM     0x4200
+#define HSE_SIGN1_SRAM     0x4600
+#define HSE_IV_SRAM        0x5000
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif
 
+/*
+ * struct hse_cryptCtx - crypto ops context
+ *
+ * @init:      check if op is running
+ * @keyHandle: key to use in op
+ * @mechanism: mechanism to use in op
+ */
 struct hse_cryptCtx {
 	CK_BBOOL init;
 	CK_OBJECT_HANDLE keyHandle;
 	CK_MECHANISM *mechanism;
 };
 
+/*
+ * struct hse_signCtx - sign ops context
+ *
+ * @init:      check if op is running
+ * @keyHandle: key to use in op
+ * @mechanism: mechanism to use in op
+ */
 struct hse_signCtx {
 	CK_BBOOL init;
 	CK_OBJECT_HANDLE keyHandle;
@@ -52,7 +69,7 @@ struct hse_signCtx {
 /*
  * struct hse_find_ctx - context used for info during object search
  *
- * @init:      check if search has been initialized
+ * @init:      check if search is running
  * @obj_class: class of object to search for
  */
 struct hse_findCtx {
@@ -102,9 +119,6 @@ struct globalCtx {
 	struct hse_findCtx findCtx;
 	struct hse_cryptCtx cryptCtx;
 	struct hse_signCtx signCtx;
-
-	/* private data */
-	struct hse_private *_priv;
 };
 
 extern struct globalCtx gCtx;

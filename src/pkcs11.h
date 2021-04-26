@@ -661,7 +661,7 @@ typedef unsigned long ck_mechanism_type_t;
 #define CKM_ECDSA_KEY_PAIR_GEN		(0x1040UL)
 #define CKM_EC_KEY_PAIR_GEN		(0x1040UL)
 #define CKM_ECDSA			(0x1041UL)
-#define CKM_ECDSA_SHA1			(0x1042UL)
+#define CKM_ECDSA_SHA1			(0x1042UL) /* should nxp add missing ecdsa algos? */
 #define CKM_ECDH1_DERIVE		(0x1050UL)
 #define CKM_ECDH1_COFACTOR_DERIVE	(0x1051UL)
 #define CKM_ECMQV_DERIVE		(0x1052UL)
@@ -678,6 +678,7 @@ typedef unsigned long ck_mechanism_type_t;
 #define CKM_AES_MAC			(0x1083UL)
 #define CKM_AES_MAC_GENERAL		(0x1084UL)
 #define CKM_AES_CBC_PAD			(0x1085UL)
+#define CKM_AES_GCM             (0x1087UL) /* added by nxp */
 #define CKM_GOSTR3410_KEY_PAIR_GEN	(0x1200UL)
 #define CKM_GOSTR3410			(0x1201UL)
 #define CKM_GOSTR3410_WITH_GOSTR3411	(0x1202UL)

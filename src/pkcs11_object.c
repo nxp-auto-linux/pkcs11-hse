@@ -205,9 +205,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 	import_key_req = &srv_desc.hseSrv.importKeyReq;
 
-	/* extract info needed for hse */
-	key_info.keyFlags = (HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY |
-							   HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT);
 	key_info.keyCounter = 0ul;
 	key_info.smrFlags = 0ul;
 

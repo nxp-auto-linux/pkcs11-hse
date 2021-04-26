@@ -16,9 +16,10 @@ struct globalCtx gCtx = {
 };
 
 static const CK_MECHANISM_TYPE mechanismList[] = {
-	CKM_RSA_PKCS,
-	CKM_RSA_PKCS_OAEP,
-	CKM_SHA256_RSA_PKCS
+	CKM_AES_ECB,
+	CKM_AES_GCM,
+	CKM_SHA256_RSA_PKCS,
+	CKM_ECDSA_SHA1
 };
 
 static CK_FUNCTION_LIST gFunctionList = {
@@ -120,49 +121,49 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
     CK_TOKEN_INFO_PTR pToken = &gCtx.token;
     CK_SLOT_INFO_PTR pSlot = &gCtx.slot;
 
-    if (gCtx.cryptokiInit)
+	if (gCtx.cryptokiInit)
 		return CKR_CRYPTOKI_ALREADY_INITIALIZED;
 
-    strcpyPKCS11padding(pSlot->slotDescription, SLOT_DESC,
-		sizeof(pSlot->slotDescription));
-    strcpyPKCS11padding(pSlot->manufacturerID, MANUFACTURER,
-		sizeof(pSlot->manufacturerID));
+	strcpyPKCS11padding(pSlot->slotDescription, SLOT_DESC,
+	                    sizeof(pSlot->slotDescription));
+	strcpyPKCS11padding(pSlot->manufacturerID, MANUFACTURER,
+	                    sizeof(pSlot->manufacturerID));
 	pSlot->flags = CKF_TOKEN_PRESENT | CKF_HW_SLOT;
 
 	/* rev2 */
-    pSlot->hardwareVersion.major = 2;
+	pSlot->hardwareVersion.major = 2;
     pSlot->hardwareVersion.minor = 0;
 	/* hse fw 0.8.5 */
     pSlot->firmwareVersion.major = 0;
     pSlot->firmwareVersion.minor = 8;
 
-    strcpyPKCS11padding(pToken->label, TOKEN_DESC,
-		sizeof(pToken->label));
-    strcpyPKCS11padding(pToken->manufacturerID, MANUFACTURER,
-		sizeof(pToken->manufacturerID));
+	strcpyPKCS11padding(pToken->label, TOKEN_DESC,
+	                    sizeof(pToken->label));
+	strcpyPKCS11padding(pToken->manufacturerID, MANUFACTURER,
+	                    sizeof(pToken->manufacturerID));
 
-    strcpyPKCS11padding(pToken->model, "N/A",
-		sizeof(pToken->model));
-    strcpyPKCS11padding(pToken->serialNumber, "N/A",
-		sizeof(pToken->serialNumber));
+	strcpyPKCS11padding(pToken->model, "N/A",
+	                    sizeof(pToken->model));
+	strcpyPKCS11padding(pToken->serialNumber, "N/A",
+	                    sizeof(pToken->serialNumber));
 
-    pToken->flags = CKF_TOKEN_INITIALIZED;
-    pToken->ulMaxSessionCount = MAX_SESSIONS;
-    pToken->ulSessionCount = 0;
-    pToken->ulMaxRwSessionCount = MAX_SESSIONS;
-    pToken->ulRwSessionCount = 0;
+	pToken->flags = CKF_TOKEN_INITIALIZED;
+	pToken->ulMaxSessionCount = MAX_SESSIONS;
+	pToken->ulSessionCount = 0;
+	pToken->ulMaxRwSessionCount = MAX_SESSIONS;
+	pToken->ulRwSessionCount = 0;
 	/* we don't use a pin */
-    pToken->ulMaxPinLen = 0;
-    pToken->ulMinPinLen = 0;
-    pToken->ulTotalPublicMemory = CK_UNAVAILABLE_INFORMATION;
-    pToken->ulFreePublicMemory = CK_UNAVAILABLE_INFORMATION;
-    pToken->ulTotalPrivateMemory = CK_UNAVAILABLE_INFORMATION;
-    pToken->ulFreePrivateMemory = CK_UNAVAILABLE_INFORMATION;
+	pToken->ulMaxPinLen = 0;
+	pToken->ulMinPinLen = 0;
+	pToken->ulTotalPublicMemory = CK_UNAVAILABLE_INFORMATION;
+	pToken->ulFreePublicMemory = CK_UNAVAILABLE_INFORMATION;
+	pToken->ulTotalPrivateMemory = CK_UNAVAILABLE_INFORMATION;
+	pToken->ulFreePrivateMemory = CK_UNAVAILABLE_INFORMATION;
 	/* same as slot */
-    pToken->hardwareVersion.major = 2;
-    pToken->hardwareVersion.minor = 0;
-    pToken->firmwareVersion.major = 0;
-    pToken->firmwareVersion.minor = 8;
+	pToken->hardwareVersion.major = 2;
+	pToken->hardwareVersion.minor = 0;
+	pToken->firmwareVersion.major = 0;
+	pToken->firmwareVersion.minor = 8;
 
 	if (list_init(&gCtx.objects) != 0)
 		return CKR_HOST_MEMORY;
@@ -211,10 +212,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetInfo)(
     pInfo->cryptokiVersion.major = CRYPTOKI_VERSION_MAJOR;
     pInfo->cryptokiVersion.minor = CRYPTOKI_VERSION_MINOR;
     strcpyPKCS11padding(pInfo->manufacturerID, MANUFACTURER,
-		sizeof(pInfo->manufacturerID));
+	                    sizeof(pInfo->manufacturerID));
     pInfo->flags = 0;
     strcpyPKCS11padding(pInfo->libraryDescription, LIBRARY_DESC,
-		sizeof(pInfo->libraryDescription));
+	                    sizeof(pInfo->libraryDescription));
     pInfo->libraryVersion.major = LIBRARY_VERSION_MAJOR;
     pInfo->libraryVersion.minor = LIBRARY_VERSION_MINOR;
 
@@ -326,7 +327,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismList)(
     }
 
     memcpy(pMechanismList, mechanismList,
-			ARRAY_SIZE(mechanismList) * sizeof(CK_MECHANISM_TYPE));
+	       ARRAY_SIZE(mechanismList) * sizeof(CK_MECHANISM_TYPE));
 
 ret_count:
     *pulCount = ARRAY_SIZE(mechanismList);
