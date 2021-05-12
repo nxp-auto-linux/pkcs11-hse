@@ -130,7 +130,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	hseKeyInfo_t key_info;
 	hseImportKeySrv_t *import_key_req;
 	void *_srv_desc, *_key_info, *_pkey0, *_pkey1, *_pkey2, *_ecc_oid;
-	struct hse_keyObject *key;
+	struct hse_keyObject *key, *keytemp;
 	CK_UTF8CHAR *labeltemp;
 	CK_BYTE *idtemp;
 	CK_RV rc = CKR_OK;
@@ -205,7 +205,19 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 	import_key_req = &srv_desc.hseSrv.importKeyReq;
 
-	key_info.keyCounter = 0ul;
+	/* check if key is already in nvm catalog */
+	if (key->id[2] == 1) {
+		keytemp = (struct hse_keyObject *)list_seek(&gCtx.objects, &key->key_handle);
+		if (keytemp) {
+			key->nvm_ctr = keytemp->nvm_ctr + 1;
+			/* just delete the old one */
+			list_delete(&gCtx.objects, keytemp);
+		}
+	} else {
+		key->nvm_ctr = 0ul;
+	}
+
+	key_info.keyCounter = key->nvm_ctr;
 	key_info.smrFlags = 0ul;
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;

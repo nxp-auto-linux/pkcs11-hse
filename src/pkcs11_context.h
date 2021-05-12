@@ -87,6 +87,7 @@ struct hse_findCtx {
  * @label_len:  size of key label
  * @id:         id corresponding to key in hse
  * @id_len:     size of id
+ * @nvm_ctr:    nvm catalog key counter
  */
 struct hse_keyObject {
 	CK_OBJECT_HANDLE key_handle;
@@ -96,6 +97,7 @@ struct hse_keyObject {
 	CK_ULONG label_len;
 	CK_BYTE *id;
 	CK_ULONG id_len;
+	uint32_t nvm_ctr;
 };
 
 /*
