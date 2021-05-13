@@ -48,7 +48,14 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_DestroyObject =						C_DestroyObject,
 	.C_FindObjectsInit =                    C_FindObjectsInit,
 	.C_FindObjects =                        C_FindObjects,
-	.C_FindObjectsFinal =                   C_FindObjectsFinal
+	.C_FindObjectsFinal =                   C_FindObjectsFinal,
+	.C_EncryptInit =                        C_EncryptInit,
+	.C_Encrypt =                            C_Encrypt,
+	.C_DecryptInit =                        C_DecryptInit,
+	.C_Decrypt =                            C_Decrypt,
+	.C_SignInit =                           C_SignInit,
+	.C_Sign =                               C_Sign,
+	.C_VerifyInit =                         C_VerifyInit
 };
 
 /*
@@ -133,9 +140,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 	/* rev2 */
 	pSlot->hardwareVersion.major = 2;
     pSlot->hardwareVersion.minor = 0;
-	/* hse fw 0.8.5 */
+	/* hse fw 0.9.0 */
     pSlot->firmwareVersion.major = 0;
-    pSlot->firmwareVersion.minor = 8;
+    pSlot->firmwareVersion.minor = 9;
 
 	strcpyPKCS11padding(pToken->label, TOKEN_DESC,
 	                    sizeof(pToken->label));
@@ -163,7 +170,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 	pToken->hardwareVersion.major = 2;
 	pToken->hardwareVersion.minor = 0;
 	pToken->firmwareVersion.major = 0;
-	pToken->firmwareVersion.minor = 8;
+	pToken->firmwareVersion.minor = 9;
 
 	if (list_init(&gCtx.objects) != 0)
 		return CKR_HOST_MEMORY;

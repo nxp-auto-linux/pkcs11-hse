@@ -24,6 +24,9 @@
 
 #define MAX_SESSIONS    1
 
+/* missing mechanisms from the PKCS11 interface header */
+#define CKM_AES_GCM        0x1087ul
+
 #define HSE_SRVDESC_SRAM   0x2000
 #define HSE_KEYINFO_SRAM   0x2200
 #define HSE_PKEY0_SRAM     0x2400

@@ -14,7 +14,7 @@ SRCS := $(wildcard src/*.c)
 ifeq (,$(HSE_FWDIR))
 $(warning Path to HSE firmware not defined, using default location)
 endif
-HSE_FWDIR ?= $(HOME)/HSE_FW_S32G274_0_0_8_5
+HSE_FWDIR ?= $(HOME)/HSE_FW_S32G274_0_0_9_0
 
 INCLUDE ?= -I$(HSE_FWDIR)/interface \
 		  -I$(HSE_FWDIR)/interface/inc_common \

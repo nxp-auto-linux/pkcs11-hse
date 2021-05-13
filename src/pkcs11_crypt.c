@@ -109,11 +109,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			sym_cipher_srv->keyHandle = key->key_handle;
 
 			if (gCtx.cryptCtx.mechanism->pParameter != NULL) {
-				sym_cipher_srv->ivLength = gCtx.cryptCtx.mechanism->ulParameterLen;
 				sym_cipher_srv->pIV = hse_virt_to_phys(_pIV);
 			} else {
-				sym_cipher_srv->ivLength = 0u; /* IV is optional for ecb */
-				sym_cipher_srv->pIV = 0u; /* IV is optional for ecb */
+				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
 			}
 
 			sym_cipher_srv->inputLength = ulDataLen;
@@ -138,8 +136,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			aead_srv->inputLength = ulDataLen;
 			aead_srv->pInput = hse_virt_to_phys(_input);
-			aead_srv->tagLength = 0u; // TODO can it be 0?
-			aead_srv->pTag = 0u; // TODO can it be NULL?
+			aead_srv->tagLength = 0u;
+			aead_srv->pTag = 0u;
 			aead_srv->pOutput = hse_virt_to_phys(_output);
 
 		default:
@@ -248,11 +246,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			sym_cipher_srv->keyHandle = key->key_handle;
 
 			if (gCtx.cryptCtx.mechanism->pParameter != NULL) {
-				sym_cipher_srv->ivLength = gCtx.cryptCtx.mechanism->ulParameterLen;
 				sym_cipher_srv->pIV = hse_virt_to_phys(_pIV);
 			} else {
-				sym_cipher_srv->ivLength = 0u; /* IV is optional for ecb */
-				sym_cipher_srv->pIV = 0u; /* IV is optional for ecb */
+				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
 			}
 
 			sym_cipher_srv->inputLength = ulEncryptedDataLen;
@@ -277,8 +273,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			aead_srv->inputLength = ulEncryptedDataLen;
 			aead_srv->pInput = hse_virt_to_phys(_input);
-			aead_srv->tagLength = 0u; // TODO can it be 0?
-			aead_srv->pTag = 0u; // TODO can it be NULL?
+			aead_srv->tagLength = 0u;
+			aead_srv->pTag = 0u;
 			aead_srv->pOutput = hse_virt_to_phys(_output);
 
 		default:

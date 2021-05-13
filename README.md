@@ -120,3 +120,53 @@ Afterwards, you can run the example on the target system:
 ```
 
 The application will output a message for each step described previously.
+
+### 2.2. Building the OpenSC pkcs11-tool
+
+First, you will need the source code, which can be download from the project's GitHub page:
+
+https://github.com/OpenSC/OpenSC/releases
+
+This release has been tested with OpenSC-0.21.0. Make sure to install the pre-requisites beforehand:
+
+```
+sudo apt-get install pcscd libccid libpcsclite-dev libssl-dev libreadline-dev autoconf automake build-essential docbook-xsl xsltproc libtool pkg-config
+```
+
+Next, you'll need to configure the build system for `aarch64` cross-compilation. You'll also need to
+have cross-compiled OpenSSL beforehand, since OpenSC needs to link against it:
+
+```
+./bootstrap
+./configure --host=aarch64-linux --prefix=$HOME/opensc-aarch64-test --enable-openssl \
+	CC= <path>/<to>/<cross>/<compiler>/aarch64-linux-gnu-gcc \
+	LDFLAGS=-g -Wl,-rpath,$HOME/openssl-aarch64/lib \
+	OPENSSL_LIBS=-lcrypto -L$HOME/openssl-aarch64/lib \
+	OPENSSL_CFLAGS=-I$HOME/openssl-aarch64/include
+```
+
+As before, `--prefix` will indicate a directory separate from your host's file system in which to place the
+cross-compiled files. The path provided is an example.
+
+You can now build OpenSC:
+
+```
+make
+sudo make install
+```
+
+You can find the compiled files under `$HOME/opensc-aarch64`. You'll need to place `opensc-aarch64/lib/libopensc.so.7.0.0`
+in the target's `lib` directory (e.g. in `/usr/lib`); `opensc-aarch64/bin/pkcs11-tool` can be placed
+anywhere on the target (e.g. `/home/<user>`).
+
+You can use `pkcs11-tool` to load RSA keys (public/pair), EC keys (public) and AES keys. The `--id` switch corresponds
+to the key's number (`00`), slot (`06`) and catalog (`01`), in hexadecimal, from the HSE Key Catalog. Some examples:
+
+```
+./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/rsa_keypair.der --type privkey --id 000601 --label "HSE-RSAPRIV-KEY"
+./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/rsa_keypub.der --type pubkey --id 000701 --label "HSE-RSAPUB-KEY"
+./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/ec_keypub.der --type pubkey --id 000401 --label "HSE-ECPUB-prime256v1-KEY"
+./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/aes.key --type secrkey --key-type AES:256 --id 000101 --label "HSE-AES-256-KEY"
+```
+
+The tool will display a message if the key import operation is successful.
