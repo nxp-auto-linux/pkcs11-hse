@@ -368,9 +368,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx->signCtx.init == CK_TRUE)
-		return CKR_OPERATION_ACTIVE;
-
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
 
@@ -379,6 +376,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 
 	if (list_seek(&gCtx->objects, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
+
+	if (gCtx->signCtx.init == CK_TRUE)
+		return CKR_OPERATION_ACTIVE;
 
 	gCtx->signCtx.init = CK_TRUE;
 	gCtx->signCtx.mechanism = pMechanism;
@@ -409,20 +409,23 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 		goto gen_err;
 	}
 
-	if (gCtx->signCtx.init == CK_FALSE) {
-		rc = CKR_OPERATION_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (hSession != SESSION_ID)
+		return CKR_SESSION_HANDLE_INVALID;
 
-	if (hSession != SESSION_ID) {
-		rc = CKR_SESSION_HANDLE_INVALID;
-		goto gen_err;
-	}
+	if (pData == NULL)
+		return CKR_DATA_INVALID;
 
-	if (pData == NULL || pSignature == NULL || pulSignatureLen == NULL) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto gen_err;
-	}
+	if (ulDataLen == 0)
+		return CKR_DATA_LEN_RANGE;
+
+	if (pSignature == NULL)
+		return CKR_SIGNATURE_INVALID;
+
+	if (pulSignatureLen == NULL)
+		return CKR_SIGNATURE_LEN_RANGE;
+
+	if (gCtx->signCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
 
@@ -554,9 +557,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx->signCtx.init == CK_TRUE)
-		return CKR_OPERATION_ACTIVE;
-
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
 
@@ -565,6 +565,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 
 	if (list_seek(&gCtx->objects, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
+
+	if (gCtx->signCtx.init == CK_TRUE)
+		return CKR_OPERATION_ACTIVE;
 
 	gCtx->signCtx.init = CK_TRUE;
 	gCtx->signCtx.mechanism = pMechanism;
@@ -595,20 +598,23 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 		goto gen_err;
 	}
 
-	if (gCtx->signCtx.init == CK_FALSE) {
-		rc = CKR_OPERATION_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (hSession != SESSION_ID)
+		return CKR_SESSION_HANDLE_INVALID;
 
-	if (hSession != SESSION_ID) {
-		rc = CKR_SESSION_HANDLE_INVALID;
-		goto gen_err;
-	}
+	if (pData == NULL)
+		return CKR_DATA_INVALID;
 
-	if (pData == NULL || pSignature == NULL) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto gen_err;
-	}
+	if (ulDataLen == 0)
+		return CKR_DATA_LEN_RANGE;
+
+	if (pSignature == NULL)
+		return CKR_SIGNATURE_INVALID;
+
+	if (ulSignatureLen == 0)
+		return CKR_SIGNATURE_LEN_RANGE;
+
+	if (gCtx->signCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
 

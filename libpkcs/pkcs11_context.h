@@ -96,6 +96,7 @@ struct hse_keyObject {
  * struct globalCtx - global context for PKCS11 operations
  *
  * @cryptokiInit:     check if cryptoki has been initialized
+ * @tokenInit:        check if token has been initialized
  * @session:          session info
  * @slot:             slot info
  * @token:            token info
@@ -106,6 +107,7 @@ struct hse_keyObject {
  */
 struct globalCtx {
 	CK_BBOOL cryptokiInit;
+	CK_BBOOL tokenInit;
 	CK_SESSION_INFO session;
 	CK_SLOT_INFO slot;
 	CK_TOKEN_INFO token;

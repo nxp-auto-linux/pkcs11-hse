@@ -55,7 +55,8 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_Decrypt =                            C_Decrypt,
 	.C_SignInit =                           C_SignInit,
 	.C_Sign =                               C_Sign,
-	.C_VerifyInit =                         C_VerifyInit
+	.C_VerifyInit =                         C_VerifyInit,
+	.C_Verify =                             C_Verify
 };
 
 /*
@@ -209,6 +210,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Finalize)(
 	list_destroy(&gCtx->objects);
 
 	gCtx->cryptokiInit = CK_FALSE;
+	gCtx->tokenInit = CK_FALSE;
 
 	return CKR_OK;
 }
@@ -217,11 +219,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetInfo)(
 	CK_INFO_PTR pInfo
 )
 {
-	struct globalCtx *gCtx = getCtx();
-
-	if (!gCtx->cryptokiInit)
-		return CKR_CRYPTOKI_NOT_INITIALIZED;
-
 	if (pInfo == NULL)
 		return CKR_ARGUMENTS_BAD;
 
@@ -375,6 +372,26 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismInfo)(
 		return CKR_SLOT_ID_INVALID;
 
 	switch (type) {
+		case CKM_AES_ECB:
+			pInfo->ulMinKeySize = 0;
+			pInfo->ulMaxKeySize = 256;
+			pInfo->flags = CKF_HW | CKF_ENCRYPT | CKF_DECRYPT;
+			break;
+		case CKM_AES_GCM:
+			pInfo->ulMinKeySize = 0;
+			pInfo->ulMaxKeySize = 256;
+			pInfo->flags = CKF_HW | CKF_ENCRYPT | CKF_DECRYPT;
+			break;
+		case CKM_SHA256_RSA_PKCS:
+			pInfo->ulMinKeySize = 0;
+			pInfo->ulMaxKeySize = 2048;
+			pInfo->flags = CKF_HW | CKF_SIGN | CKF_VERIFY;
+			break;
+		case CKM_ECDSA_SHA1:
+			pInfo->ulMinKeySize = 0;
+			pInfo->ulMaxKeySize = 256;
+			pInfo->flags = CKF_HW | CKF_SIGN | CKF_VERIFY;
+			break;
 		default:
 			return CKR_MECHANISM_INVALID;
 	}
@@ -447,7 +464,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_InitToken)(
 	CK_UTF8CHAR_PTR pLabel
 )
 {
-	return CKR_OK;
+	struct globalCtx *gCtx = getCtx();
+
+	gCtx->tokenInit = CK_TRUE;
+
+    return CKR_OK;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_InitPIN)(
@@ -485,7 +506,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)(
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (slotID != SLOT_ID)
+    if (slotID != SLOT_ID)
 		return CKR_SLOT_ID_INVALID;
 
 	if (!phSession)
@@ -498,6 +519,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)(
 	if (!(flags & CKF_SERIAL_SESSION))
 		return CKR_SESSION_PARALLEL_NOT_SUPPORTED;
 
+	if ((Notify && !pApplication) || (!Notify && pApplication))
+		return CKR_ARGUMENTS_BAD;
+
+	if (!gCtx->tokenInit)
+		return CKR_TOKEN_NOT_RECOGNIZED;
+
 	if (flags & CKF_RW_SESSION) {
 		if (pToken->ulRwSessionCount >= pToken->ulMaxRwSessionCount)
 			return CKR_SESSION_COUNT;
@@ -506,15 +533,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)(
 			return CKR_TOKEN_WRITE_PROTECTED;
 
 		pToken->ulRwSessionCount++;
-		pSession->state = CKS_RW_USER_FUNCTIONS;
+		pSession->state = CKS_RW_PUBLIC_SESSION;
 	} else {
-		pSession->state = CKS_RO_USER_FUNCTIONS;
+		pSession->state = CKS_RO_PUBLIC_SESSION;
 	}
 
-	pToken->ulSessionCount++;
-	pSession->flags = flags;
-	pSession->slotID = slotID;
-	*phSession = SESSION_ID;
+    pToken->ulSessionCount++;
+    pSession->flags = flags;
+    pSession->slotID = slotID;
+    *phSession = SESSION_ID;
 
 	return CKR_OK;
 }
