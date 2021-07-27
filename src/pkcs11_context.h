@@ -14,10 +14,10 @@
 #define LIBRARY_VERSION_MAJOR 0u
 #define LIBRARY_VERSION_MINOR 1u
 
-#define LIBRARY_DESC    "NXP HSE PKCS11 Module"
-#define MANUFACTURER    "NXP Semiconductors"
-#define SLOT_DESC       "NXP HSE Slot"
-#define TOKEN_DESC      "NXP HSE Token"
+#define LIBRARY_DESC    "NXP-HSE-PKCS11-Module"
+#define MANUFACTURER    "NXP-Semiconductors"
+#define SLOT_DESC       "NXP-HSE-Slot"
+#define TOKEN_DESC      "NXP-HSE-Token"
 
 #define SLOT_ID         0
 #define SESSION_ID      0
