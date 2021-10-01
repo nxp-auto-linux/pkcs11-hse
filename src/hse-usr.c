@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * NXP HSE Driver - User-space driver support
+ * NXP HSE User Space Driver - Core
  *
  * Copyright 2019-2021 NXP
  */
@@ -19,13 +19,28 @@
 
 #include "hse_interface.h"
 
-#define HSE_UIO_DEVICE    "/dev/uio0"
+/* UIO mappings index */
+#define HSE_UIO_MAP_REGS    0 /* MU hardware register space */
+#define HSE_UIO_MAP_DESC    1 /* service descriptor space */
+#define HSE_UIO_MAP_INTL    2 /* driver internal shared memory */
+#define HSE_UIO_MAP_RMEM    3 /* reserved DMA-able memory range */
 
-#define HSE_UIO_REG_ADDR    "/sys/class/uio/uio0/maps/map0/addr"
-#define HSE_UIO_REG_SIZE    "/sys/class/uio/uio0/maps/map0/size"
+#define __stringify_1(x)    #x
+#define __stringify(x)      __stringify_1(x)
 
-#define HSE_UIO_SHM_ADDR    "/sys/class/uio/uio0/maps/map1/addr"
-#define HSE_UIO_SHM_SIZE    "/sys/class/uio/uio0/maps/map1/size"
+/* sysfs files containing base address and size of UIO mappings */
+#define HSE_UIO_REGS_SIZE    "/sys/class/uio/" HSE_UIO_DEVICE "/maps/map" \
+			     __stringify(HSE_UIO_MAP_REGS) "/size"
+#define HSE_UIO_DESC_ADDR    "/sys/class/uio/" HSE_UIO_DEVICE "/maps/map" \
+			     __stringify(HSE_UIO_MAP_DESC) "/addr"
+#define HSE_UIO_DESC_SIZE    "/sys/class/uio/" HSE_UIO_DEVICE "/maps/map" \
+			     __stringify(HSE_UIO_MAP_DESC) "/size"
+#define HSE_UIO_INTL_SIZE    "/sys/class/uio/" HSE_UIO_DEVICE "/maps/map" \
+			     __stringify(HSE_UIO_MAP_INTL) "/size"
+#define HSE_UIO_RMEM_ADDR    "/sys/class/uio/" HSE_UIO_DEVICE "/maps/map" \
+			     __stringify(HSE_UIO_MAP_RMEM) "/addr"
+#define HSE_UIO_RMEM_SIZE    "/sys/class/uio/" HSE_UIO_DEVICE "/maps/map" \
+			     __stringify(HSE_UIO_MAP_RMEM) "/size"
 
 #define MAX_FILE_SIZE    20u
 
@@ -71,15 +86,16 @@ struct hse_mu_regs {
 };
 
 /**
- * struct hse_uio_shm - HSE shared RAM layout
+ * struct hse_uio_intl - driver internal shared memory layout
  * @ready[n]: reply ready on channel n
  * @reply[n]: service response on channel n
- * @srv_desc[n]: service descriptor reserved for channel n
+ * @event: HSE system event mask
  * @reserved_end: placeholder for the end of reserved area
  */
-struct hse_uio_shm {
+struct hse_uio_intl {
 	uint8_t ready[HSE_NUM_CHANNELS];
 	uint32_t reply[HSE_NUM_CHANNELS];
+	uint32_t event;
 	uint8_t reserved_end;
 };
 
@@ -87,20 +103,34 @@ struct hse_uio_shm {
  * struct hse_usr_priv - driver private data
  * @regs: HSE MU register space address
  * @regs_size: HSE MU register space size
- * @shm: HSE shared RAM address
- * @shm_base: HSE shared RAM physical address
- * @shm_size: HSE shared RAM size
+ * @desc: service descriptor space virtual address
+ * @desc_dma: service descriptor space DMA address
+ * @desc_size: service descriptor space size
+ * @intl: driver internal shared memory address
+ * @intl_size: driver internal shared memory size
+ * @shared: driver internal shared memory address
+ * @rmem: HSE reserved memory virtual address
+ * @rmem_dma: HSE reserved memory DMA address
+ * @rmem_size: HSE reserved memory size
  * @fd: UIO file descriptor
  * @channel busy: cached channel status
+ * @init: UIO component initialized flag
  */
 static struct hse_usr_priv {
 	struct hse_mu_regs *regs;
 	uint64_t regs_size;
-	struct hse_uio_shm *shm;
-	uint64_t shm_base;
-	uint64_t shm_size;
+	void *desc;
+	uint64_t desc_dma;
+	uint64_t desc_size;
+	struct hse_uio_intl *intl;
+	uint64_t intl_size;
+	struct hse_uio_intl *shared;
+	void *rmem;
+	uint64_t rmem_dma;
+	uint64_t rmem_size;
 	int fd;
 	bool channel_busy[HSE_NUM_CHANNELS];
+	bool init;
 } priv;
 
 /**
@@ -204,19 +234,11 @@ static inline int hse_mu_msg_send(uint8_t channel, uint32_t msg)
  */
 int hse_srv_req_sync(uint8_t channel, uint32_t srv_desc)
 {
+	uint32_t status;
 	int i, err;
 
 	if (channel != HSE_CHANNEL_ANY && channel >= HSE_NUM_CHANNELS)
 		return ECHRNG;
-
-	uint64_t res_offset = (uint64_t)((uint8_t *)&priv.shm->reserved_end -
-			      (uint8_t *)priv.shm);
-
-	uint64_t shm_start = priv.shm_base + res_offset;
-	if (srv_desc < shm_start || srv_desc > priv.shm_base + priv.shm_size) {
-		printf("hse: service descriptor not inside HSE shared RAM\n");
-		return EINVAL;
-	}
 
 	if (channel == HSE_CHANNEL_ANY) {
 		for (i = 1u; i < HSE_NUM_CHANNELS; i++)
@@ -237,24 +259,22 @@ int hse_srv_req_sync(uint8_t channel, uint32_t srv_desc)
 		printf("hse: send request failed on channel %d\n", channel);
 		return err;
 	}
-
-	uint32_t status;
 	ssize_t rc = read(priv.fd, &status, sizeof(status));
-	if (rc != sizeof(status) || priv.shm->ready[channel] == 0) {
+	if (rc != sizeof(status) || priv.shared->ready[channel] == 0) {
 		printf("hse: read response failed on channel %d\n", channel);
 		err = ENOMSG;
 		goto exit;
 	}
 
-	err = hse_err_decode(priv.shm->reply[channel]);
+	err = hse_err_decode(priv.shared->reply[channel]);
 	if (err) {
 		printf("hse: service response 0x%08X on channel %d\n",
-		       priv.shm->reply[channel], channel);
+		       priv.shared->reply[channel], channel);
 		goto exit;
 	}
 
-	priv.shm->ready[channel] = 0;
-	priv.shm->reply[channel] = 0;
+	priv.shared->ready[channel] = 0;
+	priv.shared->reply[channel] = 0;
 
 exit:
 	priv.channel_busy[channel] = false;
@@ -262,18 +282,12 @@ exit:
 }
 
 /**
- * hse_get_shared_mem_addr - get shared RAM virtual address from offset
+ * hse_get_shared_mem_addr - get shared memory virtual address from offset
  * @offset: shared RAM offset
  */
 void *hse_get_shared_mem_addr(uint64_t offset)
 {
-	uint64_t res_offset = (uint64_t)((uint8_t *)&priv.shm->reserved_end -
-			      (uint8_t *)priv.shm);
-
-	if (offset < res_offset)
-		return NULL;
-
-	return (uint8_t *)priv.shm + offset;
+	return (uint8_t *)priv.rmem + offset;
 }
 
 /**
@@ -287,13 +301,13 @@ uint64_t hse_virt_to_phys(const void *virt_addr)
 	if (!virt_addr)
 		return 0ul;
 
-	offset = (uint)((uint8_t *)virt_addr - (uint8_t *)priv.shm);
-	if (offset > priv.shm_size) {
+	offset = (uint)((uint8_t *)virt_addr - (uint8_t *)priv.rmem);
+	if (offset > priv.rmem_size) {
 		printf("hse: address not located in HSE shared RAM \n");
 		return EINVAL;
 	}
 
-	return priv.shm_base + offset;
+	return priv.rmem_dma + offset;
 }
 
 /**
@@ -306,8 +320,13 @@ int hse_usr_initialize(void)
 	char s[MAX_FILE_SIZE];
 	int i, err;
 
+	if (priv.init) {
+		printf("hse: driver already initialized\n");
+		return 0;
+	}
+
 	/* open UIO device */
-	priv.fd = open(HSE_UIO_DEVICE, O_RDWR);
+	priv.fd = open("/dev/" HSE_UIO_DEVICE, O_RDWR);
 	if (priv.fd < 0) {
 		printf("hse: failed to open %s\n", HSE_UIO_DEVICE);
 		return ENOENT;
@@ -319,54 +338,95 @@ int hse_usr_initialize(void)
 		return ENOENT;
 	}
 
-	/* get hardware register space size */
-	if ((f = fopen(HSE_UIO_REG_SIZE, "r")) == NULL) {
-		printf("hse: failed to open %s\n", HSE_UIO_REG_SIZE);
+	/* map MU hardware register space */
+	if ((f = fopen(HSE_UIO_REGS_SIZE, "r")) == NULL) {
+		printf("hse: failed to open %s\n", HSE_UIO_REGS_SIZE);
 		return ENOENT;
 	}
 	fgets(s, MAX_FILE_SIZE, f);
 	priv.regs_size = (uint64_t)strtol(s, NULL, 0);
 	fclose(f);
 
-	/* map hardware register space */
 	priv.regs = mmap(NULL, priv.regs_size, PROT_READ | PROT_WRITE,
-			 MAP_SHARED, priv.fd, 0 * getpagesize());
+			 MAP_SHARED, priv.fd, HSE_UIO_MAP_REGS * getpagesize());
 	if (priv.regs == MAP_FAILED) {
-		printf("hse: failed to map MU registers\n");
+		printf("hse: failed to map MU register space\n");
 		return EFAULT;
 	}
 
-	/* get HSE shared memory base address */
-	if ((f = fopen(HSE_UIO_SHM_ADDR, "r")) == NULL) {
-		printf("hse: failed to open %s\n", HSE_UIO_SHM_ADDR);
+	/* map service descriptor space */
+	if ((f = fopen(HSE_UIO_DESC_ADDR, "r")) == NULL) {
+		printf("hse: failed to open %s\n", HSE_UIO_DESC_ADDR);
 		return ENOENT;
 	}
 	fgets(s, MAX_FILE_SIZE, f);
-	priv.shm_base = (uint64_t)strtol(s, NULL, 0);
+	priv.desc_dma = (uint64_t)strtol(s, NULL, 0);
 	fclose(f);
 
-	/* get HSE shared memory size */
-	if ((f = fopen(HSE_UIO_SHM_SIZE, "r")) == NULL) {
-		printf("hse: failed to open %s\n", HSE_UIO_SHM_SIZE);
+	if ((f = fopen(HSE_UIO_DESC_SIZE, "r")) == NULL) {
+		printf("hse: failed to open %s\n", HSE_UIO_DESC_SIZE);
 		return ENOENT;
 	}
 	fgets(s, MAX_FILE_SIZE, f);
-	priv.shm_size = (uint64_t)strtol(s, NULL, 0);
+	priv.desc_size = (uint64_t)strtol(s, NULL, 0);
 	fclose(f);
 
-	/* map HSE shared RAM */
-	priv.shm = mmap(NULL, priv.shm_size, PROT_READ | PROT_WRITE,
-			MAP_SHARED, priv.fd, 1 * getpagesize());
-	if (priv.shm == MAP_FAILED) {
-		printf("hse: failed to map HSE shared RAM\n");
+	priv.desc = mmap(NULL, priv.desc_size, PROT_READ | PROT_WRITE,
+			 MAP_SHARED, priv.fd, HSE_UIO_MAP_DESC * getpagesize());
+	if (priv.desc == MAP_FAILED) {
+		printf("hse: failed to map descriptor space\n");
 		return EFAULT;
 	}
 
+	/* map driver internal shared RAM */
+	if ((f = fopen(HSE_UIO_INTL_SIZE, "r")) == NULL) {
+		printf("hse: failed to open %s\n", HSE_UIO_INTL_SIZE);
+		return ENOENT;
+	}
+	fgets(s, MAX_FILE_SIZE, f);
+	priv.intl_size = (uint64_t)strtol(s, NULL, 0);
+	fclose(f);
+
+	priv.intl = mmap(NULL, priv.intl_size, PROT_READ | PROT_WRITE,
+			 MAP_SHARED, priv.fd, HSE_UIO_MAP_INTL * getpagesize());
+	if (priv.intl == MAP_FAILED) {
+		printf("hse: failed to map driver internal RAM\n");
+		return EFAULT;
+	}
+
+	/* map HSE reserved memory */
+	if ((f = fopen(HSE_UIO_RMEM_ADDR, "r")) == NULL) {
+		printf("hse: failed to open %s\n", HSE_UIO_RMEM_ADDR);
+		return ENOENT;
+	}
+	fgets(s, MAX_FILE_SIZE, f);
+	priv.rmem_dma = (uint64_t)strtol(s, NULL, 0);
+	fclose(f);
+
+	if ((f = fopen(HSE_UIO_RMEM_SIZE, "r")) == NULL) {
+		printf("hse: failed to open %s\n", HSE_UIO_RMEM_SIZE);
+		return ENOENT;
+	}
+	fgets(s, MAX_FILE_SIZE, f);
+	priv.rmem_size = (uint64_t)strtol(s, NULL, 0);
+	fclose(f);
+
+	priv.rmem = mmap(NULL, priv.rmem_size, PROT_READ | PROT_WRITE,
+			 MAP_SHARED, priv.fd, HSE_UIO_MAP_RMEM * getpagesize());
+	if (priv.rmem == MAP_FAILED) {
+		printf("hse: failed to map HSE reserved memory\n");
+		return EFAULT;
+	}
+	priv.shared = priv.rmem;
+
+	/* manage channels */
 	for (i = 0; i < HSE_NUM_CHANNELS; i++) {
-		priv.shm->ready[i] = 0;
-		priv.shm->reply[i] = 0;
+		priv.shared->ready[i] = 0;
+		priv.shared->reply[i] = 0;
 		priv.channel_busy[i] = false;
 	}
+
+	priv.init = true;
 
 	printf("hse: UIO device open\n");
 
@@ -378,10 +438,21 @@ int hse_usr_initialize(void)
  */
 void hse_usr_finalize(void)
 {
-	munmap(priv.regs, priv.regs_size);
-	munmap(priv.shm, priv.shm_size);
+	if (!priv.init) {
+		printf("hse: driver not initialized\n");
+		return;
+	}
 
+	/* close device */
 	close(priv.fd);
+
+	/* unmap UIO mappings */
+	munmap(priv.regs, priv.regs_size);
+	munmap(priv.desc, priv.desc_size);
+	munmap(priv.intl, priv.intl_size);
+	munmap(priv.rmem, priv.rmem_size);
+
+	priv.init = false;
 
 	printf("hse: UIO device closed\n");
 }
