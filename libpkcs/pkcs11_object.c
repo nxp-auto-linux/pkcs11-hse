@@ -12,28 +12,28 @@
 
 static uint16_t getkeybitlen(hseEccCurveId_t eccCurveId)
 {
-    switch(eccCurveId) {
-        case HSE_EC_SEC_SECP256R1:
-            return 256u;
-        case HSE_EC_SEC_SECP384R1:
-            return 384u;
-        case HSE_EC_SEC_SECP521R1:
-            return 521u;
-        case HSE_EC_BRAINPOOL_BRAINPOOLP256R1:
-            return 256u;
-        case HSE_EC_BRAINPOOL_BRAINPOOLP320R1:
-            return 320u;
-        case HSE_EC_BRAINPOOL_BRAINPOOLP384R1:
-            return 384u;
-        case HSE_EC_BRAINPOOL_BRAINPOOLP512R1:
-            return 512u;
-        case HSE_EC_25519_ED25519:
-            return 256u;
-        case HSE_EC_25519_CURVE25519:
-            return 256u;
-        default:
-            return 0u;
-    }
+	switch(eccCurveId) {
+		case HSE_EC_SEC_SECP256R1:
+			return 256u;
+		case HSE_EC_SEC_SECP384R1:
+			return 384u;
+		case HSE_EC_SEC_SECP521R1:
+			return 521u;
+		case HSE_EC_BRAINPOOL_BRAINPOOLP256R1:
+			return 256u;
+		case HSE_EC_BRAINPOOL_BRAINPOOLP320R1:
+			return 320u;
+		case HSE_EC_BRAINPOOL_BRAINPOOLP384R1:
+			return 384u;
+		case HSE_EC_BRAINPOOL_BRAINPOOLP512R1:
+			return 512u;
+		case HSE_EC_25519_ED25519:
+			return 256u;
+		case HSE_EC_25519_CURVE25519:
+			return 256u;
+		default:
+			return 0u;
+	}
 }
 
 static uint8_t gethsecurveid(char *oid)
@@ -126,6 +126,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		CK_OBJECT_HANDLE_PTR phObject
 )
 {
+	struct globalCtx *gCtx = getCtx();
 	hseSrvDescriptor_t srv_desc;
 	hseKeyInfo_t key_info;
 	hseImportKeySrv_t *import_key_req;
@@ -136,7 +137,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx.cryptokiInit == CK_FALSE) {
+	if (gCtx->cryptokiInit == CK_FALSE) {
 		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
 		goto gen_err;
 	}
@@ -207,11 +208,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 	/* check if key is already in nvm catalog */
 	if (key->id[2] == 1) {
-		keytemp = (struct hse_keyObject *)list_seek(&gCtx.objects, &key->key_handle);
+		keytemp = (struct hse_keyObject *)list_seek(&gCtx->objects, &key->key_handle);
 		if (keytemp) {
 			key->nvm_ctr = keytemp->nvm_ctr + 1;
 			/* just delete the old one */
-			list_delete(&gCtx.objects, keytemp);
+			list_delete(&gCtx->objects, keytemp);
 		}
 	} else {
 		key->nvm_ctr = 0ul;
@@ -353,7 +354,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 	*phObject = key->key_handle;
 
-	list_append(&gCtx.objects, key);
+	list_append(&gCtx->objects, key);
 
 	return CKR_OK;
 class_err:
@@ -371,18 +372,19 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 		CK_OBJECT_HANDLE hObject
 )
 {
+	struct globalCtx *gCtx = getCtx();
 	hseSrvDescriptor_t srv_desc;
 	void *_srv_desc;
 	struct hse_keyObject *pkey;
 	int err;
 
-	if (gCtx.cryptokiInit == CK_FALSE)
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	pkey = (struct hse_keyObject *)list_seek(&gCtx.objects, &hObject);
+	pkey = (struct hse_keyObject *)list_seek(&gCtx->objects, &hObject);
 	if (pkey == NULL)
 		return CKR_OBJECT_HANDLE_INVALID;
 
@@ -398,7 +400,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 	if (err)
 		return CKR_FUNCTION_FAILED;
 
-	if (list_delete(&gCtx.objects, pkey) != 0)
+	if (list_delete(&gCtx->objects, pkey) != 0)
 		return CKR_FUNCTION_FAILED;
 
 	return CKR_OK;
@@ -410,10 +412,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)(
 	CK_ULONG ulCount
 )
 {
-	if (gCtx.cryptokiInit == CK_FALSE)
+	struct globalCtx *gCtx = getCtx();
+
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.findCtx.init == CK_TRUE)
+	if (gCtx->findCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
 
 	if (hSession != SESSION_ID)
@@ -421,13 +425,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)(
 
 	if (ulCount != 0) {
 		if (pTemplate != NULL)
-			gCtx.findCtx.obj_class = (CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
+			gCtx->findCtx.obj_class = (CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
 		else
 			return CKR_ARGUMENTS_BAD;
 	}
 
-	gCtx.findCtx.init = CK_TRUE;
-	list_iterator_start(&gCtx.objects);
+	gCtx->findCtx.init = CK_TRUE;
+	list_iterator_start(&gCtx->objects);
 
 	return CKR_OK;
 }
@@ -439,14 +443,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 	CK_ULONG_PTR pulObjectCount
 )
 {
+	struct globalCtx *gCtx = getCtx();
 	struct hse_keyObject *key;
 	struct hse_findCtx *finder;
 	int i;
 
-	if (gCtx.cryptokiInit == CK_FALSE)
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.findCtx.init == CK_FALSE)
+	if (gCtx->findCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	if (hSession != SESSION_ID)
@@ -455,15 +460,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 	if (phObject == NULL || ulMaxObjectCount == 0 || pulObjectCount == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (!list_iterator_hasnext(&gCtx.objects)) {
+	if (!list_iterator_hasnext(&gCtx->objects)) {
 		*pulObjectCount = 0;
 		return CKR_OK;
 	}
 
-	finder = &gCtx.findCtx;
+	finder = &gCtx->findCtx;
 	i = 0;
 	do {
-		key = (struct hse_keyObject *)list_iterator_next(&gCtx.objects);
+		key = (struct hse_keyObject *)list_iterator_next(&gCtx->objects);
 
 		if (finder->obj_class == NULL || key->key_class == *finder->obj_class) {
 			phObject[i] = key->key_handle;
@@ -472,7 +477,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 
 		if (i > ulMaxObjectCount)
 			break;
-	} while (list_iterator_hasnext(&gCtx.objects));
+	} while (list_iterator_hasnext(&gCtx->objects));
 
 	*pulObjectCount = i;
 
@@ -483,17 +488,19 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsFinal)(
 	CK_SESSION_HANDLE hSession
 )
 {
-	if (gCtx.cryptokiInit == CK_FALSE)
+	struct globalCtx *gCtx = getCtx();
+
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if(gCtx.findCtx.init == CK_FALSE)
+	if(gCtx->findCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	gCtx.findCtx.init = CK_FALSE;
-	list_iterator_stop(&gCtx.objects);
+	gCtx->findCtx.init = CK_FALSE;
+	list_iterator_stop(&gCtx->objects);
 
 	return CKR_OK;
 }

@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
 	unsigned int keycount;
 
 	if (argc != 2) {
-		printf("usage: ./pkcs-keyop <path>/pkcs11-hse.so\n");
+		printf("usage: ./pkcs-keyop <path>/libpkcs-hse.so\n");
 		return -EINVAL;
 	}
 

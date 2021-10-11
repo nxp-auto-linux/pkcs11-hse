@@ -127,6 +127,6 @@ struct globalCtx {
 	struct hse_signCtx signCtx;
 };
 
-extern struct globalCtx gCtx;
+struct globalCtx *getCtx(void);
 
 #endif /* ___PKCS11_CONTEXT_H___ */

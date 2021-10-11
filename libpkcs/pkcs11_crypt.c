@@ -26,10 +26,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 		CK_OBJECT_HANDLE hKey
 )
 {
-	if (gCtx.cryptokiInit == CK_FALSE)
+	struct globalCtx *gCtx = getCtx();
+
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.cryptCtx.init == CK_TRUE)
+	if (gCtx->cryptCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
 
 	if (hSession != SESSION_ID)
@@ -38,7 +40,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (list_seek(&gCtx.objects, &hKey) == NULL)
+	if (list_seek(&gCtx->objects, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
 
 	/* IV is optional for AES-ECB */
@@ -46,9 +48,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 	    pMechanism->mechanism != CKM_AES_ECB)
 		return CKR_ARGUMENTS_BAD;
 
-	gCtx.cryptCtx.init = CK_TRUE;
-	gCtx.cryptCtx.mechanism = pMechanism;
-	gCtx.cryptCtx.keyHandle = hKey;
+	gCtx->cryptCtx.init = CK_TRUE;
+	gCtx->cryptCtx.mechanism = pMechanism;
+	gCtx->cryptCtx.keyHandle = hKey;
 
 	return CKR_OK;
 }
@@ -61,6 +63,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 		CK_ULONG_PTR pulEncryptedDataLen
 )
 {
+	struct globalCtx *gCtx = getCtx();
 	hseSrvDescriptor_t srv_desc;
 	hseSymCipherSrv_t *sym_cipher_srv;
 	hseAeadSrv_t *aead_srv;
@@ -68,10 +71,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	struct hse_keyObject *key;
 	int err;
 
-	if (gCtx.cryptokiInit == CK_FALSE)
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.cryptCtx.init == CK_FALSE)
+	if (gCtx->cryptCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	if (hSession != SESSION_ID)
@@ -80,7 +83,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	key = (struct hse_keyObject *)list_seek(&gCtx.objects, &gCtx.cryptCtx.keyHandle);
+	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->cryptCtx.keyHandle);
 
 	_input = hse_get_shared_mem_addr(HSE_INPUT_SRAM);
 	_output = hse_get_shared_mem_addr(HSE_OUTPUT_SRAM);
@@ -88,13 +91,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	hse_memcpy(_output_len, pulEncryptedDataLen, sizeof(uint32_t));
 	hse_memcpy(_input, pData, ulDataLen);
 
-	if (gCtx.cryptCtx.mechanism->pParameter != NULL) {
+	if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
 		_pIV = hse_get_shared_mem_addr(HSE_IV_SRAM);
-		hse_memcpy(_pIV, gCtx.cryptCtx.mechanism->pParameter,
-		                 gCtx.cryptCtx.mechanism->ulParameterLen);
+		hse_memcpy(_pIV, gCtx->cryptCtx.mechanism->pParameter,
+		                 gCtx->cryptCtx.mechanism->ulParameterLen);
 	}
 
-	switch (gCtx.cryptCtx.mechanism->mechanism) {
+	switch (gCtx->cryptCtx.mechanism->mechanism) {
 		case CKM_AES_ECB:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
@@ -108,7 +111,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			sym_cipher_srv->keyHandle = key->key_handle;
 
-			if (gCtx.cryptCtx.mechanism->pParameter != NULL) {
+			if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
 				sym_cipher_srv->pIV = hse_virt_to_phys(_pIV);
 			} else {
 				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
@@ -129,7 +132,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_GCM;
 			aead_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			aead_srv->keyHandle = key->key_handle;
-			aead_srv->ivLength = gCtx.cryptCtx.mechanism->ulParameterLen;
+			aead_srv->ivLength = gCtx->cryptCtx.mechanism->ulParameterLen;
 			aead_srv->pIV = hse_virt_to_phys(_pIV);
 			aead_srv->aadLength = 0u;
 			aead_srv->pAAD = 0u;
@@ -163,10 +166,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 		CK_OBJECT_HANDLE hKey
 )
 {
-	if (gCtx.cryptokiInit == CK_FALSE)
+	struct globalCtx *gCtx = getCtx();
+
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.cryptCtx.init == CK_TRUE)
+	if (gCtx->cryptCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
 
 	if (hSession != SESSION_ID)
@@ -175,7 +180,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (list_seek(&gCtx.objects, &hKey) == NULL)
+	if (list_seek(&gCtx->objects, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
 
 	/* IV is optional for AES-ECB */
@@ -183,9 +188,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 		pMechanism->mechanism != CKM_AES_ECB)
 		return CKR_ARGUMENTS_BAD;
 
-	gCtx.cryptCtx.init = CK_TRUE;
-	gCtx.cryptCtx.mechanism = pMechanism;
-	gCtx.cryptCtx.keyHandle = hKey;
+	gCtx->cryptCtx.init = CK_TRUE;
+	gCtx->cryptCtx.mechanism = pMechanism;
+	gCtx->cryptCtx.keyHandle = hKey;
 
 	return CKR_OK;
 }
@@ -198,6 +203,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 		CK_ULONG_PTR pulDataLen
 )
 {
+	struct globalCtx *gCtx = getCtx();
 	hseSrvDescriptor_t srv_desc;
 	hseSymCipherSrv_t *sym_cipher_srv;
 	hseAeadSrv_t *aead_srv;
@@ -205,10 +211,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	struct hse_keyObject *key;
 	int err;
 
-	if (gCtx.cryptokiInit == CK_FALSE)
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.cryptCtx.init == CK_FALSE)
+	if (gCtx->cryptCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	if (hSession != SESSION_ID)
@@ -217,7 +223,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	key = (struct hse_keyObject *)list_seek(&gCtx.objects, &gCtx.cryptCtx.keyHandle);
+	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->cryptCtx.keyHandle);
 
 	_input = hse_get_shared_mem_addr(HSE_INPUT_SRAM);
 	_output = hse_get_shared_mem_addr(HSE_OUTPUT_SRAM);
@@ -225,13 +231,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	hse_memcpy(_input, pEncryptedData, ulEncryptedDataLen);
 	hse_memcpy(_output_len, pulDataLen, sizeof(uint32_t));
 
-	if (gCtx.cryptCtx.mechanism->pParameter != NULL) {
+	if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
 		_pIV = hse_get_shared_mem_addr(HSE_IV_SRAM);
-		hse_memcpy(_pIV, gCtx.cryptCtx.mechanism->pParameter,
-		                 gCtx.cryptCtx.mechanism->ulParameterLen);
+		hse_memcpy(_pIV, gCtx->cryptCtx.mechanism->pParameter,
+		                 gCtx->cryptCtx.mechanism->ulParameterLen);
 	}
 
-	switch (gCtx.cryptCtx.mechanism->mechanism) {
+	switch (gCtx->cryptCtx.mechanism->mechanism) {
 		case CKM_AES_ECB:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
@@ -245,7 +251,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			sym_cipher_srv->keyHandle = key->key_handle;
 
-			if (gCtx.cryptCtx.mechanism->pParameter != NULL) {
+			if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
 				sym_cipher_srv->pIV = hse_virt_to_phys(_pIV);
 			} else {
 				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
@@ -266,7 +272,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_GCM;
 			aead_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			aead_srv->keyHandle = key->key_handle;
-			aead_srv->ivLength = gCtx.cryptCtx.mechanism->ulParameterLen;
+			aead_srv->ivLength = gCtx->cryptCtx.mechanism->ulParameterLen;
 			aead_srv->pIV = hse_virt_to_phys(_pIV);
 			aead_srv->aadLength = 0u;
 			aead_srv->pAAD = 0u;
@@ -300,10 +306,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 		CK_OBJECT_HANDLE hKey
 )
 {
-	if (gCtx.cryptokiInit == CK_FALSE)
+	struct globalCtx *gCtx = getCtx();
+
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.signCtx.init == CK_TRUE)
+	if (gCtx->signCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
 
 	if (hSession != SESSION_ID)
@@ -312,12 +320,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (list_seek(&gCtx.objects, &hKey) == NULL)
+	if (list_seek(&gCtx->objects, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
 
-	gCtx.signCtx.init = CK_TRUE;
-	gCtx.signCtx.mechanism = pMechanism;
-	gCtx.signCtx.keyHandle = hKey;
+	gCtx->signCtx.init = CK_TRUE;
+	gCtx->signCtx.mechanism = pMechanism;
+	gCtx->signCtx.keyHandle = hKey;
 
 	return CKR_OK;
 }
@@ -330,6 +338,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 		CK_ULONG_PTR pulSignatureLen
 )
 {
+	struct globalCtx *gCtx = getCtx();
 	hseSrvDescriptor_t srv_desc;
 	hseSignSrv_t *sign_srv;
 	hseSignScheme_t *sign_scheme;
@@ -337,10 +346,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	struct hse_keyObject *key;
 	int err;
 
-	if (gCtx.cryptokiInit == CK_FALSE)
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.signCtx.init == CK_FALSE)
+	if (gCtx->signCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	if (hSession != SESSION_ID)
@@ -349,7 +358,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	if (pData == NULL || pSignature == NULL || pulSignatureLen == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	key = (struct hse_keyObject *)list_seek(&gCtx.objects, &gCtx.signCtx.keyHandle);
+	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
 
 	_input = hse_get_shared_mem_addr(HSE_INPUT_SRAM);
 	_output_len = hse_get_shared_mem_addr(HSE_OUTPUTLEN_SRAM);
@@ -359,7 +368,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	sign_srv = &srv_desc.hseSrv.signReq;
 	sign_scheme = &sign_srv->signScheme;
 
-	switch (gCtx.signCtx.mechanism->mechanism) {
+	switch (gCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA256_RSA_PKCS:
 
 			_sign0 = hse_get_shared_mem_addr(HSE_SIGN0_SRAM);
@@ -413,7 +422,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	if (err)
 		return CKR_FUNCTION_FAILED;
 
-	switch (gCtx.signCtx.mechanism->mechanism) {
+	switch (gCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA256_RSA_PKCS:
 
 			hse_memcpy(pSignature, _sign0, *(uint32_t *)_output_len);
@@ -443,10 +452,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 		CK_OBJECT_HANDLE hKey
 )
 {
-	if (gCtx.cryptokiInit == CK_FALSE)
+	struct globalCtx *gCtx = getCtx();
+
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.signCtx.init == CK_TRUE)
+	if (gCtx->signCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
 
 	if (hSession != SESSION_ID)
@@ -455,12 +466,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (list_seek(&gCtx.objects, &hKey) == NULL)
+	if (list_seek(&gCtx->objects, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
 
-	gCtx.signCtx.init = CK_TRUE;
-	gCtx.signCtx.mechanism = pMechanism;
-	gCtx.signCtx.keyHandle = hKey;
+	gCtx->signCtx.init = CK_TRUE;
+	gCtx->signCtx.mechanism = pMechanism;
+	gCtx->signCtx.keyHandle = hKey;
 
 	return CKR_OK;
 }
@@ -473,6 +484,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 		CK_ULONG ulSignatureLen
 )
 {
+	struct globalCtx *gCtx = getCtx();
 	hseSrvDescriptor_t srv_desc;
 	hseSignSrv_t *sign_srv;
 	hseSignScheme_t *sign_scheme;
@@ -480,10 +492,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	struct hse_keyObject *key;
 	int err;
 
-	if (gCtx.cryptokiInit == CK_FALSE)
+	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx.signCtx.init == CK_FALSE)
+	if (gCtx->signCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	if (hSession != SESSION_ID)
@@ -492,7 +504,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	if (pData == NULL || pSignature == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	key = (struct hse_keyObject *)list_seek(&gCtx.objects, &gCtx.signCtx.keyHandle);
+	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
 
 	_input = hse_get_shared_mem_addr(HSE_INPUT_SRAM);
 	_output_len = hse_get_shared_mem_addr(HSE_OUTPUTLEN_SRAM);
@@ -502,7 +514,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	sign_srv = &srv_desc.hseSrv.signReq;
 	sign_scheme = &sign_srv->signScheme;
 
-	switch (gCtx.signCtx.mechanism->mechanism) {
+	switch (gCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA256_RSA_PKCS:
 
 			_sign0 = hse_get_shared_mem_addr(HSE_SIGN0_SRAM);
