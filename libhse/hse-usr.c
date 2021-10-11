@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "hse-usr.h"
+#include "libhse.h"
 
 #include "hse_interface.h"
 

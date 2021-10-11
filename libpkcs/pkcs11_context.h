@@ -6,9 +6,10 @@
 #ifndef ___PKCS11_CONTEXT_H___
 #define ___PKCS11_CONTEXT_H___
 
+#include <stdint.h>
+#include <libhse.h>
 #include "pkcs11.h"
 #include "simclist.h"
-#include "hse-usr.h"
 #include "hse_interface.h"
 
 #define LIBRARY_VERSION_MAJOR 0u
