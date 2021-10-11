@@ -1,2 +1,4 @@
 examples/pkcs-keyop
-pkcs11-hse.so
+*.so*
+libhse/obj
+libpkcs/obj
