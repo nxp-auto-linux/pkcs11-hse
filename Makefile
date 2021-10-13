@@ -2,10 +2,32 @@
 # Copyright 2021 NXP
 #
 
-ifeq (,$(CROSS_COMPILE))
-$(error CROSS_COMPILE is not set)
+PLATFORM ?= S32G274
+FWTYPE ?= 0
+FWMAJOR ?= 0
+FWMINOR ?= 9
+FWPATCH ?= 2
+
+# Skip prerequisites check when invoking make clean
+ifeq ($(filter clean,$(MAKECMDGOALS)),$(strip $(MAKECMDGOALS)))
+    ifneq ($(filter clean,$(MAKECMDGOALS)),)
+        CROSS_COMPILE ?= not_set
+        HSE_FWDIR ?= not_set
+        UIO_DEV ?= not_set
+    endif
 endif
 
+# Prerequisites check
+ifeq (,$(CROSS_COMPILE))
+    $(error CROSS_COMPILE is not set)
+endif
+
+ifeq (,$(HSE_FWDIR))
+    HSE_FWDIR ?= $(HOME)/HSE_$(PLATFORM)_$(FWTYPE)_$(FWMAJOR)_$(FWMINOR)_$(FWPATCH)
+    $(warning Path to HSE firmware package not defined, using default $HSE_FWDIR)
+endif
+
+# Build libraries
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
 CFLAGS ?= -fPIC -Wall -g
@@ -18,15 +40,9 @@ PKCS_SRCS = $(wildcard $(PKCS_SDIR)/*.c)
 PKCS_OBJS = $(patsubst $(PKCS_SDIR)/%.c,$(PKCS_ODIR)/%.o,$(PKCS_SRCS))
 
 HSE_LIB ?= libhse.so
-HSE_MAJOR ?= 0
-HSE_MINOR ?= 9
-HSE_REV ?= 0
-HSE_PREMIUM ?= 0
-HSE_LIBVER = $(HSE_MAJOR).$(HSE_MINOR).$(HSE_REV)
-ifeq (,$(HSE_FWDIR))
-$(warning Path to HSE firmware not defined, using location based on fw version; default 0.0.9.0)
-endif
-HSE_FWDIR ?= $(HOME)/HSE_FW_S32G274_$(HSE_PREMIUM)_$(HSE_MAJOR)_$(HSE_MINOR)_$(HSE_REV)
+HSE_LIBVER_MAJOR = 1
+HSE_LIBVER_MINOR = 0
+HSE_LIBVER = $(HSE_LIBVER_MAJOR).$(HSE_LIBVER_MINOR)
 HSE_SDIR = libhse
 HSE_ODIR = $(HSE_SDIR)/obj
 HSE_SRCS = $(wildcard $(HSE_SDIR)/*.c)
@@ -60,8 +76,8 @@ $(HSE_ODIR)/%.o: $(HSE_SDIR)/%.c $(HSE_ODIR)
 $(HSE_ODIR):
 	mkdir -p $@
 
-.PHONY: clean all
-
 clean:
 	rm -f *.so*
 	rm -rf $(PKCS_ODIR) $(HSE_ODIR)
+
+.PHONY: clean all
