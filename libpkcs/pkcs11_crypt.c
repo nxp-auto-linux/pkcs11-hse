@@ -5,20 +5,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "pkcs11_context.h"
-
-static inline void hse_memcpy(void *dst, void *src, size_t n)
-{
-	uint8_t *s = (uint8_t *)src;
-	uint8_t *d = (uint8_t *)dst;
-
-	if (!dst || !src || n == 0)
-		return;
-
-	for (int i = 0; i < n; i++)
-		d[i] = s[i];
-}
 
 CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 		CK_SESSION_HANDLE hSession,
@@ -67,34 +56,59 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	hseSrvDescriptor_t srv_desc;
 	hseSymCipherSrv_t *sym_cipher_srv;
 	hseAeadSrv_t *aead_srv;
-	void *_srv_desc, *_input, *_output, *_output_len, *_pIV;
+	void *input, *output, *output_len, *pIV = NULL;
 	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx->cryptokiInit == CK_FALSE)
-		return CKR_CRYPTOKI_NOT_INITIALIZED;
+	if (gCtx->cryptokiInit == CK_FALSE) {
+		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
+		goto gen_err;
+	}
 
-	if (gCtx->cryptCtx.init == CK_FALSE)
-		return CKR_OPERATION_NOT_INITIALIZED;
+	if (gCtx->cryptCtx.init == CK_FALSE) {
+		rc = CKR_OPERATION_NOT_INITIALIZED;
+		goto gen_err;
+	}
 
-	if (hSession != SESSION_ID)
-		return CKR_SESSION_HANDLE_INVALID;
+	if (hSession != SESSION_ID) {
+		rc = CKR_SESSION_HANDLE_INVALID;
+		goto gen_err;
+	}
 
-	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL)
-		return CKR_ARGUMENTS_BAD;
+	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto gen_err;
+	}
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->cryptCtx.keyHandle);
 
-	_input = hse_get_shared_mem_addr(HSE_INPUT_SRAM);
-	_output = hse_get_shared_mem_addr(HSE_OUTPUT_SRAM);
-	_output_len = hse_get_shared_mem_addr(HSE_OUTPUTLEN_SRAM);
-	hse_memcpy(_output_len, pulEncryptedDataLen, sizeof(uint32_t));
-	hse_memcpy(_input, pData, ulDataLen);
+	input = hse_mem_alloc(ulDataLen);
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto gen_err;
+	}
+	memcpy(input, pData, ulDataLen);
+
+	output_len = hse_mem_alloc(sizeof(uint32_t));
+	if (output_len == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto output_len_err;
+	}
+	memcpy(output_len, pulEncryptedDataLen, sizeof(uint32_t));
+	output = hse_mem_alloc(*(uint32_t *)output_len);
+	if (output == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto output_err;
+	}
 
 	if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
-		_pIV = hse_get_shared_mem_addr(HSE_IV_SRAM);
-		hse_memcpy(_pIV, gCtx->cryptCtx.mechanism->pParameter,
-		                 gCtx->cryptCtx.mechanism->ulParameterLen);
+		pIV = hse_mem_alloc(gCtx->cryptCtx.mechanism->ulParameterLen);
+		if (pIV == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto piv_err;
+		}
+		memcpy(pIV, gCtx->cryptCtx.mechanism->pParameter, gCtx->cryptCtx.mechanism->ulParameterLen);
 	}
 
 	switch (gCtx->cryptCtx.mechanism->mechanism) {
@@ -112,14 +126,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			sym_cipher_srv->keyHandle = key->key_handle;
 
 			if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
-				sym_cipher_srv->pIV = hse_virt_to_phys(_pIV);
+				sym_cipher_srv->pIV = hse_virt_to_dma(pIV);
 			} else {
 				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
 			}
 
 			sym_cipher_srv->inputLength = ulDataLen;
-			sym_cipher_srv->pInput = hse_virt_to_phys(_input);
-			sym_cipher_srv->pOutput= hse_virt_to_phys(_output);
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
 
 			break;
 		case CKM_AES_GCM:
@@ -133,31 +147,40 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			aead_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			aead_srv->keyHandle = key->key_handle;
 			aead_srv->ivLength = gCtx->cryptCtx.mechanism->ulParameterLen;
-			aead_srv->pIV = hse_virt_to_phys(_pIV);
+			aead_srv->pIV = hse_virt_to_dma(pIV);
 			aead_srv->aadLength = 0u;
 			aead_srv->pAAD = 0u;
 			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			aead_srv->inputLength = ulDataLen;
-			aead_srv->pInput = hse_virt_to_phys(_input);
+			aead_srv->pInput = hse_virt_to_dma(input);
 			aead_srv->tagLength = 0u;
 			aead_srv->pTag = 0u;
-			aead_srv->pOutput = hse_virt_to_phys(_output);
+			aead_srv->pOutput = hse_virt_to_dma(output);
 
 		default:
-			return CKR_ARGUMENTS_BAD;
+			rc = CKR_ARGUMENTS_BAD;
+			goto req_err;
 	}
 
-	_srv_desc = hse_get_shared_mem_addr(HSE_SRVDESC_SRAM);
-	hse_memcpy(_srv_desc, &srv_desc, sizeof(hseSrvDescriptor_t));
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	if (err) {
+		rc = CKR_FUNCTION_FAILED;
+		goto req_err;
+	}
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, hse_virt_to_phys(_srv_desc));
-	if (err)
-		return CKR_FUNCTION_FAILED;
+	memcpy(pEncryptedData, output, *(uint32_t *)output_len);
+	memcpy(pulEncryptedDataLen, output_len, sizeof(uint32_t));
 
-	hse_memcpy(pEncryptedData, _output, *(uint32_t *)_output_len);
-	hse_memcpy(pulEncryptedDataLen, _output_len, sizeof(uint32_t));
-
-	return CKR_OK;
+req_err:
+	hse_mem_free(pIV);
+piv_err:
+	hse_mem_free(output);
+output_err:
+	hse_mem_free(output_len);
+output_len_err:
+	hse_mem_free(input);
+gen_err:
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
@@ -207,34 +230,59 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	hseSrvDescriptor_t srv_desc;
 	hseSymCipherSrv_t *sym_cipher_srv;
 	hseAeadSrv_t *aead_srv;
-	void *_srv_desc, *_input, *_output, *_output_len, *_pIV;
+	void *input, *output, *output_len, *pIV = NULL;
 	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx->cryptokiInit == CK_FALSE)
-		return CKR_CRYPTOKI_NOT_INITIALIZED;
+	if (gCtx->cryptokiInit == CK_FALSE) {
+		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
+		goto gen_err;
+	}
 
-	if (gCtx->cryptCtx.init == CK_FALSE)
-		return CKR_OPERATION_NOT_INITIALIZED;
+	if (gCtx->cryptCtx.init == CK_FALSE) {
+		rc = CKR_OPERATION_NOT_INITIALIZED;
+		goto gen_err;
+	}
 
-	if (hSession != SESSION_ID)
-		return CKR_SESSION_HANDLE_INVALID;
+	if (hSession != SESSION_ID) {
+		rc = CKR_SESSION_HANDLE_INVALID;
+		goto gen_err;
+	}
 
-	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL)
-		return CKR_ARGUMENTS_BAD;
+	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto gen_err;
+	}
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->cryptCtx.keyHandle);
 
-	_input = hse_get_shared_mem_addr(HSE_INPUT_SRAM);
-	_output = hse_get_shared_mem_addr(HSE_OUTPUT_SRAM);
-	_output_len = hse_get_shared_mem_addr(HSE_OUTPUTLEN_SRAM);
-	hse_memcpy(_input, pEncryptedData, ulEncryptedDataLen);
-	hse_memcpy(_output_len, pulDataLen, sizeof(uint32_t));
+	input = hse_mem_alloc(ulEncryptedDataLen);
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto gen_err;
+	}
+	memcpy(input, pEncryptedData, ulEncryptedDataLen);
+
+	output_len = hse_mem_alloc(sizeof(uint32_t));
+	if (output_len == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto output_len_err;
+	}
+	memcpy(output_len, pulDataLen, sizeof(uint32_t));
+	output = hse_mem_alloc(*(uint32_t *)output_len);
+	if (output == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto output_err;
+	}
 
 	if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
-		_pIV = hse_get_shared_mem_addr(HSE_IV_SRAM);
-		hse_memcpy(_pIV, gCtx->cryptCtx.mechanism->pParameter,
-		                 gCtx->cryptCtx.mechanism->ulParameterLen);
+		pIV = hse_mem_alloc(gCtx->cryptCtx.mechanism->ulParameterLen);
+		if (pIV == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto piv_err;
+		}
+		memcpy(pIV, gCtx->cryptCtx.mechanism->pParameter, gCtx->cryptCtx.mechanism->ulParameterLen);
 	}
 
 	switch (gCtx->cryptCtx.mechanism->mechanism) {
@@ -252,14 +300,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			sym_cipher_srv->keyHandle = key->key_handle;
 
 			if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
-				sym_cipher_srv->pIV = hse_virt_to_phys(_pIV);
+				sym_cipher_srv->pIV = hse_virt_to_dma(pIV);
 			} else {
 				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
 			}
 
 			sym_cipher_srv->inputLength = ulEncryptedDataLen;
-			sym_cipher_srv->pInput = hse_virt_to_phys(_input);
-			sym_cipher_srv->pOutput= hse_virt_to_phys(_output);
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
 
 			break;
 		case CKM_AES_GCM:
@@ -273,31 +321,40 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			aead_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			aead_srv->keyHandle = key->key_handle;
 			aead_srv->ivLength = gCtx->cryptCtx.mechanism->ulParameterLen;
-			aead_srv->pIV = hse_virt_to_phys(_pIV);
+			aead_srv->pIV = hse_virt_to_dma(pIV);
 			aead_srv->aadLength = 0u;
 			aead_srv->pAAD = 0u;
 			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			aead_srv->inputLength = ulEncryptedDataLen;
-			aead_srv->pInput = hse_virt_to_phys(_input);
+			aead_srv->pInput = hse_virt_to_dma(input);
 			aead_srv->tagLength = 0u;
 			aead_srv->pTag = 0u;
-			aead_srv->pOutput = hse_virt_to_phys(_output);
+			aead_srv->pOutput = hse_virt_to_dma(output);
 
 		default:
-			return CKR_ARGUMENTS_BAD;
+			rc = CKR_ARGUMENTS_BAD;
+			goto req_err;
 	}
 
-	_srv_desc = hse_get_shared_mem_addr(HSE_SRVDESC_SRAM);
-	hse_memcpy(_srv_desc, &srv_desc, sizeof(hseSrvDescriptor_t));
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	if (err) {
+		rc = CKR_FUNCTION_FAILED;
+		goto req_err;
+	}
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, hse_virt_to_phys(_srv_desc));
-	if (err)
-		return CKR_FUNCTION_FAILED;
+	memcpy(pData, output, *(uint32_t *)output_len);
+	memcpy(pulDataLen, output_len, sizeof(uint32_t));
 
-	hse_memcpy(pData, _output, *(uint32_t *)_output_len);
-	hse_memcpy(pulDataLen, _output_len, sizeof(uint32_t));
-
-	return CKR_OK;
+req_err:
+	hse_mem_free(pIV);
+piv_err:
+	hse_mem_free(output);
+output_err:
+	hse_mem_free(output_len);
+output_len_err:
+	hse_mem_free(input);
+gen_err:
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
@@ -342,28 +399,46 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	hseSrvDescriptor_t srv_desc;
 	hseSignSrv_t *sign_srv;
 	hseSignScheme_t *sign_scheme;
-	void *_srv_desc, *_input, *_sign0, *_sign1, *_output_len;
+	void *input, *sign0 = NULL, *sign1 = NULL, *output_len;
 	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx->cryptokiInit == CK_FALSE)
-		return CKR_CRYPTOKI_NOT_INITIALIZED;
+	if (gCtx->cryptokiInit == CK_FALSE) {
+		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
+		goto gen_err;
+	}
 
-	if (gCtx->signCtx.init == CK_FALSE)
-		return CKR_OPERATION_NOT_INITIALIZED;
+	if (gCtx->signCtx.init == CK_FALSE) {
+		rc = CKR_OPERATION_NOT_INITIALIZED;
+		goto gen_err;
+	}
 
-	if (hSession != SESSION_ID)
-		return CKR_SESSION_HANDLE_INVALID;
+	if (hSession != SESSION_ID) {
+		rc = CKR_SESSION_HANDLE_INVALID;
+		goto gen_err;
+	}
 
-	if (pData == NULL || pSignature == NULL || pulSignatureLen == NULL)
-		return CKR_ARGUMENTS_BAD;
+	if (pData == NULL || pSignature == NULL || pulSignatureLen == NULL) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto gen_err;
+	}
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
 
-	_input = hse_get_shared_mem_addr(HSE_INPUT_SRAM);
-	_output_len = hse_get_shared_mem_addr(HSE_OUTPUTLEN_SRAM);
-	hse_memcpy(_input, pData, ulDataLen);
-	hse_memcpy(_output_len, pulSignatureLen, sizeof(uint32_t));
+	input = hse_mem_alloc(ulDataLen);
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto gen_err;
+	}
+	memcpy(input, pData, ulDataLen);
+
+	output_len = hse_mem_alloc(sizeof(uint32_t));
+	if (output_len == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto output_len_err;
+	}
+	memcpy(output_len, pulSignatureLen, sizeof(uint32_t));
 
 	sign_srv = &srv_desc.hseSrv.signReq;
 	sign_scheme = &sign_srv->signScheme;
@@ -371,38 +446,51 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	switch (gCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA256_RSA_PKCS:
 
-			_sign0 = hse_get_shared_mem_addr(HSE_SIGN0_SRAM);
+			sign0 = hse_mem_alloc(*(uint32_t *)output_len);
+			if (sign0 == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto sign0_err;
+			}
 
 			sign_scheme->signSch = HSE_SIGN_RSASSA_PKCS1_V15;
 			sign_scheme->sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA2_256;
 
-			sign_srv->pSignatureLength[0] = hse_virt_to_phys(_output_len);
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
 			sign_srv->pSignatureLength[1] = 0u;
-			sign_srv->pSignature[0] = hse_virt_to_phys(_sign0); /* rsa */
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0); /* rsa */
 			sign_srv->pSignature[1] = 0u;
 
 			break;
 		case CKM_ECDSA_SHA1:
 
-			_sign0 = hse_get_shared_mem_addr(HSE_SIGN0_SRAM);
-			_sign1 = hse_get_shared_mem_addr(HSE_SIGN1_SRAM);
-
 			/* we only get one output length, which has to hold (r,s)
 			 * (r,s) are both the length of the used curve in bytes - equal
 			 * as such, assume it is doubled, and halve it */
-			*(uint32_t *)_output_len = *(uint32_t *)_output_len / 2;
+			*(uint32_t *)output_len = *(uint32_t *)output_len / 2;
+
+			sign0 = hse_mem_alloc(*(uint32_t *)output_len);
+			if (sign0 == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto sign0_err;
+			}
+			sign1 = hse_mem_alloc(*(uint32_t *)output_len);
+			if (sign1 == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto sign1_err;
+			}
 
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
 			sign_scheme->sch.ecdsa.hashAlgo = HSE_HASH_ALGO_SHA_1;
 
-			sign_srv->pSignatureLength[0] = hse_virt_to_phys(_output_len);
-			sign_srv->pSignatureLength[1] = hse_virt_to_phys(_output_len);
-			sign_srv->pSignature[0] = hse_virt_to_phys(_sign0);
-			sign_srv->pSignature[1] = hse_virt_to_phys(_sign1);
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
+			sign_srv->pSignatureLength[1] = hse_virt_to_dma(output_len);
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = hse_virt_to_dma(sign1);
 
 			break;
 		default:
-			return CKR_ARGUMENTS_BAD;
+			rc = CKR_ARGUMENTS_BAD;
+			goto req_err;
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_SIGN;
@@ -413,37 +501,46 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	sign_srv->keyHandle = key->key_handle;
 	sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 	sign_srv->inputLength = ulDataLen;
-	sign_srv->pInput = hse_virt_to_phys(_input);
+	sign_srv->pInput = hse_virt_to_dma(input);
 
-	_srv_desc = hse_get_shared_mem_addr(HSE_SRVDESC_SRAM);
-	hse_memcpy(_srv_desc, &srv_desc, sizeof(hseSrvDescriptor_t));
-
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, hse_virt_to_phys(_srv_desc));
-	if (err)
-		return CKR_FUNCTION_FAILED;
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	if (err) {
+		rc = CKR_FUNCTION_FAILED;
+		goto req_err;
+	}
 
 	switch (gCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA256_RSA_PKCS:
 
-			hse_memcpy(pSignature, _sign0, *(uint32_t *)_output_len);
-			hse_memcpy(pulSignatureLen, _output_len, sizeof(uint32_t));
+			memcpy(pSignature, sign0, *(uint32_t *)output_len);
+			memcpy(pulSignatureLen, output_len, sizeof(uint32_t));
 
 			break;
 		case CKM_ECDSA_SHA1:
 
-			hse_memcpy(pSignature, _sign0, *(uint32_t *)_output_len);
-			hse_memcpy(pSignature + *(uint32_t *)_output_len, _sign1, *(uint32_t *)_output_len);
+			memcpy(pSignature, sign0, *(uint32_t *)output_len);
+			memcpy(pSignature + *(uint32_t *)output_len, sign1, *(uint32_t *)output_len);
 
 			/* restore actual length */
-			*(uint32_t *)_output_len = *(uint32_t *)_output_len * 2;
-			hse_memcpy(pulSignatureLen, _output_len, sizeof(uint32_t));
+			*(uint32_t *)output_len = *(uint32_t *)output_len * 2;
+			memcpy(pulSignatureLen, output_len, sizeof(uint32_t));
 
 			break;
 		default:
-			return CKR_ARGUMENTS_BAD;
+			rc = CKR_ARGUMENTS_BAD;
+			goto req_err;
 	}
 
-	return CKR_OK;
+req_err:
+	hse_mem_free(sign1);
+sign1_err:
+	hse_mem_free(sign0);
+sign0_err:
+	hse_mem_free(output_len);
+output_len_err:
+	hse_mem_free(input);
+gen_err:
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
@@ -488,28 +585,46 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	hseSrvDescriptor_t srv_desc;
 	hseSignSrv_t *sign_srv;
 	hseSignScheme_t *sign_scheme;
-	void *_srv_desc, *_input, *_sign0, *_sign1, *_output_len;
+	void *input, *sign0 = NULL, *sign1 = NULL, *output_len;
 	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx->cryptokiInit == CK_FALSE)
-		return CKR_CRYPTOKI_NOT_INITIALIZED;
+	if (gCtx->cryptokiInit == CK_FALSE) {
+		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
+		goto gen_err;
+	}
 
-	if (gCtx->signCtx.init == CK_FALSE)
-		return CKR_OPERATION_NOT_INITIALIZED;
+	if (gCtx->signCtx.init == CK_FALSE) {
+		rc = CKR_OPERATION_NOT_INITIALIZED;
+		goto gen_err;
+	}
 
-	if (hSession != SESSION_ID)
-		return CKR_SESSION_HANDLE_INVALID;
+	if (hSession != SESSION_ID) {
+		rc = CKR_SESSION_HANDLE_INVALID;
+		goto gen_err;
+	}
 
-	if (pData == NULL || pSignature == NULL)
-		return CKR_ARGUMENTS_BAD;
+	if (pData == NULL || pSignature == NULL) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto gen_err;
+	}
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
 
-	_input = hse_get_shared_mem_addr(HSE_INPUT_SRAM);
-	_output_len = hse_get_shared_mem_addr(HSE_OUTPUTLEN_SRAM);
-	hse_memcpy(_input, pData, ulDataLen);
-	hse_memcpy(_output_len, &ulSignatureLen, sizeof(uint32_t));
+	input = hse_mem_alloc(ulDataLen);
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto gen_err;
+	}
+	memcpy(input, pData, ulDataLen);
+
+	output_len = hse_mem_alloc(sizeof(uint32_t));
+	if (output_len == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto output_len_err;
+	}
+	memcpy(output_len, &ulSignatureLen, sizeof(uint32_t));
 
 	sign_srv = &srv_desc.hseSrv.signReq;
 	sign_scheme = &sign_srv->signScheme;
@@ -517,15 +632,19 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	switch (gCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA256_RSA_PKCS:
 
-			_sign0 = hse_get_shared_mem_addr(HSE_SIGN0_SRAM);
-			hse_memcpy(_sign0, pSignature, ulSignatureLen);
+			sign0 = hse_mem_alloc(ulSignatureLen);
+			if (sign0 == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto sign0_err;
+			}
+			memcpy(sign0, pSignature, ulSignatureLen);
 
 			sign_scheme->signSch = HSE_SIGN_RSASSA_PKCS1_V15;
 			sign_scheme->sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA2_256;
 
-			sign_srv->pSignatureLength[0] = hse_virt_to_phys(_output_len);
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
 			sign_srv->pSignatureLength[1] = 0u;
-			sign_srv->pSignature[0] = hse_virt_to_phys(_sign0); /* rsa */
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0); /* rsa */
 			sign_srv->pSignature[1] = 0u;
 
 			break;
@@ -534,23 +653,32 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 			/* we only get one signature input and length
 			 * (r,s) are the same length
 			 * assume the signature contains both, one after the other */
-			*(uint32_t *)_output_len = *(uint32_t *)_output_len / 2;
+			*(uint32_t *)output_len = *(uint32_t *)output_len / 2;
 
-			_sign0 = hse_get_shared_mem_addr(HSE_SIGN0_SRAM);
-			_sign1 = hse_get_shared_mem_addr(HSE_SIGN1_SRAM);
-			hse_memcpy(_sign0, pSignature, *(uint32_t *)_output_len);
-			hse_memcpy(_sign1, pSignature + *(uint32_t *)_output_len, *(uint32_t *)_output_len);
+			sign0 = hse_mem_alloc(*(uint32_t *)output_len);
+			if (sign0 == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto sign0_err;
+			}
+			sign1 = hse_mem_alloc(*(uint32_t *)output_len);
+			if (sign1 == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto sign1_err;
+			}
+			memcpy(sign0, pSignature, *(uint32_t *)output_len);
+			memcpy(sign1, pSignature + *(uint32_t *)output_len, *(uint32_t *)output_len);
 
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
 			sign_scheme->sch.ecdsa.hashAlgo = HSE_HASH_ALGO_SHA_1;
 
-			sign_srv->pSignatureLength[0] = hse_virt_to_phys(_output_len);
-			sign_srv->pSignatureLength[1] = hse_virt_to_phys(_output_len);
-			sign_srv->pSignature[0] = hse_virt_to_phys(_sign0);
-			sign_srv->pSignature[1] = hse_virt_to_phys(_sign1);
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
+			sign_srv->pSignatureLength[1] = hse_virt_to_dma(output_len);
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = hse_virt_to_dma(sign1);
 
 		default:
-			return CKR_ARGUMENTS_BAD;
+			rc = CKR_ARGUMENTS_BAD;
+			goto req_err;
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_SIGN;
@@ -561,19 +689,27 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	sign_srv->keyHandle = key->key_handle;
 	sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 	sign_srv->inputLength = ulDataLen;
-	sign_srv->pInput = hse_virt_to_phys(_input);
+	sign_srv->pInput = hse_virt_to_dma(input);
 
-	_srv_desc = hse_get_shared_mem_addr(HSE_SRVDESC_SRAM);
-	hse_memcpy(_srv_desc, &srv_desc, sizeof(hseSrvDescriptor_t));
-
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, hse_virt_to_phys(_srv_desc));
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
 	if (err == EBADMSG) {
-		return CKR_SIGNATURE_INVALID;
+		rc = CKR_SIGNATURE_INVALID;
+		goto req_err;
 	} else {
-		return CKR_FUNCTION_FAILED;
+		rc = CKR_FUNCTION_FAILED;
+		goto req_err;
 	}
 
-	return CKR_OK;
+req_err:
+	hse_mem_free(sign1);
+sign1_err:
+	hse_mem_free(sign0);
+sign0_err:
+	hse_mem_free(output_len);
+output_len_err:
+	hse_mem_free(input);
+gen_err:
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(

@@ -10,4 +10,6 @@
 
 #define HSE_SRV_DESC_MAX_SIZE    256u /* maximum service descriptor size */
 
+int hse_mem_init(void *rmem_base_addr, uint64_t rmem_size);
+
 #endif /* HSE_INTERNAL_H */

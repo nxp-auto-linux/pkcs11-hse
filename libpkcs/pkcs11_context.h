@@ -28,18 +28,6 @@
 /* missing mechanisms from the PKCS11 interface header */
 #define CKM_AES_GCM        0x1087ul
 
-#define HSE_SRVDESC_SRAM   0x2000
-#define HSE_KEYINFO_SRAM   0x2200
-#define HSE_PKEY0_SRAM     0x2400
-#define HSE_PKEY1_SRAM     0x2600
-#define HSE_PKEY2_SRAM     0x2800
-#define HSE_INPUT_SRAM     0x3000
-#define HSE_OUTPUT_SRAM    0x3400
-#define HSE_OUTPUTLEN_SRAM 0x3800
-#define HSE_SIGN0_SRAM     0x4200
-#define HSE_SIGN1_SRAM     0x4600
-#define HSE_IV_SRAM        0x5000
-
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif

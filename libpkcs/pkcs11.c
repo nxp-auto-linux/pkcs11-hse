@@ -183,7 +183,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 	list_attributes_seeker(&gCtx->objects, object_list_seeker);
 	list_attributes_comparator(&gCtx->objects, object_list_comparator);
 
-	if (hse_usr_initialize())
+	if (hse_dev_open())
 		return CKR_HOST_MEMORY;
 
 	gCtx->cryptokiInit = CK_TRUE;
@@ -201,7 +201,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Finalize)(
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	hse_usr_finalize();
+	hse_dev_close();
 
 	for (i = 0; i < list_size(&gCtx->objects); i++) {
 		list_delete_at(&gCtx->objects, i);

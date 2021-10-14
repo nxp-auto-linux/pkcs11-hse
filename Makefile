@@ -24,7 +24,7 @@ endif
 
 ifeq (,$(HSE_FWDIR))
     HSE_FWDIR ?= $(HOME)/HSE_$(PLATFORM)_$(FWTYPE)_$(FWMAJOR)_$(FWMINOR)_$(FWPATCH)
-    $(warning Path to HSE firmware package not defined, using default $HSE_FWDIR)
+    $(warning Path to HSE firmware package not defined, using default $(HSE_FWDIR))
 endif
 
 ifeq (,$(UIO_DEV))
@@ -62,7 +62,7 @@ INCL = -I$(HSE_FWDIR)/interface                                                \
 
 DEFS := -DUIO_DEV=$(UIO_DEV)
 
-all: $(HSE_LIB).$(HSE_LIBVER)
+all: $(PKCS_LIB)
 
 $(PKCS_LIB): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
 	$(CC) -shared $(CFLAGS) -L$(shell pwd) $(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
@@ -74,8 +74,8 @@ $(PKCS_ODIR):
 	mkdir -p $@
 
 $(HSE_LIB).$(HSE_LIBVER): $(HSE_OBJS)
-	$(CC) -shared $(CFLAGS) -Wl,-soname,$(HSE_LIB).$(HSE_LIBVER_MAJOR) $(LDFLAGS) $< -o $@
-	ln -s $@ $(HSE_LIB)
+	$(CC) -shared $(CFLAGS) -Wl,-soname,$(HSE_LIB).$(HSE_LIBVER_MAJOR) $(LDFLAGS) $(HSE_OBJS) -o $@
+	ln -sf $@ $(HSE_LIB)
 
 $(HSE_ODIR)/%.o: $(HSE_SDIR)/%.c $(HSE_ODIR)
 	$(CC) -c $(CFLAGS) $(INCL) $(DEFS) $(LDFLAGS) $< -o $@

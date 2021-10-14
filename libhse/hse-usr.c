@@ -103,7 +103,7 @@ struct hse_uio_intl {
 	volatile uint8_t ready[HSE_NUM_CHANNELS];
 	volatile uint32_t reply[HSE_NUM_CHANNELS];
 	volatile uint32_t event;
-	uint8_t reserved_end;
+	uint8_t reserved_end __attribute__((aligned(16)));
 } __attribute__((packed));
 
 /**
@@ -449,6 +449,13 @@ int hse_dev_open(void)
 		priv.shared->ready[i] = 0;
 		priv.shared->reply[i] = 0;
 		priv.channel_busy[i] = false;
+	}
+
+	/* init mem pool */
+	if (hse_mem_init(&priv.shared->reserved_end, priv.rmem_size - sizeof(struct hse_uio_intl))) {
+		printf("hse: failed to init mem pool\n");
+		err = ENOMEM;
+		goto err_unmap_intl;
 	}
 
 	priv.init = true;
