@@ -5,25 +5,25 @@
  * Copyright 2019-2021 NXP
  */
 
-#ifndef HSE_USR_H
-#define HSE_USR_H
+#ifndef LIBHSE_H
+#define LIBHSE_H
 
 #define HSE_UIO_DEVICE    "uio0" /* HSE UIO device registered by the kernel */
-
 #define HSE_NUM_CHANNELS    16u /* number of available service channels */
 
 #define HSE_CHANNEL_ANY    0xACu /* use any channel, no request ordering */
 #define HSE_CHANNEL_ADM    0u /* channel reserved for administrative services */
 
-#define HSE_SRV_DESC_MAX_SIZE    256u /* maximum service descriptor size */
+int hse_dev_open(void);
+void hse_dev_close(void);
 
-int hse_usr_initialize(void);
-void hse_usr_finalize(void);
+uint16_t hse_check_status(void);
 
-int hse_srv_req_sync(uint8_t channel, uint32_t srv_desc);
+int hse_srv_req_sync(uint8_t channel, const void *srv_desc);
 
-void *hse_get_shared_mem_addr(uint64_t offset);
+void *hse_mem_alloc(size_t size);
+void hse_mem_free(void *addr);
 
-uint64_t hse_virt_to_phys(const void *virt_addr);
+uint64_t hse_virt_to_dma(const void *addr);
 
-#endif /* HSE_USR_H */
+#endif /* LIBHSE_H */
