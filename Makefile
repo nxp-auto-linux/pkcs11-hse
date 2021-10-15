@@ -8,7 +8,7 @@ endif
 
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
-CFLAGS ?= -Wall -g
+CFLAGS ?= -fPIC -Wall -g
 LDFLAGS ?=
 
 PKCS_LIB ?= libpkcs-hse.so
@@ -42,7 +42,7 @@ INCLUDE = -I$(HSE_FWDIR)/interface \
 all: $(PKCS_LIB)
 
 $(PKCS_LIB): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
-	$(CC) $(CFLAGS) -shared -fPIC -L$(shell pwd) $(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
+	$(CC) -shared $(CFLAGS) -L$(shell pwd) $(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
 
 $(PKCS_ODIR)/%.o: $(PKCS_SDIR)/%.c $(PKCS_ODIR)
 	$(CC) -c $(CFLAGS) $(INCLUDE) $(LDFLAGS) $< -o $@
@@ -51,7 +51,7 @@ $(PKCS_ODIR):
 	mkdir -p $@
 
 $(HSE_LIB).$(HSE_LIBVER): $(HSE_OBJS)
-	$(CC) $(CFLAGS) -shared -fPIC -Wl,-soname,$(HSE_LIB).$(HSE_MAJOR) $(LDFLAGS) $(HSE_OBJS) -o $@
+	$(CC) -shared $(CFLAGS) -Wl,-soname,$(HSE_LIB).$(HSE_MAJOR) $(LDFLAGS) $(HSE_OBJS) -o $@
 	ln -s $@ $(HSE_LIB)
 
 $(HSE_ODIR)/%.o: $(HSE_SDIR)/%.c $(HSE_ODIR)
