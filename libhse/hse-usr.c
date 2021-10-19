@@ -65,26 +65,26 @@
  * @rr[n]: Receive Register n, offset 0x280 + 4*n
  */
 struct hse_mu_regs {
-	const uint32_t ver;
-	const uint32_t par;
-	uint32_t cr;
-	uint32_t sr;
-	uint8_t reserved0[240]; /* 0xF0 */
-	uint32_t fcr;
-	const uint32_t fsr;
-	uint8_t reserved1[8]; /* 0x8 */
-	uint32_t gier;
-	uint32_t gcr;
-	uint32_t gsr;
-	uint8_t reserved2[4]; /* 0x4 */
-	uint32_t tcr;
-	const uint32_t tsr;
-	uint32_t rcr;
-	const uint32_t rsr;
-	uint8_t reserved3[208]; /* 0xD0 */
-	uint32_t tr[16];
-	uint8_t reserved4[64]; /* 0x40 */
-	const uint32_t rr[16];
+	const volatile uint32_t ver;
+	const volatile uint32_t par;
+	volatile uint32_t cr;
+	volatile uint32_t sr;
+	volatile uint8_t reserved0[240]; /* 0xF0 */
+	volatile uint32_t fcr;
+	const volatile uint32_t fsr;
+	volatile uint8_t reserved1[8]; /* 0x8 */
+	volatile uint32_t gier;
+	volatile uint32_t gcr;
+	volatile uint32_t gsr;
+	volatile uint8_t reserved2[4]; /* 0x4 */
+	volatile uint32_t tcr;
+	const volatile uint32_t tsr;
+	volatile uint32_t rcr;
+	const volatile uint32_t rsr;
+	volatile uint8_t reserved3[208]; /* 0xD0 */
+	volatile uint32_t tr[16];
+	volatile uint8_t reserved4[64]; /* 0x40 */
+	const volatile uint32_t rr[16];
 };
 
 /**
@@ -95,11 +95,11 @@ struct hse_mu_regs {
  * @reserved_end: placeholder for the end of reserved area
  */
 struct hse_uio_intl {
-	uint8_t ready[HSE_NUM_CHANNELS];
-	uint32_t reply[HSE_NUM_CHANNELS];
-	uint32_t event;
+	volatile uint8_t ready[HSE_NUM_CHANNELS];
+	volatile uint32_t reply[HSE_NUM_CHANNELS];
+	volatile uint32_t event;
 	uint8_t reserved_end;
-};
+} __attribute__((packed));
 
 /**
  * struct hse_usr_priv - driver private data
