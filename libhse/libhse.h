@@ -8,7 +8,6 @@
 #ifndef LIBHSE_H
 #define LIBHSE_H
 
-#define HSE_UIO_DEVICE    "uio0" /* HSE UIO device registered by the kernel */
 #define HSE_NUM_CHANNELS    16u /* number of available service channels */
 
 #define HSE_CHANNEL_ANY    0xACu /* use any channel, no request ordering */

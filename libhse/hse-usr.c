@@ -21,14 +21,19 @@
 
 #include "hse_interface.h"
 
+#define __stringify_1(x)    #x
+#define __stringify(x)      __stringify_1(x)
+
+#ifndef UIO_DEV
+#error HSE UIO device not defined
+#endif /* UIO_DEV */
+#define HSE_UIO_DEVICE    __stringify(UIO_DEV)
+
 /* UIO mappings index */
 #define HSE_UIO_MAP_REGS    0 /* MU hardware register space */
 #define HSE_UIO_MAP_DESC    1 /* service descriptor space */
 #define HSE_UIO_MAP_INTL    2 /* driver internal shared memory */
 #define HSE_UIO_MAP_RMEM    3 /* reserved DMA-able memory range */
-
-#define __stringify_1(x)    #x
-#define __stringify(x)      __stringify_1(x)
 
 /* sysfs files containing base address and size of UIO mappings */
 #define HSE_UIO_REGS_SIZE    "/sys/class/uio/" HSE_UIO_DEVICE "/maps/map" \

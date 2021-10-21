@@ -27,6 +27,11 @@ ifeq (,$(HSE_FWDIR))
     $(warning Path to HSE firmware package not defined, using default $HSE_FWDIR)
 endif
 
+ifeq (,$(UIO_DEV))
+    UIO_DEV ?= uio0
+    $(warning HSE UIO device not defined, using default device $(UIO_DEV))
+endif
+
 # Build libraries
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
@@ -48,12 +53,14 @@ HSE_ODIR = $(HSE_SDIR)/obj
 HSE_SRCS = $(wildcard $(HSE_SDIR)/*.c)
 HSE_OBJS = $(patsubst $(HSE_SDIR)/%.c,$(HSE_ODIR)/%.o,$(HSE_SRCS))
 
-INCLUDE = -I$(HSE_FWDIR)/interface \
-		  -I$(HSE_FWDIR)/interface/inc_common \
-		  -I$(HSE_FWDIR)/interface/inc_custom \
-		  -I$(HSE_FWDIR)/interface/inc_services \
-		  -I$(HSE_FWDIR)/interface/config \
-		  -I$(HSE_SDIR)
+INCL = -I$(HSE_FWDIR)/interface                                                \
+       -I$(HSE_FWDIR)/interface/inc_common                                     \
+       -I$(HSE_FWDIR)/interface/inc_custom                                     \
+       -I$(HSE_FWDIR)/interface/inc_services                                   \
+       -I$(HSE_FWDIR)/interface/config                                         \
+       -I$(HSE_SDIR)
+
+DEFS := -DUIO_DEV=$(UIO_DEV)
 
 all: $(HSE_LIB).$(HSE_LIBVER)
 
@@ -61,7 +68,7 @@ $(PKCS_LIB): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
 	$(CC) -shared $(CFLAGS) -L$(shell pwd) $(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
 
 $(PKCS_ODIR)/%.o: $(PKCS_SDIR)/%.c $(PKCS_ODIR)
-	$(CC) -c $(CFLAGS) $(INCLUDE) $(LDFLAGS) $< -o $@
+	$(CC) -c $(CFLAGS) $(INCL) $(LDFLAGS) $< -o $@
 
 $(PKCS_ODIR):
 	mkdir -p $@
@@ -71,7 +78,7 @@ $(HSE_LIB).$(HSE_LIBVER): $(HSE_OBJS)
 	ln -s $@ $(HSE_LIB)
 
 $(HSE_ODIR)/%.o: $(HSE_SDIR)/%.c $(HSE_ODIR)
-	$(CC) -c $(CFLAGS) $(INCLUDE) $(LDFLAGS) $< -o $@
+	$(CC) -c $(CFLAGS) $(INCL) $(DEFS) $(LDFLAGS) $< -o $@
 
 $(HSE_ODIR):
 	mkdir -p $@
