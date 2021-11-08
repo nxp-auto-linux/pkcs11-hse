@@ -57,6 +57,8 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_Sign =                               C_Sign,
 	.C_VerifyInit =                         C_VerifyInit,
 	.C_Verify =                             C_Verify
+	.C_SeedRandom =                         C_SeedRandom,
+	.C_GenerateRandom =                     C_GenerateRandom
 };
 
 /*
