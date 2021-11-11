@@ -23,7 +23,8 @@ static const CK_MECHANISM_TYPE mechanismList[] = {
 	CKM_AES_ECB,
 	CKM_AES_GCM,
 	CKM_SHA256_RSA_PKCS,
-	CKM_ECDSA_SHA1
+	CKM_ECDSA_SHA1,
+	CKM_SHA_1
 };
 
 static CK_FUNCTION_LIST gFunctionList = {
@@ -62,7 +63,12 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_VerifyInit =                         C_VerifyInit,
 	.C_Verify =                             C_Verify,
 	.C_SeedRandom =                         C_SeedRandom,
-	.C_GenerateRandom =                     C_GenerateRandom
+	.C_GenerateRandom =                     C_GenerateRandom,
+	.C_DigestInit =                         C_DigestInit,
+	.C_Digest =                             C_Digest,
+	.C_DigestUpdate =                       C_DigestUpdate,
+	.C_DigestFinal =                        C_DigestFinal,
+	.C_DigestKey =                          C_DigestKey
 };
 
 /*
