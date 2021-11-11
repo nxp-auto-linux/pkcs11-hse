@@ -134,7 +134,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	key_info = (hseKeyInfo_t *)hse_mem_alloc(sizeof(hseKeyInfo_t));
 	if (key_info == NULL)
 		return CKR_HOST_MEMORY;
-	hse_memset(key_info, 0, sizeof(hseKeyInfo_t));
+	hse_memset((void *)key_info, 0, sizeof(hseKeyInfo_t));
 
 	key = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
 	if (key == NULL) {

@@ -49,6 +49,28 @@ struct hse_cryptCtx {
 };
 
 /*
+ * struct hse_digestCtx - digest ops context
+ *
+ * @init:         check if op is running
+ * @stream_start: true if stream should be started, false if it should be updated
+ * @mechanism:    mechanism to use in op
+ * @cache:        cache data in case insufficient bytes are passed
+ * @cache_idx:    cache index
+ * @blockSize:    block size for given mechanism
+ * @digestSize:   digest size for given mechanism
+ */
+struct hse_digestCtx {
+	CK_BBOOL init;
+	CK_BBOOL stream_start;
+	uint8_t mechanism;
+	uint8_t *cache;
+	uint8_t cache_idx;
+	uint32_t blockSize;
+	uint32_t digestSize;
+};
+
+
+/*
  * struct hse_signCtx - sign ops context
  *
  * @init:      check if op is running
@@ -108,6 +130,7 @@ struct globalCtx {
 	CK_TOKEN_INFO token;
 	struct hse_findCtx findCtx;
 	struct hse_cryptCtx cryptCtx;
+	struct hse_digestCtx digestCtx;
 	struct hse_signCtx signCtx;
 	list_t object_list;
 };
