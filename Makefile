@@ -2,11 +2,11 @@
 # Copyright 2021 NXP
 #
 
-PLATFORM ?= S32G274
+PLATFORM ?= S32G2
 FWTYPE ?= 0
-FWMAJOR ?= 0
-FWMINOR ?= 9
-FWPATCH ?= 2
+FWMAJOR ?= 1
+FWMINOR ?= 0
+FWPATCH ?= 0
 
 # Skip prerequisites check when invoking make clean
 ifeq ($(filter clean,$(MAKECMDGOALS)),$(strip $(MAKECMDGOALS)))
@@ -23,7 +23,7 @@ ifeq (,$(CROSS_COMPILE))
 endif
 
 ifeq (,$(HSE_FWDIR))
-    HSE_FWDIR ?= $(HOME)/HSE_$(PLATFORM)_$(FWTYPE)_$(FWMAJOR)_$(FWMINOR)_$(FWPATCH)
+    HSE_FWDIR ?= $(HOME)/HSE_FW_$(PLATFORM)_$(FWTYPE)_$(FWMAJOR)_$(FWMINOR)_$(FWPATCH)
     $(warning Path to HSE firmware package not defined, using default $(HSE_FWDIR))
 endif
 
