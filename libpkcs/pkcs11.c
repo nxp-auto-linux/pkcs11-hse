@@ -56,7 +56,7 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_SignInit =                           C_SignInit,
 	.C_Sign =                               C_Sign,
 	.C_VerifyInit =                         C_VerifyInit,
-	.C_Verify =                             C_Verify
+	.C_Verify =                             C_Verify,
 	.C_SeedRandom =                         C_SeedRandom,
 	.C_GenerateRandom =                     C_GenerateRandom
 };
@@ -212,7 +212,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_Finalize)(
 	list_destroy(&gCtx->objects);
 
 	gCtx->cryptokiInit = CK_FALSE;
-	gCtx->tokenInit = CK_FALSE;
 
 	return CKR_OK;
 }
@@ -466,10 +465,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_InitToken)(
 	CK_UTF8CHAR_PTR pLabel
 )
 {
-	struct globalCtx *gCtx = getCtx();
-
-	gCtx->tokenInit = CK_TRUE;
-
     return CKR_OK;
 }
 
@@ -523,9 +518,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)(
 
 	if ((Notify && !pApplication) || (!Notify && pApplication))
 		return CKR_ARGUMENTS_BAD;
-
-	if (!gCtx->tokenInit)
-		return CKR_TOKEN_NOT_RECOGNIZED;
 
 	if (flags & CKF_RW_SESSION) {
 		if (pToken->ulRwSessionCount >= pToken->ulMaxRwSessionCount)
