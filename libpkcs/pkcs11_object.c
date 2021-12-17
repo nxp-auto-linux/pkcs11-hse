@@ -102,7 +102,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	hseImportKeySrv_t *import_key_req;
 	hseKeyInfo_t *key_info;
 	uint32_t pkey0_len, pkey1_len, pkey2_len;
-	void *pkey0 = NULL, *pkey1 = NULL, *pkey2 = NULL, *ecc_oid;
+	void *pkey0 = NULL, *pkey1 = NULL, *pkey2 = NULL, *ecc_oid, *ec_point;
 	struct hse_keyObject *key, *keytemp;
 	CK_UTF8CHAR *labeltemp;
 	CK_BYTE *idtemp;
@@ -230,8 +230,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			import_key_req->pKey[0] = hse_virt_to_dma(pkey0); /* public modulus */
 			import_key_req->pKey[1] = hse_virt_to_dma(pkey1); /* public exponent */
 			import_key_req->pKey[2] = 0u;
-			import_key_req->keyLen[0] = getattr_len(pTemplate, CKA_MODULUS, ulCount);
-			import_key_req->keyLen[1] = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
+			import_key_req->keyLen[0] = pkey0_len;
+			import_key_req->keyLen[1] = pkey1_len;
 			import_key_req->keyLen[2] = 0u;
 
 			if (key->key_class == CKO_PRIVATE_KEY) {
@@ -248,23 +248,23 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				key_info->keyType = HSE_KEY_TYPE_RSA_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_dma(pkey2); /* private exponent */
-				import_key_req->keyLen[2] = getattr_len(pTemplate, CKA_PRIVATE_EXPONENT, ulCount);
+				import_key_req->keyLen[2] = pkey2_len;
 			}
 
 			break;
 		case CKK_EC:
 
-			pkey0_len = getattr_len(pTemplate, CKA_EC_POINT, ulCount);
+			/* bypass DER encoding header, we don't support it */
+			pkey0_len = getattr_len(pTemplate, CKA_EC_POINT, ulCount) - 3;
 			pkey0 = hse_mem_alloc(pkey0_len);
 			if (pkey0 == NULL) {
 				rc = CKR_HOST_MEMORY;
 				goto pkey0_err;
 			}
-			memcpy(pkey0, getattr_pval(pTemplate, CKA_EC_POINT, ulCount), pkey0_len);
+			ec_point = getattr_pval(pTemplate, CKA_EC_POINT, ulCount);
+			ec_point = (uint8_t *)ec_point + 3;
+			memcpy(pkey0, ec_point, pkey0_len);
 			
-			/* bypass DER encoding header, we don't support it */
-			pkey0 = (uint8_t *)pkey0 + 3;
-
 			ecc_oid = getattr_pval(pTemplate, CKA_EC_PARAMS, ulCount);
 			if (ecc_oid == NULL) {
 				rc = CKR_ARGUMENTS_BAD;
@@ -275,13 +275,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			key_info->keyFlags = HSE_KF_USAGE_VERIFY;
 			key_info->specific.eccCurveId = gethsecurveid((char *)ecc_oid);
 			key_info->keyBitLen = getkeybitlen(key_info->specific.eccCurveId);
-
 			key_info->keyType = HSE_KEY_TYPE_ECC_PUB;
 
 			import_key_req->pKey[0] = hse_virt_to_dma(pkey0); /* public x & y coords of ec */
 			import_key_req->pKey[1] = 0u;
 			import_key_req->pKey[2] = 0u;
-			import_key_req->keyLen[0] = getattr_len(pTemplate, CKA_EC_POINT, ulCount) - 3; /* bypass DER encoding header */
+			import_key_req->keyLen[0] = pkey0_len;
 			import_key_req->keyLen[1] = 0u;
 			import_key_req->keyLen[2] = 0u;
 
@@ -299,7 +298,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				key_info->keyType = HSE_KEY_TYPE_ECC_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_dma(pkey2); /* ec private scalar/order */
-				import_key_req->keyLen[2] = getattr_len(pTemplate, CKA_VALUE, ulCount);
+				import_key_req->keyLen[2] = pkey2_len;
 			}
 
 			break;
@@ -323,7 +322,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			import_key_req->pKey[2] = hse_virt_to_dma(pkey2); /* sym key */
 			import_key_req->keyLen[0] = 0u;
 			import_key_req->keyLen[1] = 0u;
-			import_key_req->keyLen[2] = getattr_len(pTemplate, CKA_VALUE, ulCount);
+			import_key_req->keyLen[2] = pkey2_len;
 
 			break;
 		default:
