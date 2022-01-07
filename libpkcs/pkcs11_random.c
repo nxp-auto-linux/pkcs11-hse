@@ -32,27 +32,19 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 	int err;
 	CK_RV rc = CKR_OK;
 
-	if (gCtx->cryptokiInit == CK_FALSE) {
-		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
 	if (pRandomData == NULL || ulRandomLen < 32 ||
-			ulRandomLen > 2048 || ulRandomLen % 4 != 0) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto gen_err;
-	}
+			ulRandomLen > 2048 || ulRandomLen % 4 != 0)
+		return CKR_ARGUMENTS_BAD;
 
-	if (hSession != SESSION_ID) {
-		rc = CKR_SESSION_HANDLE_INVALID;
-		goto gen_err;
-	}
+	if (hSession != SESSION_ID)
+		return CKR_SESSION_HANDLE_INVALID;
 
 	rng_output = hse_mem_alloc(ulRandomLen);
-	if (rng_output == NULL) {
-		rc = CKR_HOST_MEMORY;
-		goto gen_err;
-	}
+	if (rng_output == NULL)
+		return CKR_HOST_MEMORY;
 
 	rng_req = &srv_desc.hseSrv.getRandomNumReq;
 	
@@ -64,13 +56,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto req_err;
+		goto err_free_output;
 	}
 
 	memcpy(pRandomData, rng_output, ulRandomLen);
 
-req_err:
+err_free_output:
 	hse_mem_free(rng_output);
-gen_err:
 	return rc;
 }

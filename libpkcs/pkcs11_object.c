@@ -109,48 +109,40 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx->cryptokiInit == CK_FALSE) {
-		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (pTemplate == NULL || ulCount == 0) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto gen_err;
-	}
+	if (pTemplate == NULL || ulCount == 0)
+		return CKR_ARGUMENTS_BAD;
 
-	if (hSession != SESSION_ID) {
-		rc = CKR_SESSION_HANDLE_INVALID;
-		goto gen_err;
-	}
+	if (hSession != SESSION_ID)
+		return CKR_SESSION_HANDLE_INVALID;
 
 	key_info = (hseKeyInfo_t *)hse_mem_alloc(sizeof(hseKeyInfo_t));
-	if (key_info == NULL) {
-		rc = CKR_HOST_MEMORY;
-		goto gen_err;
-	}
+	if (key_info == NULL)
+		return CKR_HOST_MEMORY;
 
 	key = malloc(sizeof(*key));
 	if (key == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto key_err;
+		goto err_free_key_info;
 	}
 
 	/* get key data and create key object struct */
 	key->id_len = getattr_len(pTemplate, CKA_ID, ulCount);
 	if (!key->id_len) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto key_err;
+		goto err_free_key;
 	}
 	key->id = malloc(key->id_len);
 	if (key->id == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto id_err;
+		goto err_free_key;
 	}
 	idtemp = (CK_BYTE *)getattr_pval(pTemplate, CKA_ID, ulCount);
 	if (idtemp == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto id_err;
+		goto err_free_key_id;
 	}
 	memcpy(key->id, idtemp, key->id_len);
 
@@ -158,14 +150,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 	if ((CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount) == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto id_err;
+		goto err_free_key_id;
 	} else {
 		key->key_type = *(CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount);
 	}
 
 	if ((CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount) == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto id_err;
+		goto err_free_key_id;
 	} else {
 		key->key_class = *(CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
 	}
@@ -173,17 +165,17 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	key->label_len = getattr_len(pTemplate, CKA_LABEL, ulCount);
 	if (!key->label_len) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto id_err;
+		goto err_free_key_id;
 	}
 	key->label = (CK_UTF8CHAR *)malloc(key->label_len);
 	if (key->label == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto label_err;
+		goto err_free_key_id;
 	}
 	labeltemp = (CK_UTF8CHAR *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
 	if (labeltemp == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto label_err;
+		goto err_free_key_label;
 	}
 	memcpy(key->label, labeltemp, key->label_len);
 
@@ -216,24 +208,24 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			pkey0_len = getattr_len(pTemplate, CKA_MODULUS, ulCount);
 			if (!pkey0_len) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto label_err;
+				goto err_free_key_label;
 			}
 			pkey0 = hse_mem_alloc(pkey0_len);
 			if (pkey0 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto pkey0_err;
+				goto err_free_key_label;
 			}
 			memcpy(pkey0, getattr_pval(pTemplate, CKA_MODULUS, ulCount), pkey0_len);
 
 			pkey1_len = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
 			if (!pkey1_len) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto pkey0_err;
+				goto err_free_pkey0;
 			}
 			pkey1 = hse_mem_alloc(pkey1_len);
 			if (pkey1 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto pkey1_err;
+				goto err_free_pkey0;
 			}
 			memcpy(pkey1, getattr_pval(pTemplate, CKA_PUBLIC_EXPONENT, ulCount), pkey1_len);
 
@@ -255,12 +247,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				pkey2_len = getattr_len(pTemplate, CKA_PRIVATE_EXPONENT, ulCount);
 				if (!pkey2_len) {
 					rc = CKR_ARGUMENTS_BAD;
-					goto pkey1_err;
+					goto err_free_pkey1;
 				}
 				pkey2 = hse_mem_alloc(pkey2_len);
 				if (pkey2 == NULL) {
 					rc = CKR_HOST_MEMORY;
-					goto pkey2_err;
+					goto err_free_pkey1;
 				}
 				memcpy(pkey2, getattr_pval(pTemplate, CKA_PRIVATE_EXPONENT, ulCount), pkey2_len);
 
@@ -277,7 +269,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			pkey0_len = getattr_len(pTemplate, CKA_EC_POINT, ulCount);
 			if (pkey0_len < 3) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto label_err;
+				goto err_free_key_label;
 			}
 
 			/* bypass DER encoding header, we don't support it */
@@ -285,7 +277,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			pkey0 = hse_mem_alloc(pkey0_len);
 			if (pkey0 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto pkey0_err;
+				goto err_free_key_label;
 			}
 			ec_point = getattr_pval(pTemplate, CKA_EC_POINT, ulCount);
 			ec_point = (uint8_t *)ec_point + 3;
@@ -294,7 +286,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			ecc_oid = getattr_pval(pTemplate, CKA_EC_PARAMS, ulCount);
 			if (ecc_oid == NULL) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto pkey0_err;
+				goto err_free_pkey0;
 			}
 
 			/* ecc keys can only be used for sign/verify */
@@ -315,12 +307,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
 				if (!pkey2_len) {
 					rc = CKR_ARGUMENTS_BAD;
-					goto pkey0_err;
+					goto err_free_pkey0;
 				}
 				pkey2 = hse_mem_alloc(pkey2_len);
 				if (pkey2 == NULL) {
 					rc = CKR_HOST_MEMORY;
-					goto pkey2_err;
+					goto err_free_pkey0;
 				}
 				memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
 
@@ -337,12 +329,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
 			if (!pkey2_len) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto label_err;
+				goto err_free_key_label;
 			}
 			pkey2 = hse_mem_alloc(pkey2_len);
 			if (pkey2 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto pkey2_err;
+				goto err_free_key_label;
 			}
 			memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
 
@@ -361,13 +353,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto req_err;
+			goto err_free_key_label;
 	}
 
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto req_err;
+		goto err_free_pkey2;
 	}
 
 	*phObject = key->key_handle;
@@ -380,21 +372,20 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	hse_mem_free(key_info);
 
 	return CKR_OK;
-req_err:
+err_free_pkey2:
 	hse_mem_free(pkey2);
-pkey2_err:
+err_free_pkey1:
 	hse_mem_free(pkey1);
-pkey1_err:
+err_free_pkey0:
 	hse_mem_free(pkey0);
-pkey0_err:
+err_free_key_label:
 	free(key->label);
-label_err:
+err_free_key_id:
 	free(key->id);
-id_err:
+err_free_key:
 	free(key);
-key_err:
+err_free_key_info:
 	hse_mem_free(key_info);
-gen_err:
 	return rc;
 }
 

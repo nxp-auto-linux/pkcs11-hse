@@ -61,52 +61,42 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx->cryptokiInit == CK_FALSE) {
-		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx->cryptCtx.init == CK_FALSE) {
-		rc = CKR_OPERATION_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (gCtx->cryptCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
 
-	if (hSession != SESSION_ID) {
-		rc = CKR_SESSION_HANDLE_INVALID;
-		goto gen_err;
-	}
+	if (hSession != SESSION_ID)
+		return CKR_SESSION_HANDLE_INVALID;
 
-	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto gen_err;
-	}
+	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL)
+		return CKR_ARGUMENTS_BAD;
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->cryptCtx.keyHandle);
 
 	input = hse_mem_alloc(ulDataLen);
-	if (input == NULL) {
-		rc = CKR_HOST_MEMORY;
-		goto gen_err;
-	}
+	if (input == NULL) 
+		return CKR_HOST_MEMORY;
 	memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto output_len_err;
+		goto err_free_input;
 	}
 	memcpy(output_len, pulEncryptedDataLen, sizeof(uint32_t));
 	output = hse_mem_alloc(*(uint32_t *)output_len);
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto output_err;
+		goto err_free_output_len;
 	}
 
 	if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
 		pIV = hse_mem_alloc(gCtx->cryptCtx.mechanism->ulParameterLen);
 		if (pIV == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto piv_err;
+			goto err_free_output;
 		}
 		memcpy(pIV, gCtx->cryptCtx.mechanism->pParameter, gCtx->cryptCtx.mechanism->ulParameterLen);
 	}
@@ -159,27 +149,26 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto req_err;
+			goto err_free_piv;
 	}
 
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto req_err;
+		goto err_free_piv;
 	}
 
 	memcpy(pEncryptedData, output, *(uint32_t *)output_len);
 	memcpy(pulEncryptedDataLen, output_len, sizeof(uint32_t));
 
-req_err:
+err_free_piv:
 	hse_mem_free(pIV);
-piv_err:
+err_free_output:
 	hse_mem_free(output);
-output_err:
+err_free_output_len:
 	hse_mem_free(output_len);
-output_len_err:
+err_free_input:
 	hse_mem_free(input);
-gen_err:
 	return rc;
 }
 
@@ -235,52 +224,42 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx->cryptokiInit == CK_FALSE) {
-		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx->cryptCtx.init == CK_FALSE) {
-		rc = CKR_OPERATION_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (gCtx->cryptCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
 
-	if (hSession != SESSION_ID) {
-		rc = CKR_SESSION_HANDLE_INVALID;
-		goto gen_err;
-	}
+	if (hSession != SESSION_ID)
+		return CKR_SESSION_HANDLE_INVALID;
 
-	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto gen_err;
-	}
+	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL)
+		return CKR_ARGUMENTS_BAD;
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->cryptCtx.keyHandle);
 
 	input = hse_mem_alloc(ulEncryptedDataLen);
-	if (input == NULL) {
-		rc = CKR_HOST_MEMORY;
-		goto gen_err;
-	}
+	if (input == NULL)
+		return CKR_HOST_MEMORY;
 	memcpy(input, pEncryptedData, ulEncryptedDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto output_len_err;
+		goto err_free_input;
 	}
 	memcpy(output_len, pulDataLen, sizeof(uint32_t));
 	output = hse_mem_alloc(*(uint32_t *)output_len);
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto output_err;
+		goto err_free_output_len;
 	}
 
 	if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
 		pIV = hse_mem_alloc(gCtx->cryptCtx.mechanism->ulParameterLen);
 		if (pIV == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto piv_err;
+			goto err_free_output;
 		}
 		memcpy(pIV, gCtx->cryptCtx.mechanism->pParameter, gCtx->cryptCtx.mechanism->ulParameterLen);
 	}
@@ -333,27 +312,26 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto req_err;
+			goto err_free_piv;
 	}
 
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto req_err;
+		goto err_free_piv;
 	}
 
 	memcpy(pData, output, *(uint32_t *)output_len);
 	memcpy(pulDataLen, output_len, sizeof(uint32_t));
 
-req_err:
+err_free_piv:
 	hse_mem_free(pIV);
-piv_err:
+err_free_output:
 	hse_mem_free(output);
-output_err:
+err_free_output_len:
 	hse_mem_free(output_len);
-output_len_err:
+err_free_input:
 	hse_mem_free(input);
-gen_err:
 	return rc;
 }
 
@@ -404,10 +382,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx->cryptokiInit == CK_FALSE) {
-		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
@@ -430,16 +406,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
 
 	input = hse_mem_alloc(ulDataLen);
-	if (input == NULL) {
-		rc = CKR_HOST_MEMORY;
-		goto gen_err;
-	}
+	if (input == NULL)
+		return CKR_HOST_MEMORY;
 	memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto output_len_err;
+		goto err_free_input;
 	}
 	memcpy(output_len, pulSignatureLen, sizeof(uint32_t));
 
@@ -452,7 +426,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 			sign0 = hse_mem_alloc(*(uint32_t *)output_len);
 			if (sign0 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto sign0_err;
+				goto err_free_output_len;
 			}
 
 			sign_scheme->signSch = HSE_SIGN_RSASSA_PKCS1_V15;
@@ -474,12 +448,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 			sign0 = hse_mem_alloc(*(uint32_t *)output_len);
 			if (sign0 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto sign0_err;
+				goto err_free_output_len;
 			}
 			sign1 = hse_mem_alloc(*(uint32_t *)output_len);
 			if (sign1 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto sign1_err;
+				goto err_free_sign0;
 			}
 
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
@@ -493,7 +467,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto req_err;
+			goto err_free_output_len;
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_SIGN;
@@ -509,7 +483,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto req_err;
+		goto err_free_sign1;
 	}
 
 	switch (gCtx->signCtx.mechanism->mechanism) {
@@ -531,18 +505,17 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto req_err;
+			goto err_free_sign1;
 	}
 
-req_err:
+err_free_sign1:
 	hse_mem_free(sign1);
-sign1_err:
+err_free_sign0:
 	hse_mem_free(sign0);
-sign0_err:
+err_free_output_len:
 	hse_mem_free(output_len);
-output_len_err:
+err_free_input:
 	hse_mem_free(input);
-gen_err:
 	return rc;
 }
 
@@ -593,10 +566,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	CK_RV rc = CKR_OK;
 	int err;
 
-	if (gCtx->cryptokiInit == CK_FALSE) {
-		rc = CKR_CRYPTOKI_NOT_INITIALIZED;
-		goto gen_err;
-	}
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
@@ -613,22 +584,20 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	if (ulSignatureLen == 0)
 		return CKR_SIGNATURE_LEN_RANGE;
 
-	if (gCtx->signCtx.init == CK_FALSE)
+	if (gCtx->signCtx.init == CK_FALSE) 
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
 
 	input = hse_mem_alloc(ulDataLen);
-	if (input == NULL) {
-		rc = CKR_HOST_MEMORY;
-		goto gen_err;
-	}
+	if (input == NULL)
+		return CKR_HOST_MEMORY;
 	memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto output_len_err;
+		goto err_free_input;
 	}
 	memcpy(output_len, &ulSignatureLen, sizeof(uint32_t));
 
@@ -641,7 +610,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 			sign0 = hse_mem_alloc(ulSignatureLen);
 			if (sign0 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto sign0_err;
+				goto err_free_output_len;
 			}
 			memcpy(sign0, pSignature, ulSignatureLen);
 
@@ -664,12 +633,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 			sign0 = hse_mem_alloc(*(uint32_t *)output_len);
 			if (sign0 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto sign0_err;
+				goto err_free_output_len;
 			}
 			sign1 = hse_mem_alloc(*(uint32_t *)output_len);
 			if (sign1 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto sign1_err;
+				goto err_free_sign0;
 			}
 			memcpy(sign0, pSignature, *(uint32_t *)output_len);
 			memcpy(sign1, pSignature + *(uint32_t *)output_len, *(uint32_t *)output_len);
@@ -684,7 +653,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto req_err;
+			goto err_free_output_len;
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_SIGN;
@@ -700,21 +669,20 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
 	if (err == EBADMSG) {
 		rc = CKR_SIGNATURE_INVALID;
-		goto req_err;
+		goto err_free_sign1;
 	} else {
 		rc = CKR_FUNCTION_FAILED;
-		goto req_err;
+		goto err_free_sign1;
 	}
 
-req_err:
+err_free_sign1:
 	hse_mem_free(sign1);
-sign1_err:
+err_free_sign0:
 	hse_mem_free(sign0);
-sign0_err:
+err_free_output_len:
 	hse_mem_free(output_len);
-output_len_err:
+err_free_input:
 	hse_mem_free(input);
-gen_err:
 	return rc;
 }
 
