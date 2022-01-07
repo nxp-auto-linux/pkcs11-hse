@@ -87,7 +87,7 @@ static CK_ULONG getattr_len(CK_ATTRIBUTE_PTR template,
 		}
 	}
 
-	return -1;
+	return 0;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
@@ -138,6 +138,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 	/* get key data and create key object struct */
 	key->id_len = getattr_len(pTemplate, CKA_ID, ulCount);
+	if (!key->id_len) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto key_err;
+	}
 	key->id = malloc(key->id_len);
 	if (key->id == NULL) {
 		rc = CKR_HOST_MEMORY;
@@ -167,6 +171,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	}
 
 	key->label_len = getattr_len(pTemplate, CKA_LABEL, ulCount);
+	if (!key->label_len) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto id_err;
+	}
 	key->label = (CK_UTF8CHAR *)malloc(key->label_len);
 	if (key->label == NULL) {
 		rc = CKR_HOST_MEMORY;
@@ -206,6 +214,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		case CKK_RSA:
 
 			pkey0_len = getattr_len(pTemplate, CKA_MODULUS, ulCount);
+			if (!pkey0_len) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto label_err;
+			}
 			pkey0 = hse_mem_alloc(pkey0_len);
 			if (pkey0 == NULL) {
 				rc = CKR_HOST_MEMORY;
@@ -214,6 +226,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			memcpy(pkey0, getattr_pval(pTemplate, CKA_MODULUS, ulCount), pkey0_len);
 
 			pkey1_len = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
+			if (!pkey1_len) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto pkey0_err;
+			}
 			pkey1 = hse_mem_alloc(pkey1_len);
 			if (pkey1 == NULL) {
 				rc = CKR_HOST_MEMORY;
@@ -223,8 +239,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 			/* rsa can be used for sign/verify */
 			key_info->keyFlags = HSE_KF_USAGE_VERIFY;
-			key_info->keyBitLen = getattr_len(pTemplate, CKA_MODULUS, ulCount) * 8;
-			key_info->specific.pubExponentSize = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
+			key_info->keyBitLen = pkey0_len * 8;
+			key_info->specific.pubExponentSize = pkey1_len;
 			key_info->keyType = HSE_KEY_TYPE_RSA_PUB;
 
 			import_key_req->pKey[0] = hse_virt_to_dma(pkey0); /* public modulus */
@@ -237,6 +253,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			if (key->key_class == CKO_PRIVATE_KEY) {
 
 				pkey2_len = getattr_len(pTemplate, CKA_PRIVATE_EXPONENT, ulCount);
+				if (!pkey2_len) {
+					rc = CKR_ARGUMENTS_BAD;
+					goto pkey1_err;
+				}
 				pkey2 = hse_mem_alloc(pkey2_len);
 				if (pkey2 == NULL) {
 					rc = CKR_HOST_MEMORY;
@@ -254,8 +274,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			break;
 		case CKK_EC:
 
+			pkey0_len = getattr_len(pTemplate, CKA_EC_POINT, ulCount);
+			if (pkey0_len < 3) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto label_err;
+			}
+
 			/* bypass DER encoding header, we don't support it */
-			pkey0_len = getattr_len(pTemplate, CKA_EC_POINT, ulCount) - 3;
+			pkey0_len = pkey0_len - 3;
 			pkey0 = hse_mem_alloc(pkey0_len);
 			if (pkey0 == NULL) {
 				rc = CKR_HOST_MEMORY;
@@ -287,6 +313,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			if (key->key_class == CKO_PRIVATE_KEY) {
 
 				pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
+				if (!pkey2_len) {
+					rc = CKR_ARGUMENTS_BAD;
+					goto pkey0_err;
+				}
 				pkey2 = hse_mem_alloc(pkey2_len);
 				if (pkey2 == NULL) {
 					rc = CKR_HOST_MEMORY;
@@ -305,6 +335,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		case CKK_AES:
 
 			pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
+			if (!pkey2_len) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto label_err;
+			}
 			pkey2 = hse_mem_alloc(pkey2_len);
 			if (pkey2 == NULL) {
 				rc = CKR_HOST_MEMORY;
@@ -314,7 +348,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 			/* aes keys can only be used for encrypt/decrypt */
 			key_info->keyFlags = (HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT);
-			key_info->keyBitLen = getattr_len(pTemplate, CKA_VALUE, ulCount) * 8;
+			key_info->keyBitLen = pkey2_len * 8;
 			key_info->keyType = HSE_KEY_TYPE_AES;
 
 			import_key_req->pKey[0] = 0u;
