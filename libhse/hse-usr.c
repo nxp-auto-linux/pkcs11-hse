@@ -2,7 +2,7 @@
 /*
  * NXP HSE User Space Driver - Core
  *
- * Copyright 2019-2021 NXP
+ * Copyright 2019-2022 NXP
  */
 
 #include <stdio.h>
@@ -97,13 +97,11 @@ struct hse_mu_regs {
  * @ready[n]: reply ready on channel n
  * @reply[n]: service response on channel n
  * @event: HSE system event mask
- * @reserved_end: placeholder for the end of reserved area
  */
 struct hse_uio_intl {
 	volatile uint8_t ready[HSE_NUM_CHANNELS];
 	volatile uint32_t reply[HSE_NUM_CHANNELS];
 	volatile uint32_t event;
-	uint8_t reserved_end __attribute__((aligned(16)));
 } __attribute__((packed));
 
 /**
@@ -115,7 +113,6 @@ struct hse_uio_intl {
  * @desc_size: service descriptor space size
  * @intl: driver internal shared memory address
  * @intl_size: driver internal shared memory size
- * @shared: driver internal shared memory address
  * @rmem: HSE reserved memory virtual address
  * @rmem_dma: HSE reserved memory DMA address
  * @rmem_size: HSE reserved memory size
@@ -131,7 +128,6 @@ static struct hse_usr_priv {
 	uint64_t desc_size;
 	struct hse_uio_intl *intl;
 	uint64_t intl_size;
-	struct hse_uio_intl *shared;
 	void *rmem;
 	uint64_t rmem_dma;
 	uint64_t rmem_size;
@@ -183,6 +179,9 @@ static inline int hse_err_decode(uint32_t srv_rsp)
  */
 uint16_t hse_check_status(void)
 {
+	if(!priv.init)
+		return 0;
+
 	return (uint16_t)(priv.regs->fsr >> 16u);
 }
 
@@ -282,21 +281,21 @@ int hse_srv_req_sync(uint8_t channel, const void *srv_desc)
 		return err;
 	}
 	ssize_t rc = read(priv.fd, &status, sizeof(status));
-	if (rc != sizeof(status) || priv.shared->ready[channel] == 0) {
+	if (rc != sizeof(status) || priv.intl->ready[channel] == 0) {
 		printf("hse: read response failed on channel %d\n", channel);
 		err = ENOMSG;
 		goto exit;
 	}
 
-	err = hse_err_decode(priv.shared->reply[channel]);
+	err = hse_err_decode(priv.intl->reply[channel]);
 	if (err) {
 		printf("hse: service response 0x%08X on channel %d\n",
-		       priv.shared->reply[channel], channel);
+		       priv.intl->reply[channel], channel);
 		goto exit;
 	}
 
-	priv.shared->ready[channel] = 0;
-	priv.shared->reply[channel] = 0;
+	priv.intl->ready[channel] = 0;
+	priv.intl->reply[channel] = 0;
 
 exit:
 	priv.channel_busy[channel] = false;
@@ -442,17 +441,16 @@ int hse_dev_open(void)
 		err = ENXIO;
 		goto err_unmap_intl;
 	}
-	priv.shared = priv.rmem;
 
 	/* manage channels */
 	for (i = 0; i < HSE_NUM_CHANNELS; i++) {
-		priv.shared->ready[i] = 0;
-		priv.shared->reply[i] = 0;
+		priv.intl->ready[i] = 0;
+		priv.intl->reply[i] = 0;
 		priv.channel_busy[i] = false;
 	}
 
-	/* init mem pool */
-	if (hse_mem_init(&priv.shared->reserved_end, priv.rmem_size - sizeof(struct hse_uio_intl))) {
+	/* initialize reserved memory as buffer pool */
+	if (hse_mem_init(priv.rmem, priv.rmem_size)) {
 		printf("hse: failed to init mem pool\n");
 		err = ENOMEM;
 		goto err_unmap_intl;
@@ -464,6 +462,7 @@ int hse_dev_open(void)
 	if (!(status & HSE_STATUS_INIT_OK)) {
 		printf("hse: firmware not found");
 		err = ENODEV;
+		priv.init = false;
 		goto err_unmap_intl;
 	}
 	printf("hse: device initialized, status 0x%04x\n", status);
@@ -497,8 +496,8 @@ void hse_dev_close(void)
 	munmap(priv.desc, priv.desc_size);
 	munmap(priv.regs, priv.regs_size);
 
-	priv.init = false;
-
 	/* close device */
 	close(priv.fd);
+
+	priv.init = false;
 }
