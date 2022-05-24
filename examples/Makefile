@@ -38,12 +38,15 @@ INCLUDE2 := -I$(LIBHSE_SRCDIR) \
 LIBS ?= -L$(OPENSSL_DIR)/lib \
 	-L$(LIBP11_DIR)/lib
 
-all: pkcs-keyop hse-encrypt
+all: pkcs-keyop hse-encrypt hse-sysimg
 
 pkcs-keyop: pkcs-keyop.c
 	$(CROSS_COMPILE)gcc $(LIBS) $(INCLUDE1) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 hse-encrypt: hse-encrypt.c
+	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) $(INCLUDE2) $(CFLAGS) $^ -o $@ -lhse
+
+hse-sysimg: hse-sysimg.c
 	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) $(INCLUDE2) $(CFLAGS) $^ -o $@ -lhse
 
 clean:

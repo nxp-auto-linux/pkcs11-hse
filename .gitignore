@@ -1,4 +1,6 @@
 examples/pkcs-keyop
+examples/hse-sysimg
+examples/hse-encrypt
 *.so*
 libhse/obj
 libpkcs/obj
