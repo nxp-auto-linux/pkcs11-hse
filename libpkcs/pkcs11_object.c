@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021 NXP
+ * Copyright 2021-2022 NXP
  */
 
 #include <stdio.h>
@@ -9,6 +9,8 @@
 
 #include "pkcs11_context.h"
 #include "simclist.h"
+#include "hse-internal.h"
+
 
 static uint16_t getkeybitlen(hseEccCurveId_t eccCurveId)
 {
@@ -103,9 +105,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	hseKeyInfo_t *key_info;
 	uint32_t pkey0_len, pkey1_len, pkey2_len;
 	void *pkey0 = NULL, *pkey1 = NULL, *pkey2 = NULL, *ecc_oid, *ec_point;
-	struct hse_keyObject *key, *keytemp;
-	CK_UTF8CHAR *labeltemp;
+	struct hse_keyObject *key;
 	CK_BYTE *idtemp;
+	CK_ULONG id_len;
 	CK_RV rc = CKR_OK;
 	int err;
 
@@ -118,80 +120,58 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
 
+	/* error if id_len doesn't conform to hse expectations */
+	if (getattr_len(pTemplate, CKA_ID, ulCount) > 3)
+		return CKR_ARGUMENTS_BAD;
+
 	key_info = (hseKeyInfo_t *)hse_mem_alloc(sizeof(hseKeyInfo_t));
 	if (key_info == NULL)
 		return CKR_HOST_MEMORY;
 
-	key = malloc(sizeof(*key));
+	key = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
 	if (key == NULL) {
 		rc = CKR_HOST_MEMORY;
 		goto err_free_key_info;
 	}
 
-	/* get key data and create key object struct */
-	key->id_len = getattr_len(pTemplate, CKA_ID, ulCount);
-	if (!key->id_len) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key;
-	}
-	key->id = malloc(key->id_len);
-	if (key->id == NULL) {
-		rc = CKR_HOST_MEMORY;
-		goto err_free_key;
-	}
+	id_len = getattr_len(pTemplate, CKA_ID, ulCount);
+	if (!id_len || id_len != 3)
+		return CKR_ARGUMENTS_BAD;
+
 	idtemp = (CK_BYTE *)getattr_pval(pTemplate, CKA_ID, ulCount);
 	if (idtemp == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_id;
+		goto err_free_key_intl;
 	}
-	memcpy(key->id, idtemp, key->id_len);
 
-	key->key_handle = GET_KEY_HANDLE(key->id[2], key->id[1], key->id[0]);
+	/* get key data and create key object struct */
+	key->key_handle = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
 
 	if ((CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount) == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_id;
+		goto err_free_key_intl;
 	} else {
 		key->key_type = *(CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount);
 	}
 
 	if ((CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount) == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_id;
+		goto err_free_key_intl;
 	} else {
 		key->key_class = *(CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
 	}
 
-	key->label_len = getattr_len(pTemplate, CKA_LABEL, ulCount);
-	if (!key->label_len) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_id;
-	}
-	key->label = (CK_UTF8CHAR *)malloc(key->label_len);
-	if (key->label == NULL) {
-		rc = CKR_HOST_MEMORY;
-		goto err_free_key_id;
-	}
-	labeltemp = (CK_UTF8CHAR *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
-	if (labeltemp == NULL) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_label;
-	}
-	memcpy(key->label, labeltemp, key->label_len);
-
 	/* check if key is already in nvm catalog */
-	if (key->id[2] == 1) {
-		keytemp = (struct hse_keyObject *)list_seek(&gCtx->objects, &key->key_handle);
-		if (keytemp) {
-			key->nvm_ctr = keytemp->nvm_ctr + 1;
-			/* just delete the old one */
-			list_delete(&gCtx->objects, keytemp);
+	if (idtemp[2] == 1) {
+		if (list_seek(&gCtx->object_list, &key->key_handle) != NULL) {
+			printf("ERROR: NVM Slot is already occupied.");
+			printf(" The slot should be cleared, before a new key can be added\n");
+			rc = CKR_ARGUMENTS_BAD;
+			goto err_free_key_intl;
 		}
-	} else {
-		key->nvm_ctr = 0ul;
 	}
 
-	key_info->keyCounter = key->nvm_ctr;
+	key_info->keyCounter = 0;
 	key_info->smrFlags = 0ul;
 
 	import_key_req = &srv_desc.hseSrv.importKeyReq;
@@ -208,12 +188,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			pkey0_len = getattr_len(pTemplate, CKA_MODULUS, ulCount);
 			if (!pkey0_len) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto err_free_key_label;
+				goto err_free_key_intl;
 			}
 			pkey0 = hse_mem_alloc(pkey0_len);
 			if (pkey0 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto err_free_key_label;
+				goto err_free_key_intl;
 			}
 			memcpy(pkey0, getattr_pval(pTemplate, CKA_MODULUS, ulCount), pkey0_len);
 
@@ -269,7 +249,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			pkey0_len = getattr_len(pTemplate, CKA_EC_POINT, ulCount);
 			if (pkey0_len < 3) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto err_free_key_label;
+				goto err_free_key_intl;
 			}
 
 			/* bypass DER encoding header, we don't support it */
@@ -277,7 +257,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			pkey0 = hse_mem_alloc(pkey0_len);
 			if (pkey0 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto err_free_key_label;
+				goto err_free_key_intl;
 			}
 			ec_point = getattr_pval(pTemplate, CKA_EC_POINT, ulCount);
 			ec_point = (uint8_t *)ec_point + 3;
@@ -329,12 +309,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
 			if (!pkey2_len) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto err_free_key_label;
+				goto err_free_key_intl;
 			}
 			pkey2 = hse_mem_alloc(pkey2_len);
 			if (pkey2 == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto err_free_key_label;
+				goto err_free_key_intl;
 			}
 			memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
 
@@ -353,7 +333,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_key_label;
+			goto err_free_key_intl;
 	}
 
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
@@ -363,8 +343,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	}
 
 	*phObject = key->key_handle;
-
-	list_append(&gCtx->objects, key);
+	list_append(&gCtx->object_list, key);
 
 	hse_mem_free(pkey2);
 	hse_mem_free(pkey1);
@@ -372,18 +351,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	hse_mem_free(key_info);
 
 	return CKR_OK;
+
 err_free_pkey2:
 	hse_mem_free(pkey2);
 err_free_pkey1:
 	hse_mem_free(pkey1);
 err_free_pkey0:
 	hse_mem_free(pkey0);
-err_free_key_label:
-	free(key->label);
-err_free_key_id:
-	free(key->id);
-err_free_key:
-	free(key);
+err_free_key_intl:
+	hse_intl_mem_free(key);
 err_free_key_info:
 	hse_mem_free(key_info);
 	return rc;
@@ -405,7 +381,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	pkey = (struct hse_keyObject *)list_seek(&gCtx->objects, &hObject);
+	pkey = (struct hse_keyObject *)list_seek(&gCtx->object_list, &hObject);
 	if (pkey == NULL)
 		return CKR_OBJECT_HANDLE_INVALID;
 
@@ -417,8 +393,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 	if (err)
 		return CKR_FUNCTION_FAILED;
 
-	if (list_delete(&gCtx->objects, pkey) != 0)
+	if (list_delete(&gCtx->object_list, pkey) != 0)
 		return CKR_FUNCTION_FAILED;
+
+	hse_intl_mem_free(pkey);
 
 	return CKR_OK;
 }
@@ -448,7 +426,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)(
 	}
 
 	gCtx->findCtx.init = CK_TRUE;
-	list_iterator_start(&gCtx->objects);
+	list_iterator_start(&gCtx->object_list);
 
 	return CKR_OK;
 }
@@ -477,7 +455,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 	if (phObject == NULL || ulMaxObjectCount == 0 || pulObjectCount == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (!list_iterator_hasnext(&gCtx->objects)) {
+	if (!list_iterator_hasnext(&gCtx->object_list)) {
 		*pulObjectCount = 0;
 		return CKR_OK;
 	}
@@ -485,16 +463,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 	finder = &gCtx->findCtx;
 	i = 0;
 	do {
-		key = (struct hse_keyObject *)list_iterator_next(&gCtx->objects);
+		key = (struct hse_keyObject *)list_iterator_next(&gCtx->object_list);
 
 		if (finder->obj_class == NULL || key->key_class == *finder->obj_class) {
 			phObject[i] = key->key_handle;
 			i++;
 		}
 
-		if (i > ulMaxObjectCount)
+		if (i >= ulMaxObjectCount)
 			break;
-	} while (list_iterator_hasnext(&gCtx->objects));
+	} while (list_iterator_hasnext(&gCtx->object_list));
 
 	*pulObjectCount = i;
 
@@ -517,7 +495,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsFinal)(
 		return CKR_SESSION_HANDLE_INVALID;
 
 	gCtx->findCtx.init = CK_FALSE;
-	list_iterator_stop(&gCtx->objects);
+	list_iterator_stop(&gCtx->object_list);
 
 	return CKR_OK;
 }

@@ -2,7 +2,7 @@
 /*
  * NXP HSE Userspace Driver - Memory Management
  *
- * Copyright 2021 NXP
+ * Copyright 2021-2022 NXP
  */
 
 #include <stdio.h>
@@ -12,13 +12,45 @@
 #include "hse-internal.h"
 
 #define ALIGNMENT 16
+#define HSE_NODE_SIZE sizeof(struct node_data)
+
+struct node_data {
+	uint32_t size;
+	uint8_t used;
+	uint8_t reserved[3];
+	struct node_data *next;
+} __attribute__((packed));
 
 static struct node_data *mem_start;
 static struct node_data *intl_mem_start;
+static struct node_data *iter;
 
-struct node_data *hse_get_intl_mem_node()
+void hse_intl_iterstart()
 {
-	return intl_mem_start;
+	iter = intl_mem_start;
+}
+
+bool hse_intl_hasnext()
+{
+	while ((iter->next != NULL) && (!iter->next->used))
+		iter = iter->next;
+
+	return (iter->next != NULL) ? true : false;
+}
+
+uint8_t *hse_intl_next()
+{
+	struct node_data *to_ret;
+
+	to_ret = iter->next;
+	iter = iter->next;
+
+	return (uint8_t *)to_ret + HSE_NODE_SIZE;
+}
+
+void hse_intl_iterstop()
+{
+	iter = NULL;
 }
 
 int hse_mem_init(void *base_addr, uint64_t mem_size, bool intl)
@@ -63,7 +95,8 @@ void *_hse_mem_alloc(size_t size, bool intl)
 
 	while (curr_block) {
 		/* check if curr_block fits */
-		if ((curr_block->size >= (size + HSE_NODE_SIZE)) &&
+		if ((!curr_block->used) &&
+		    (curr_block->size >= (size + HSE_NODE_SIZE)) &&
 		    (curr_block->size <= best_block_size)) {
 			best_block = curr_block;
 			best_block_size = curr_block->size;
@@ -77,6 +110,9 @@ void *_hse_mem_alloc(size_t size, bool intl)
 		best_block->size = best_block->size - size - HSE_NODE_SIZE;
 		alloc_block = (struct node_data *)((uint8_t *)best_block + HSE_NODE_SIZE + best_block->size);
 		alloc_block->size = size;
+		alloc_block->used = true;
+		alloc_block->next = best_block->next;
+		best_block->next = alloc_block;
 
 		return (void *)((uint8_t *)alloc_block + HSE_NODE_SIZE);
 	}
@@ -108,6 +144,8 @@ void _hse_mem_free(void *addr, bool intl)
 	if (free_block == NULL)
 		return;
 
+	free_block->used = false;
+
 	/* find left neighbour of free_block */
 	if (intl)
 		next_block = intl_mem_start;
@@ -119,23 +157,22 @@ void _hse_mem_free(void *addr, bool intl)
 		next_block = next_block->next;
 	}
 
-	/* add the free_block to the node list */
-	free_block->next = next_block;
-	if (prev_block != NULL)
-		prev_block->next = free_block;
+	if (free_block->next != NULL) {
+		if (!free_block->next->used) {
+			free_block->size += free_block->next->size + HSE_NODE_SIZE;
 
-	/* check if free_block can be merged with next_block */
-	if ((next_block != NULL) &&
-	    ((uint8_t *)free_block + free_block->size + HSE_NODE_SIZE == (uint8_t *)next_block)) {
-		free_block->size += next_block->size + HSE_NODE_SIZE;
-		free_block->next = next_block->next;
+			/* remove next_block from list */
+			free_block->next = free_block->next->next;
 		}
+	}
 
-	/* check if free_block can be merged with prev_block */
-	if ((prev_block != NULL) &&
-	    ((uint8_t *)prev_block + prev_block->size + HSE_NODE_SIZE == (uint8_t *)free_block)) {
-		prev_block->size += free_block->size + HSE_NODE_SIZE;
-		prev_block->next = free_block->next;
+	if (prev_block != NULL) {
+		if (!prev_block->used) {
+			prev_block->size += free_block->size + HSE_NODE_SIZE;
+
+			/* remove free_block from list */
+			prev_block->next = free_block->next;
+		}
 	}
 }
 

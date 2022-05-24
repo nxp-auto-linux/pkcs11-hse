@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Claus
 /*
- * Copyright 2021 NXP
+ * Copyright 2021-2022 NXP
  */
 
 #ifndef ___PKCS11_CONTEXT_H___
@@ -75,21 +75,12 @@ struct hse_findCtx {
  * @key_handle: hse-provided key handle
  * @key_type:   private/pair or public key
  * @key_class:  rsa or ecc
- * @label:      key label
- * @label_len:  size of key label
- * @id:         id corresponding to key in hse
- * @id_len:     size of id
- * @nvm_ctr:    nvm catalog key counter
  */
 struct hse_keyObject {
 	CK_OBJECT_HANDLE key_handle;
 	CK_KEY_TYPE key_type;
 	CK_OBJECT_CLASS key_class;
-	CK_UTF8CHAR *label;
-	CK_ULONG label_len;
-	CK_BYTE *id;
-	CK_ULONG id_len;
-	uint32_t nvm_ctr;
+
 };
 
 /*
@@ -99,20 +90,20 @@ struct hse_keyObject {
  * @session:          session info
  * @slot:             slot info
  * @token:            token info
- * @objects:          list of objects/keys
- * @mechanismNum:     number of mechanisms supported
- * @mechanismList:    list of supported mechanisms
- * @find_ctx:         context for finding objects
+ * @findCtx:          context for finding objects
+ * @cryptCtx:         encrypt/decrypt operations context
+ * @signCtx:          sign/verify operations context
+ * @object_list:      list of objects/keys
  */
 struct globalCtx {
 	CK_BBOOL cryptokiInit;
 	CK_SESSION_INFO session;
 	CK_SLOT_INFO slot;
 	CK_TOKEN_INFO token;
-	list_t objects;
 	struct hse_findCtx findCtx;
 	struct hse_cryptCtx cryptCtx;
 	struct hse_signCtx signCtx;
+	list_t object_list;
 };
 
 struct globalCtx *getCtx(void);

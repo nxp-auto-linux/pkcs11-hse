@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021 NXP
+ * Copyright 2021-2022 NXP
  */
 
 #include <stdlib.h>
@@ -8,8 +8,12 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+
 #include "pkcs11_context.h"
+#include "hse-internal.h"
 #include "simclist.h"
+
+#define PKCS_HSE_FILE "/etc/pkcs-hse-objs"
 
 struct globalCtx context = {
 	.cryptokiInit = CK_FALSE,
@@ -78,6 +82,46 @@ static void strcpyPKCS11padding(
 		memset(dest + sLen, ' ', destSize - sLen);
 }
 
+/* simclist helper to serialize an element */
+static void *object_list_serializer(const void *el, uint32_t *packed_len)
+{
+	struct hse_keyObject *object = (struct hse_keyObject *)el;
+	struct hse_keyObject *serialized;
+
+	serialized = malloc(sizeof(*serialized));
+
+	serialized->key_handle = object->key_handle;
+	serialized->key_type = object->key_type;
+	serialized->key_class = object->key_class;
+
+	/* serialized struct has fixed size */
+	*packed_len = sizeof(struct hse_keyObject);
+
+	return (void *)serialized;
+}
+
+/* simclist helper to unserialize an element */
+static void *object_list_unserializer(const void *data, uint32_t *data_len)
+{
+	struct hse_keyObject *object;
+	uint8_t *s_key_handle, *s_key_type, *s_key_class;
+
+	s_key_handle = (uint8_t *)data;
+	s_key_type = s_key_handle + sizeof(CK_OBJECT_HANDLE);
+	s_key_class = s_key_type + sizeof(CK_KEY_TYPE);
+
+	object = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
+
+	object->key_handle = *(CK_OBJECT_HANDLE *)s_key_handle;
+	object->key_type = *(CK_KEY_TYPE *)s_key_type;
+	object->key_class = *(CK_OBJECT_CLASS *)s_key_class;
+
+	/* unserialized struct has fixed size */
+	*data_len = sizeof(struct hse_keyObject);
+
+	return (void *)object;
+}
+
 /* simclist helper to locate objects by handle */
 static int object_list_seeker(const void *el, const void *key)
 {
@@ -107,20 +151,6 @@ static int object_list_comparator(const void *a, const void *b)
 	if (key_a->key_class != key_b->key_class)
 		return 1;
 
-	if (key_a->label_len != key_b->label_len)
-		return 1;
-	else {
-		if (memcmp(key_a->label, key_b->label, key_a->label_len))
-			return 1;
-	}
-
-	if (key_a->id_len != key_b->id_len)
-		return 1;
-	else {
-		if (memcmp(key_a->id, key_b->id, key_a->id_len))
-			return 1;
-	}
-
 	return 0;
 }
 
@@ -134,6 +164,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct hse_keyObject *mem_key;
 	CK_TOKEN_INFO_PTR pToken = &gCtx->token;
 	CK_SLOT_INFO_PTR pSlot = &gCtx->slot;
 
@@ -181,13 +212,30 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 	pToken->firmwareVersion.major = 0;
 	pToken->firmwareVersion.minor = 9;
 
-	if (list_init(&gCtx->objects) != 0)
+	if (list_init(&gCtx->object_list) != 0)
 		return CKR_HOST_MEMORY;
-	list_attributes_seeker(&gCtx->objects, object_list_seeker);
-	list_attributes_comparator(&gCtx->objects, object_list_comparator);
+	list_attributes_seeker(&gCtx->object_list, object_list_seeker);
+	list_attributes_comparator(&gCtx->object_list, object_list_comparator);
+	list_attributes_serializer(&gCtx->object_list, object_list_serializer);
+	list_attributes_unserializer(&gCtx->object_list, object_list_unserializer);
 
 	if (hse_dev_open())
 		return CKR_HOST_MEMORY;
+
+	/* start iteration through mem contents */
+	hse_intl_iterstart();
+
+	if (hse_intl_hasnext()) {
+		while (hse_intl_hasnext()) {
+			mem_key = (struct hse_keyObject *)hse_intl_next();
+			list_append(&gCtx->object_list, mem_key);
+		}
+	} else  {
+		/* fail silently - we cannot restore list from file */
+		list_restore_file(&gCtx->object_list, PKCS_HSE_FILE, NULL);
+	}
+
+	hse_intl_iterstop();
 
 	gCtx->cryptokiInit = CK_TRUE;
 
@@ -204,12 +252,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_Finalize)(
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
+	/* serialize the object_list and save to file */
+	list_dump_file(&gCtx->object_list, PKCS_HSE_FILE, NULL);
+
 	hse_dev_close();
 
-	for (i = 0; i < list_size(&gCtx->objects); i++) {
-		list_delete_at(&gCtx->objects, i);
+	for (i = 0; i < list_size(&gCtx->object_list); i++) {
+		list_delete_at(&gCtx->object_list, i);
 	}
-	list_destroy(&gCtx->objects);
+	list_destroy(&gCtx->object_list);
 
 	gCtx->cryptokiInit = CK_FALSE;
 
@@ -420,7 +471,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	pkey = (struct hse_keyObject *)list_seek(&gCtx->objects, &hObject);
+	pkey = (struct hse_keyObject *)list_seek(&gCtx->object_list, &hObject);
 	if (pkey == NULL)
 		return CKR_OBJECT_HANDLE_INVALID;
 
@@ -438,18 +489,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)(
 				else
 					memcpy(pTemplate[i].pValue, &pkey->key_type, sizeof(CK_KEY_TYPE));
 				break;
-			case CKA_LABEL:
-				if (pTemplate[i].pValue == NULL)
-					pTemplate[i].ulValueLen = pkey->label_len;
-				else
-					memcpy(pTemplate[i].pValue, pkey->label, pkey->label_len);
-				break;
-			case CKA_ID:
-				if (pTemplate[i].pValue == NULL)
-					pTemplate[i].ulValueLen = pkey->id_len;
-				else
-					memcpy(pTemplate[i].pValue, pkey->id, pkey->id_len);
-				break;
 			default:
 				pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
 		}
@@ -465,7 +504,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_InitToken)(
 	CK_UTF8CHAR_PTR pLabel
 )
 {
-    return CKR_OK;
+	return CKR_OK;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_InitPIN)(
@@ -503,7 +542,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)(
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-    if (slotID != SLOT_ID)
+	if (slotID != SLOT_ID)
 		return CKR_SLOT_ID_INVALID;
 
 	if (!phSession)
@@ -532,10 +571,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)(
 		pSession->state = CKS_RO_PUBLIC_SESSION;
 	}
 
-    pToken->ulSessionCount++;
-    pSession->flags = flags;
-    pSession->slotID = slotID;
-    *phSession = SESSION_ID;
+	pToken->ulSessionCount++;
+	pSession->flags = flags;
+	pSession->slotID = slotID;
+	*phSession = SESSION_ID;
 
 	return CKR_OK;
 }

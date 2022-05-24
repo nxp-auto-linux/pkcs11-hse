@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021 NXP
+ * Copyright 2021-2022 NXP
  */
 
 /*
@@ -19,8 +19,8 @@ int main(int argc, char *argv[])
 	unsigned int slot_cnt;
 	PKCS11_SLOT *slot;
 	EVP_PKEY_CTX *openssl_ctx;
-	EVP_PKEY *pkey = NULL;
-	unsigned char keyid[3];
+	EVP_PKEY *pkey1 = NULL, *pkey2 = NULL;
+	unsigned char keyid1[3], keyid2[3];
 	PKCS11_KEY *keyp;
 	unsigned int keycount;
 
@@ -56,6 +56,13 @@ int main(int argc, char *argv[])
 	printf("Description.......: %s\n", slot->description);
 	printf("Token label.......: %s\n\n", slot->token->label);
 
+	/* check how many keys are stored */
+	if (PKCS11_enumerate_keys(slot->token, &keyp, &keycount)) {
+		printf("ERROR: could not enumerate keys\n");
+		goto keygen_err;
+	}
+	printf("Keys available: %d\n\n", keycount);
+
 	/* create openssl context */
 	openssl_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
 	if (!openssl_ctx) {
@@ -75,48 +82,61 @@ int main(int argc, char *argv[])
 		goto keygen_err;
 	}
 
-	/* generate key */
-	if (EVP_PKEY_keygen(openssl_ctx, &pkey) <= 0) {
+	/* generate 2 keys */
+	if (EVP_PKEY_keygen(openssl_ctx, &pkey1) <= 0) {
+		printf("ERROR: openssl keygen failed\n");
+		goto keygen_err;
+	}
+
+	if (EVP_PKEY_keygen(openssl_ctx, &pkey2) <= 0) {
 		printf("ERROR: openssl keygen failed\n");
 		goto keygen_err;
 	}
 
 	/* 
-	 * set an ID for the key we want to import
+	 * set an ID for the keys we want to import
 	 * from MSB to LSB:
 	 *     - keyid[2] - catalog ID
 	 *     - keyid[1] - group ID
 	 *     - keyid[0] - slot ID
 	 * HSE key IDs can only be composed of 3 bytes
 	 */
-	keyid[0] = 0x01;
-	keyid[1] = 0x06;
-	keyid[2] = 0x01;
+	keyid1[0] = 0x00;
+	keyid1[1] = 0x06;
+	keyid1[2] = 0x01;
+
+	keyid2[0] = 0x01;
+	keyid2[1] = 0x06;
+	keyid2[2] = 0x01;
 
 	/* 
-	 * store the the key pair
+	 * store the the key pairs
 	 *
 	 * PKCS11_store_private_key sends both the private and public key info
 	 * to the module, so we can use it to store a key pair
 	 */
-	if (PKCS11_store_private_key(slot->token, pkey, "HSE Key Pair", keyid, sizeof(keyid))) {
-		printf("ERROR: could not store key pair\n");
-		goto keygen_err;
+	if (PKCS11_store_private_key(slot->token, pkey1, "HSE Key Pair", keyid1, sizeof(keyid1))) {
+		printf("ERROR: could not store key pair #1\n");
+	} else {
+		printf("Key pair #1 stored\n");
 	}
-	printf("Key pair stored\n\n");
 
-	/* find the key we just stored */
+	if (PKCS11_store_private_key(slot->token, pkey2, "HSE Key Pair", keyid2, sizeof(keyid2))) {
+		printf("ERROR: could not store key pair #2\n\n");
+	} else {
+		printf("Key pair #2 stored\n\n");
+	}
+
+	/* check how many keys are stored now */
 	if (PKCS11_enumerate_keys(slot->token, &keyp, &keycount)) {
 		printf("ERROR: could not enumerate keys\n");
 		goto keygen_err;
 	}
-	printf("Keys available: %d\n", keycount);
-	for (int i = 0; i < keycount; i++) 
-		printf("Enumerated key label: %s\n\n", keyp[i].label);
+	printf("Keys available: %d\n\n", keycount);
 
-	/* remove the key we found */
-	if(PKCS11_remove_key(keyp)) {
-		printf("ERROR: could not remove key\n");
+	/* remove the first key */
+	if(PKCS11_remove_key(&keyp[0])) {
+		printf("ERROR: could not remove key #1\n");
 		goto keygen_err;
 	}
 	printf("Key removed\n");

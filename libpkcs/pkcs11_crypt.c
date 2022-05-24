@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021 NXP
+ * Copyright 2021-2022 NXP
  */
 
 #include <stdio.h>
@@ -29,7 +29,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (list_seek(&gCtx->objects, &hKey) == NULL)
+	if (list_seek(&gCtx->object_list, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
 
 	/* IV is optional for AES-ECB */
@@ -73,7 +73,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->cryptCtx.keyHandle);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &gCtx->cryptCtx.keyHandle);
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL) 
@@ -192,7 +192,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (list_seek(&gCtx->objects, &hKey) == NULL)
+	if (list_seek(&gCtx->object_list, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
 
 	/* IV is optional for AES-ECB */
@@ -236,7 +236,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->cryptCtx.keyHandle);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &gCtx->cryptCtx.keyHandle);
 
 	input = hse_mem_alloc(ulEncryptedDataLen);
 	if (input == NULL)
@@ -352,7 +352,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (list_seek(&gCtx->objects, &hKey) == NULL)
+	if (list_seek(&gCtx->object_list, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
 
 	if (gCtx->signCtx.init == CK_TRUE)
@@ -403,7 +403,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	if (gCtx->signCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
-	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &gCtx->signCtx.keyHandle);
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL)
@@ -536,7 +536,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (list_seek(&gCtx->objects, &hKey) == NULL)
+	if (list_seek(&gCtx->object_list, &hKey) == NULL)
 		return CKR_KEY_HANDLE_INVALID;
 
 	if (gCtx->signCtx.init == CK_TRUE)
@@ -587,7 +587,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	if (gCtx->signCtx.init == CK_FALSE) 
 		return CKR_OPERATION_NOT_INITIALIZED;
 
-	key = (struct hse_keyObject *)list_seek(&gCtx->objects, &gCtx->signCtx.keyHandle);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &gCtx->signCtx.keyHandle);
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL)
