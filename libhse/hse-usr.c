@@ -449,9 +449,18 @@ int hse_dev_open(void)
 		priv.channel_busy[i] = false;
 	}
 
+	/* initialize internal memory as buffer pool */
+	if (hse_mem_init((uint8_t *)priv.intl + sizeof(struct hse_uio_intl),
+			 priv.intl_size - sizeof(struct hse_uio_intl),
+			 true)) {
+		printf("hse: failed to init intl mem pool\n");
+		err = ENOMEM;
+		goto err_unmap_intl;
+	}
+
 	/* initialize reserved memory as buffer pool */
-	if (hse_mem_init(priv.rmem, priv.rmem_size)) {
-		printf("hse: failed to init mem pool\n");
+	if (hse_mem_init(priv.rmem, priv.rmem_size, false)) {
+		printf("hse: failed to init res mem pool\n");
 		err = ENOMEM;
 		goto err_unmap_intl;
 	}
