@@ -44,7 +44,7 @@ INCLUDE_LIBPKCS := -I$(OPENSSL_DIR)/include \
 LIBS ?= -L$(OPENSSL_DIR)/lib \
 	-L$(LIBP11_DIR)/lib
 
-all: pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg
+all: pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot
 
 pkcs-keyop: pkcs-keyop.c
 	$(CROSS_COMPILE)gcc $(LIBS) $(INCLUDE_KEYOP) $(CFLAGS) $^ -o $@ $(LDFLAGS)
@@ -58,5 +58,8 @@ hse-encrypt: hse-encrypt.c
 hse-sysimg: hse-sysimg.c
 	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) $(INCLUDE_LIBHSE) $(CFLAGS) $^ -o $@ -lhse
 
+hse-secboot: hse-secboot.c
+	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) -L$(OPENSSL_DIR)/lib -I$(OPENSSL_DIR)/include $(INCLUDE_LIBHSE) $(CFLAGS) $^ -o $@ -lcrypto -lhse
+
 clean:
-	rm -f pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg
+	rm -f pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot
