@@ -422,7 +422,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)(
 		if (pTemplate != NULL)
 			gCtx->findCtx.obj_class = (CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
 		else
-			return CKR_ARGUMENTS_BAD;
+			gCtx->findCtx.obj_class = NULL;
 	}
 
 	gCtx->findCtx.init = CK_TRUE;

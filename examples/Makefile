@@ -23,31 +23,40 @@ ifeq (,$(HSE_FWDIR))
 $(warning Path to HSE firmware package not defined, using default location)
 endif
 HSE_FWDIR ?= $(HOME)/HSE_FW_S32G2_0_1_0_0
+
 LIBHSE_SRCDIR ?= ../libhse
 LIBHSE_DIR ?= ..
 
-INCLUDE1 ?= -I$(OPENSSL_DIR)/include \
-	    -I$(LIBP11_DIR)/include
+LIBPKCS_SRCDIR ?= ../libpkcs
 
-INCLUDE2 := -I$(LIBHSE_SRCDIR) \
-	    -I$(HSE_FWDIR)/interface \
-	    -I$(HSE_FWDIR)/interface/config \
-	    -I$(HSE_FWDIR)/interface/inc_common \
-	    -I$(HSE_FWDIR)/interface/inc_services
+INCLUDE_KEYOP ?= -I$(OPENSSL_DIR)/include \
+		 -I$(LIBP11_DIR)/include
+
+INCLUDE_LIBHSE := -I$(LIBHSE_SRCDIR) \
+		  -I$(HSE_FWDIR)/interface \
+		  -I$(HSE_FWDIR)/interface/config \
+		  -I$(HSE_FWDIR)/interface/inc_common \
+		  -I$(HSE_FWDIR)/interface/inc_services
+
+INCLUDE_LIBPKCS := -I$(OPENSSL_DIR)/include \
+		   -I$(LIBPKCS_SRCDIR)
 
 LIBS ?= -L$(OPENSSL_DIR)/lib \
 	-L$(LIBP11_DIR)/lib
 
-all: pkcs-keyop hse-encrypt hse-sysimg
+all: pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg
 
 pkcs-keyop: pkcs-keyop.c
-	$(CROSS_COMPILE)gcc $(LIBS) $(INCLUDE1) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CROSS_COMPILE)gcc $(LIBS) $(INCLUDE_KEYOP) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+pkcs-key-provision: pkcs-key-provision.c
+	$(CROSS_COMPILE)gcc -L$(OPENSSL_DIR)/lib $(INCLUDE_LIBPKCS) $(CFLAGS) $^ -o $@ -lcrypto -ldl
 
 hse-encrypt: hse-encrypt.c
-	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) $(INCLUDE2) $(CFLAGS) $^ -o $@ -lhse
+	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) $(INCLUDE_LIBHSE) $(CFLAGS) $^ -o $@ -lhse
 
 hse-sysimg: hse-sysimg.c
-	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) $(INCLUDE2) $(CFLAGS) $^ -o $@ -lhse
+	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) $(INCLUDE_LIBHSE) $(CFLAGS) $^ -o $@ -lhse
 
 clean:
-	rm -f pkcs-keyop hse-encrypt
+	rm -f pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg

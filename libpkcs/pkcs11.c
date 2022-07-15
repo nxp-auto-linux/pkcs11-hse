@@ -28,7 +28,7 @@ static const CK_MECHANISM_TYPE mechanismList[] = {
 
 static CK_FUNCTION_LIST gFunctionList = {
 	.version =                              {CRYPTOKI_VERSION_MAJOR,
-                                             CRYPTOKI_VERSION_MINOR},
+	                                         CRYPTOKI_VERSION_MINOR},
 	.C_Initialize =                         C_Initialize,
 	.C_Finalize  =                          C_Finalize,
 	.C_GetInfo  =                           C_GetInfo,

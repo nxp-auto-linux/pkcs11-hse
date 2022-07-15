@@ -1,4 +1,5 @@
 examples/pkcs-keyop
+examples/pkcs-key-provision
 examples/hse-sysimg
 examples/hse-encrypt
 *.so*
