@@ -69,17 +69,13 @@ static CK_FUNCTION_LIST gFunctionList = {
  * PKCS11 standard: char buffers MUST be padded with the blank character (‘ ‘).
  * MUST NOT be null-terminated.
  */
-static void strcpyPKCS11padding(
-	unsigned char *dest,
-	const char *source,
-	size_t destSize
-)
+static void strcpy_pkcs11_padding(unsigned char *dest, const char *source, size_t dest_len)
 {
-	size_t sLen = strlen(source);
-	strncpy((char *)dest, source, destSize);
+	size_t src_len = strlen(source);
+	strncpy((char *)dest, source, dest_len);
 
-	if (sLen < destSize)
-		memset(dest + sLen, ' ', destSize - sLen);
+	if (src_len < dest_len)
+		memset(dest + src_len, ' ', dest_len - src_len);
 }
 
 /* simclist helper to serialize an element */
@@ -90,6 +86,8 @@ static void *object_list_serializer(const void *el, uint32_t *packed_len)
 
 	serialized = malloc(sizeof(*serialized));
 
+	strcpy_pkcs11_padding((unsigned char *)serialized->key_label, object->key_label, MAX_LABEL_LEN);
+	serialized->key_uid = object->key_uid;
 	serialized->key_handle = object->key_handle;
 	serialized->key_type = object->key_type;
 	serialized->key_class = object->key_class;
@@ -104,14 +102,18 @@ static void *object_list_serializer(const void *el, uint32_t *packed_len)
 static void *object_list_unserializer(const void *data, uint32_t *data_len)
 {
 	struct hse_keyObject *object;
-	uint8_t *s_key_handle, *s_key_type, *s_key_class;
+	uint8_t *s_key_label, *s_key_uid, *s_key_handle, *s_key_type, *s_key_class;
 
-	s_key_handle = (uint8_t *)data;
+	s_key_label = (uint8_t *)data;
+	s_key_uid = s_key_label + MAX_LABEL_LEN;
+	s_key_handle = s_key_uid + sizeof(CK_ULONG);
 	s_key_type = s_key_handle + sizeof(CK_OBJECT_HANDLE);
 	s_key_class = s_key_type + sizeof(CK_KEY_TYPE);
 
 	object = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
 
+	strcpy_pkcs11_padding((unsigned char *)object->key_label, (char *)s_key_label, MAX_LABEL_LEN);
+	object->key_uid = *(CK_ULONG *)s_key_uid;
 	object->key_handle = *(CK_OBJECT_HANDLE *)s_key_handle;
 	object->key_type = *(CK_KEY_TYPE *)s_key_type;
 	object->key_class = *(CK_OBJECT_CLASS *)s_key_class;
@@ -171,10 +173,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 	if (gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_ALREADY_INITIALIZED;
 
-	strcpyPKCS11padding(pSlot->slotDescription, SLOT_DESC,
-	                    sizeof(pSlot->slotDescription));
-	strcpyPKCS11padding(pSlot->manufacturerID, MANUFACTURER,
-	                    sizeof(pSlot->manufacturerID));
+	strcpy_pkcs11_padding(pSlot->slotDescription, SLOT_DESC,
+			      sizeof(pSlot->slotDescription));
+	strcpy_pkcs11_padding(pSlot->manufacturerID, MANUFACTURER,
+			      sizeof(pSlot->manufacturerID));
 	pSlot->flags = CKF_TOKEN_PRESENT | CKF_HW_SLOT;
 
 	/* rev2 */
@@ -184,15 +186,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 	pSlot->firmwareVersion.major = 0;
 	pSlot->firmwareVersion.minor = 9;
 
-	strcpyPKCS11padding(pToken->label, TOKEN_DESC,
-	                    sizeof(pToken->label));
-	strcpyPKCS11padding(pToken->manufacturerID, MANUFACTURER,
-	                    sizeof(pToken->manufacturerID));
+	strcpy_pkcs11_padding(pToken->label, TOKEN_DESC,
+			      sizeof(pToken->label));
+	strcpy_pkcs11_padding(pToken->manufacturerID, MANUFACTURER,
+			      sizeof(pToken->manufacturerID));
 
-	strcpyPKCS11padding(pToken->model, "N/A",
-	                    sizeof(pToken->model));
-	strcpyPKCS11padding(pToken->serialNumber, "N/A",
-	                    sizeof(pToken->serialNumber));
+	strcpy_pkcs11_padding(pToken->model, "N/A", sizeof(pToken->model));
+	strcpy_pkcs11_padding(pToken->serialNumber, "N/A", sizeof(pToken->serialNumber));
 
 	pToken->flags = CKF_TOKEN_INITIALIZED;
 	pToken->ulMaxSessionCount = MAX_SESSIONS;
@@ -276,11 +276,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetInfo)(
 
 	pInfo->cryptokiVersion.major = CRYPTOKI_VERSION_MAJOR;
 	pInfo->cryptokiVersion.minor = CRYPTOKI_VERSION_MINOR;
-	strcpyPKCS11padding(pInfo->manufacturerID, MANUFACTURER,
-	                    sizeof(pInfo->manufacturerID));
+	strcpy_pkcs11_padding(pInfo->manufacturerID, MANUFACTURER,
+			      sizeof(pInfo->manufacturerID));
 	pInfo->flags = 0;
-	strcpyPKCS11padding(pInfo->libraryDescription, LIBRARY_DESC,
-	                    sizeof(pInfo->libraryDescription));
+	strcpy_pkcs11_padding(pInfo->libraryDescription, LIBRARY_DESC,
+			      sizeof(pInfo->libraryDescription));
 	pInfo->libraryVersion.major = LIBRARY_VERSION_MAJOR;
 	pInfo->libraryVersion.minor = LIBRARY_VERSION_MINOR;
 
@@ -477,6 +477,18 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)(
 
 	for (i = 0; i < ulCount; i++) {
 		switch (pTemplate[i].type) {
+			case CKA_LABEL:
+				if (pTemplate[i].pValue == NULL)
+					pTemplate[i].ulValueLen = MAX_LABEL_LEN;
+				else
+					strcpy_pkcs11_padding(pTemplate[i].pValue, pkey->key_label, MAX_LABEL_LEN);
+				break;
+			case CKA_UNIQUE_ID:
+				if (pTemplate[i].pValue == NULL)
+					pTemplate[i].ulValueLen = sizeof(CK_ULONG);
+				else
+					memcpy(pTemplate[i].pValue, &pkey->key_uid, sizeof(CK_ULONG));
+				break;
 			case CKA_CLASS:
 				if (pTemplate[i].pValue == NULL)
 					pTemplate[i].ulValueLen = sizeof(CK_OBJECT_CLASS);

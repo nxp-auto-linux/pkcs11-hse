@@ -24,9 +24,12 @@
 #define SESSION_ID      0
 
 #define MAX_SESSIONS    1
+#define MAX_LABEL_LEN   32
 
-/* missing mechanisms from the PKCS11 interface header */
-#define CKM_AES_GCM        0x1087ul
+/* add missing CKA_UNIQUE_ID from pkcs11.h */
+#ifndef CKA_UNIQUE_ID
+#define CKA_UNIQUE_ID 0x04ul
+#endif
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -72,15 +75,18 @@ struct hse_findCtx {
 /*
  * struct hse_keyObject - internal key object
  *
+ * @key_label:  user-provided identifier for the object
+ * @key_uid:    read-only unique object ID
  * @key_handle: hse-provided key handle
  * @key_type:   private/pair or public key
  * @key_class:  rsa or ecc
  */
 struct hse_keyObject {
+	char key_label[MAX_LABEL_LEN];
+	CK_ULONG key_uid;
 	CK_OBJECT_HANDLE key_handle;
 	CK_KEY_TYPE key_type;
 	CK_OBJECT_CLASS key_class;
-
 };
 
 /*

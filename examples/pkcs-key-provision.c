@@ -124,8 +124,10 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 	 */
 	CK_OBJECT_CLASS key_class = CKO_PUBLIC_KEY;
 	CK_KEY_TYPE key_type = CKK_RSA;
+	CK_UTF8CHAR label[] = {"HSE-RSA2048-PUB"};
 	CK_BYTE key_id[] = { 0x00, 0x07, 0x01 };
 	CK_ATTRIBUTE keyTemplate[] = {
+		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
 		{ CKA_ID, &key_id, sizeof(key_id) },
@@ -153,7 +155,7 @@ static CK_OBJECT_HANDLE util_lib_find_objects(CK_FUNCTION_LIST_PTR flist, CK_SES
 	do {
 		rv = flist->C_FindObjects(session, &key_match, 1, &num_keys);
 		/* no extra processing required, just return last key found */
-	} while (rv == CKR_OK || num_keys != 0);
+	} while (rv == CKR_OK && num_keys != 0);
 
 	rv = flist->C_FindObjectsFinal(session);
 	if (rv != CKR_OK)

@@ -108,6 +108,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	struct hse_keyObject *key;
 	CK_BYTE *idtemp;
 	CK_ULONG id_len;
+	char *label = NULL;
 	CK_RV rc = CKR_OK;
 	int err;
 
@@ -120,8 +121,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	if (hSession != SESSION_ID)
 		return CKR_SESSION_HANDLE_INVALID;
 
+	if (getattr_pval(pTemplate, CKA_UNIQUE_ID, ulCount))
+		return CKR_ATTRIBUTE_READ_ONLY;
+
 	/* error if id_len doesn't conform to hse expectations */
 	if (getattr_len(pTemplate, CKA_ID, ulCount) > 3)
+		return CKR_ARGUMENTS_BAD;
+
+	if (getattr_len(pTemplate, CKA_LABEL, ulCount) <= 0 ||
+	    getattr_len(pTemplate, CKA_LABEL, ulCount) > 32)
 		return CKR_ARGUMENTS_BAD;
 
 	key_info = (hseKeyInfo_t *)hse_mem_alloc(sizeof(hseKeyInfo_t));
@@ -146,6 +154,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 	/* get key data and create key object struct */
 	key->key_handle = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
+	/* key handles are unique in HSE; use them for UID */
+	key->key_uid = key->key_handle;
 
 	if ((CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount) == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
@@ -169,6 +179,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_key_intl;
 		}
+	}
+
+	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
+	if (label != NULL) {
+		memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
 	}
 
 	key_info->keyCounter = 0;
