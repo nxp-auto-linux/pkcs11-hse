@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
 	/* check how many keys are stored */
 	if (PKCS11_enumerate_keys(slot->token, &keyp, &keycount)) {
 		printf("ERROR: could not enumerate keys\n");
-		goto keygen_err;
+		goto token_err;
 	}
 	printf("Keys available: %d\n\n", keycount);
 
