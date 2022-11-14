@@ -11,7 +11,6 @@
 #include "simclist.h"
 #include "hse-internal.h"
 
-
 static uint16_t getkeybitlen(hseEccCurveId_t eccCurveId)
 {
 	switch(eccCurveId) {
@@ -277,7 +276,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			ec_point = getattr_pval(pTemplate, CKA_EC_POINT, ulCount);
 			ec_point = (uint8_t *)ec_point + 3;
 			memcpy(pkey0, ec_point, pkey0_len);
-			
+
 			ecc_oid = getattr_pval(pTemplate, CKA_EC_PARAMS, ulCount);
 			if (ecc_oid == NULL) {
 				rc = CKR_ARGUMENTS_BAD;
@@ -296,6 +295,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			import_key_req->keyLen[0] = pkey0_len;
 			import_key_req->keyLen[1] = 0u;
 			import_key_req->keyLen[2] = 0u;
+			import_key_req->keyFormat.eccKeyFormat = HSE_KEY_FORMAT_ECC_PUB_RAW;
 
 			if (key->key_class == CKO_PRIVATE_KEY) {
 
