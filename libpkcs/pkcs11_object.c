@@ -101,7 +101,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	struct globalCtx *gCtx = getCtx();
 	hseSrvDescriptor_t srv_desc;
 	hseImportKeySrv_t *import_key_req;
-	hseKeyInfo_t *key_info;
+	volatile hseKeyInfo_t *key_info;
 	uint32_t pkey0_len, pkey1_len, pkey2_len;
 	void *pkey0 = NULL, *pkey1 = NULL, *pkey2 = NULL, *ecc_oid, *ec_point;
 	struct hse_keyObject *key;
@@ -191,7 +191,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	import_key_req = &srv_desc.hseSrv.importKeyReq;
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
-	import_key_req->pKeyInfo = hse_virt_to_dma(key_info);
+	import_key_req->pKeyInfo = hse_virt_to_dma((void *)key_info);
 	import_key_req->targetKeyHandle = key->key_handle;
 	import_key_req->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	import_key_req->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
@@ -363,7 +363,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	hse_mem_free(pkey2);
 	hse_mem_free(pkey1);
 	hse_mem_free(pkey0);
-	hse_mem_free(key_info);
+	hse_mem_free((void *)key_info);
 
 	return CKR_OK;
 
@@ -376,7 +376,7 @@ err_free_pkey0:
 err_free_key_intl:
 	hse_intl_mem_free(key);
 err_free_key_info:
-	hse_mem_free(key_info);
+	hse_mem_free((void *)key_info);
 	return rc;
 }
 
