@@ -33,6 +33,12 @@
 #define HSE_EXT_FLASH_SD 2u
 #define HSE_EXT_FLASH_PAGE 512u
 
+#if (HSE_PLATFORM == HSE_S32G2XX) || (HSE_PLATFORM == HSE_S32R45X)
+#define HSE_APP_CORE_A53_0 HSE_APP_CORE3
+#elif (HSE_PLATFORM == HSE_S32G3XX)
+#define HSE_APP_CORE_A53_0 HSE_APP_CORE4
+#endif
+
 #define UUID_BL2_SIGN \
 	{{0xd6, 0xe2, 0x69, 0xea}, {0x5d, 0x63}, {0xe4, 0x11}, 0x8d, 0x8c, {0x9f, 0xba, 0xbe, 0x99, 0x56, 0xa5} }
 
@@ -382,7 +388,7 @@ int hse_cr_install(struct app_boot_hdr *app_boot)
 		return -ENOMEM;
 	}
 
-	cr_entry->coreId = HSE_APP_CORE4;
+	cr_entry->coreId = HSE_APP_CORE_A53_0;
 	cr_entry->crSanction = HSE_CR_SANCTION_KEEP_CORE_IN_RESET;
 	cr_entry->preBootSmrMap = HSE_SMR_ENTRY_1;
 	cr_entry->pPassReset = app_boot->ram_entry;
