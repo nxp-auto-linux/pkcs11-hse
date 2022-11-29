@@ -22,7 +22,7 @@
 
 int main(int argc, char *argv[])
 {
-	hseSrvDescriptor_t srv_desc = {0};
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	void *iv, *plaintext, *ciphertext;
 	unsigned int group_id, slot_id;
 	uint32_t key_handle;
@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
 	srv_desc.hseSrv.keyGenReq.keyGenScheme = HSE_KEY_GEN_SYM_RANDOM_KEY;
 
 	/* issue key generation service request */
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		printf("DEMO: generate key request failed: error %d\n", err);
 		goto out_dev_close;
@@ -87,14 +87,14 @@ int main(int argc, char *argv[])
 		return ENOMEM;
 		goto out_dev_close;
 	}
-	memset(iv, 0, AES_BLOCK_SIZE);
+	hse_memset(iv, 0, AES_BLOCK_SIZE);
 
 	plaintext = hse_mem_alloc(INPUT_SIZE);
 	if (!plaintext) {
 		err = ENOMEM;
 		goto out_free_iv;
 	}
-	memcpy(plaintext, "Simple symmetric cipher encryption test", 40u);
+	hse_memcpy(plaintext, "Simple symmetric cipher encryption test", 40u);
 
 	ciphertext = hse_mem_alloc(INPUT_SIZE);
 	if (!ciphertext) {
@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
 	srv_desc.hseSrv.symCipherReq.pOutput = hse_virt_to_dma(ciphertext);
 
 	/* issue encrypt service request */
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		printf("DEMO: encrypt request failed: error %d\n", err);
 		goto out_free_output;
@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
 	srv_desc.hseSrv.symCipherReq.pOutput = hse_virt_to_dma(ciphertext);
 
 	/* issue decrypt service request */
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		printf("DEMO: decrypt request failed: error %d\n", err);
 		goto out_free_output;

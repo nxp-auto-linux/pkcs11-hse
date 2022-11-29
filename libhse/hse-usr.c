@@ -238,6 +238,7 @@ static inline int hse_mu_msg_send(uint8_t channel, uint32_t msg)
  * hse_srv_req_sync - issue a synchronous service request (blocking)
  * @channel: service channel index
  * @srv_desc: service descriptor
+ * @size: service descriptor size
  *
  * Send a HSE service descriptor on the selected channel and block until the
  * HSE response becomes available, then read the reply.
@@ -246,13 +247,13 @@ static inline int hse_mu_msg_send(uint8_t channel, uint32_t msg)
  *         index out of range, EBUSY for channel busy or none available,
  *         ENOMSG for failure to read the HSE service response
  */
-int hse_srv_req_sync(uint8_t channel, const void *srv_desc)
+int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size)
 {
 	uint32_t status;
 	size_t offset;
 	int i, err;
 
-	if (!srv_desc)
+	if (!srv_desc || !size)
 		return EINVAL;
 
 	if (channel != HSE_CHANNEL_ANY && channel >= HSE_NUM_CHANNELS)
@@ -273,7 +274,8 @@ int hse_srv_req_sync(uint8_t channel, const void *srv_desc)
 	priv.channel_busy[channel] = true;
 
 	offset = channel * HSE_SRV_DESC_MAX_SIZE;
-	memcpy(priv.desc + offset, srv_desc, HSE_SRV_DESC_MAX_SIZE);
+	hse_memcpy(priv.desc + offset, srv_desc, size);
+	hse_memset(priv.desc + offset + size, 0, HSE_SRV_DESC_MAX_SIZE - size);
 
 	err = hse_mu_msg_send(channel, priv.desc_dma + offset);
 	if (err) {
