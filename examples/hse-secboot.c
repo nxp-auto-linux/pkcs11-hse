@@ -168,7 +168,7 @@ static struct fip_toc_entry *get_fip_toc_entry(uint8_t *fip_header, struct uuid 
 
 int hse_mus_enable()
 {
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseAttrMUConfig_t *mu_config;
 	int i, ret = 0;
 
@@ -177,6 +177,7 @@ int hse_mus_enable()
 		ERROR("Failed to allocate space for MU Configuration\n");
 		return -ENOMEM;
 	}
+	hse_memset(mu_config, 0, sizeof(*mu_config));
 
 	srv_desc.srvId = HSE_SRV_ID_SET_ATTR;
 
@@ -190,7 +191,7 @@ int hse_mus_enable()
 	srv_desc.hseSrv.setAttrReq.attrLen = sizeof(*mu_config);
 	srv_desc.hseSrv.setAttrReq.pAttr = hse_virt_to_dma(mu_config);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc);
+	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to enable MUs\n");
 
@@ -200,7 +201,7 @@ int hse_mus_enable()
 
 int hse_key_format()
 {
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseKeyGroupCfgEntry_t *nvm_catalog, *ram_catalog;
 	int ret = 0;
 
@@ -217,14 +218,14 @@ int hse_key_format()
 		goto err_free_nvm;
 	}
 
-	memcpy(nvm_catalog, &nvm_cat, sizeof(nvm_cat));
-	memcpy(ram_catalog, &ram_cat, sizeof(ram_cat));
+	hse_memcpy(nvm_catalog, &nvm_cat, sizeof(nvm_cat));
+	hse_memcpy(ram_catalog, &ram_cat, sizeof(ram_cat));
 
 	srv_desc.srvId = HSE_SRV_ID_FORMAT_KEY_CATALOGS;
 	srv_desc.hseSrv.formatKeyCatalogsReq.pNvmKeyCatalogCfg = hse_virt_to_dma(nvm_catalog);
 	srv_desc.hseSrv.formatKeyCatalogsReq.pRamKeyCatalogCfg = hse_virt_to_dma(ram_catalog);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to format key catalogs!\n");
 
@@ -236,7 +237,7 @@ err_free_nvm:
 
 int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_exponent, int rsa_pub_exponent_size)
 {
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseKeyInfo_t *key_info;
 	int ret = 0;
 
@@ -245,6 +246,7 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 		ERROR("Failed to allocate space for key info\n");
 		return -ENOMEM;
 	}
+	hse_memset(key_info, 0, sizeof(*key_info));
 
 	key_info->keyFlags = HSE_KF_USAGE_VERIFY;
 	key_info->keyBitLen = HSE_BYTES_TO_BITS(rsa_modulus_size);
@@ -265,7 +267,7 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 	srv_desc.hseSrv.importKeyReq.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	srv_desc.hseSrv.importKeyReq.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to import RSA Public Key\n");
 
@@ -277,7 +279,7 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot)
 {
 	struct uuid uuid_bl2_sign = UUID_BL2_SIGN;
 	struct fip_toc_entry *toc_bl2_sign;
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSmrEntry_t smr_entry, *smr_entry_hse;
 	uint8_t *fip_header, *bl2_sign, *fip_bin;
 	int ret = 0;
@@ -334,6 +336,7 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot)
 		ret = -ENOMEM;
 		goto err_free_fip_bin;
 	}
+	hse_memset(smr_entry_hse, 0, sizeof(*smr_entry_hse));
 
 	smr_entry.pSmrSrc = get_fip_start(ivt);
 	smr_entry.pSmrDest = app_boot->ram_load;
@@ -362,7 +365,7 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot)
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[0] = toc_bl2_sign->size;
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[1] = 0u;
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to install SMR Entry\n");
 
@@ -378,7 +381,7 @@ err_free_fip_header:
 
 int hse_cr_install(struct app_boot_hdr *app_boot)
 {
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseCrEntry_t *cr_entry;
 	int ret = 0;
 
@@ -387,6 +390,7 @@ int hse_cr_install(struct app_boot_hdr *app_boot)
 		ERROR("Failed to allocate space for core reset entry\n");
 		return -ENOMEM;
 	}
+	hse_memset(cr_entry, 0, sizeof(*cr_entry));
 
 	cr_entry->coreId = HSE_APP_CORE_A53_0;
 	cr_entry->crSanction = HSE_CR_SANCTION_KEEP_CORE_IN_RESET;
@@ -401,7 +405,7 @@ int hse_cr_install(struct app_boot_hdr *app_boot)
 	srv_desc.hseSrv.crEntryInstallReq.crEntryIndex = 1u;
 	srv_desc.hseSrv.crEntryInstallReq.pCrEntry = hse_virt_to_dma(cr_entry);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to install Core Reset Entry\n");
 
@@ -411,13 +415,13 @@ int hse_cr_install(struct app_boot_hdr *app_boot)
 
 int hse_sysimg_getsize(uint32_t *sysimg_size)
 {
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	int ret = 0;
 
 	srv_desc.srvId = HSE_SRV_ID_GET_SYS_IMAGE_SIZE;
 	srv_desc.hseSrv.getSysImageSizeReq.pSysImageSize = hse_virt_to_dma(sysimg_size);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to get SYSIMG size\n");
 
@@ -426,7 +430,7 @@ int hse_sysimg_getsize(uint32_t *sysimg_size)
 
 int hse_sysimg_publish(void *sysimg, uint32_t *sysimg_size)
 {
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hsePublishSysImageSrv_t *publish_sysimg_req;
 	uint32_t *publish_offset;
 	int ret = 0;
@@ -446,7 +450,7 @@ int hse_sysimg_publish(void *sysimg, uint32_t *sysimg_size)
 	publish_sysimg_req->pBuffLength = hse_virt_to_dma(sysimg_size);
 	publish_sysimg_req->pBuff = hse_virt_to_dma(sysimg);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to publish SYS_IMG\n");
 

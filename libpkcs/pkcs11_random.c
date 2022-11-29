@@ -26,7 +26,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseGetRandomNumSrv_t *rng_req;
 	void *rng_output;
 	int err;
@@ -53,13 +53,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 	rng_req->randomNumLength = ulRandomLen;
 	rng_req->pRandomNum = hse_virt_to_dma(rng_output);
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_output;
 	}
 
-	memcpy(pRandomData, rng_output, ulRandomLen);
+	hse_memcpy(pRandomData, rng_output, ulRandomLen);
 
 err_free_output:
 	hse_mem_free(rng_output);

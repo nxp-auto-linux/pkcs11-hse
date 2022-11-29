@@ -27,7 +27,7 @@ struct ivt {
 
 int hse_sysimg_get_size(uint32_t *size)
 {
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseGetSysImageSizeSrv_t *get_sysimg_size_req;
 	int err;
 
@@ -36,7 +36,7 @@ int hse_sysimg_get_size(uint32_t *size)
 	srv_desc.srvId = HSE_SRV_ID_GET_SYS_IMAGE_SIZE;
 	get_sysimg_size_req->pSysImageSize = hse_virt_to_dma(size);
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 
 	return err;
 }
@@ -97,7 +97,7 @@ err_close_fd:
 
 int main(int argc, char *argv[])
 {
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hsePublishSysImageSrv_t *publish_sysimg_req;
 	uint32_t *publish_off, *sysimg_size;
 	uint16_t status;
@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
 	publish_sysimg_req->pBuffLength = hse_virt_to_dma(sysimg_size);
 	publish_sysimg_req->pBuff = hse_virt_to_dma(sysimg);
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		printf("ERROR: could not publish SYSIMG\n");
 		goto err_free_sysimg;

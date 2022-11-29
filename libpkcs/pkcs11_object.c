@@ -99,7 +99,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseImportKeySrv_t *import_key_req;
 	volatile hseKeyInfo_t *key_info;
 	uint32_t pkey0_len, pkey1_len, pkey2_len;
@@ -134,6 +134,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	key_info = (hseKeyInfo_t *)hse_mem_alloc(sizeof(hseKeyInfo_t));
 	if (key_info == NULL)
 		return CKR_HOST_MEMORY;
+	hse_memset(key_info, 0, sizeof(hseKeyInfo_t));
 
 	key = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
 	if (key == NULL) {
@@ -209,7 +210,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				rc = CKR_HOST_MEMORY;
 				goto err_free_key_intl;
 			}
-			memcpy(pkey0, getattr_pval(pTemplate, CKA_MODULUS, ulCount), pkey0_len);
+			hse_memcpy(pkey0, getattr_pval(pTemplate, CKA_MODULUS, ulCount), pkey0_len);
 
 			pkey1_len = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
 			if (!pkey1_len) {
@@ -221,7 +222,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				rc = CKR_HOST_MEMORY;
 				goto err_free_pkey0;
 			}
-			memcpy(pkey1, getattr_pval(pTemplate, CKA_PUBLIC_EXPONENT, ulCount), pkey1_len);
+			hse_memcpy(pkey1, getattr_pval(pTemplate, CKA_PUBLIC_EXPONENT, ulCount), pkey1_len);
 
 			/* rsa can be used for sign/verify */
 			key_info->keyFlags = HSE_KF_USAGE_VERIFY;
@@ -248,7 +249,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 					rc = CKR_HOST_MEMORY;
 					goto err_free_pkey1;
 				}
-				memcpy(pkey2, getattr_pval(pTemplate, CKA_PRIVATE_EXPONENT, ulCount), pkey2_len);
+				hse_memcpy(pkey2, getattr_pval(pTemplate, CKA_PRIVATE_EXPONENT, ulCount), pkey2_len);
 
 				key_info->keyFlags |= HSE_KF_USAGE_SIGN;
 				key_info->keyType = HSE_KEY_TYPE_RSA_PAIR;
@@ -275,7 +276,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			}
 			ec_point = getattr_pval(pTemplate, CKA_EC_POINT, ulCount);
 			ec_point = (uint8_t *)ec_point + 3;
-			memcpy(pkey0, ec_point, pkey0_len);
+			hse_memcpy(pkey0, ec_point, pkey0_len);
 
 			ecc_oid = getattr_pval(pTemplate, CKA_EC_PARAMS, ulCount);
 			if (ecc_oid == NULL) {
@@ -309,7 +310,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 					rc = CKR_HOST_MEMORY;
 					goto err_free_pkey0;
 				}
-				memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
+				hse_memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
 
 				key_info->keyFlags |= HSE_KF_USAGE_SIGN;
 				key_info->keyType = HSE_KEY_TYPE_ECC_PAIR;
@@ -331,7 +332,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				rc = CKR_HOST_MEMORY;
 				goto err_free_key_intl;
 			}
-			memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
+			hse_memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
 
 			/* aes keys can only be used for encrypt/decrypt */
 			key_info->keyFlags = (HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT);
@@ -351,7 +352,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			goto err_free_key_intl;
 	}
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_pkey2;
@@ -386,7 +387,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	hseSrvDescriptor_t srv_desc;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	struct hse_keyObject *pkey;
 	int err;
 
@@ -404,7 +405,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 	srv_desc.hseSrv.eraseKeyReq.keyHandle = pkey->key_handle;
 	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc);
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err)
 		return CKR_FUNCTION_FAILED;
 
