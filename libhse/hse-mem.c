@@ -185,3 +185,74 @@ void hse_intl_mem_free(void *addr)
 {
 	_hse_mem_free(addr, true);
 }
+
+void *hse_memcpy(void *dest, const void *src, size_t size)
+{
+	const uint8_t *s = src;
+	uint8_t *d = dest;
+	const uint64_t *s64;
+	uint64_t *d64;
+
+	if (!size)
+		return dest;
+
+	/* write bytes if not 64bit-aligned */
+	while (((uintptr_t)d & 7)) {
+		*d++ = *s++;
+		if (!(--size))
+			return dest;
+	}
+
+	/* write 64bit if aligned */
+	d64 = (uint64_t *)d;
+	s64 = (uint64_t *)s;
+	for (; size >= 8; size -= 8)
+		*d64++ = *s64++;
+
+	/* write bytes for the rest of the buffer */
+	d = (uint8_t *)d64;
+	s = (uint8_t *)s64;
+	while (size-- > 0)
+		*d++ = *s++;
+
+	return dest;
+}
+
+void *hse_memset(void *dest, int fill, size_t size)
+{
+	uint8_t *d = dest;
+	uint64_t *d64;
+	uint64_t fill64 = (uint8_t)fill;
+
+	if (!size)
+		return dest;
+
+	/* write bytes if not 64bit-aligned */
+	while (((uintptr_t)d & 7)) {
+		*d = (uint8_t)fill;
+		d++;
+		if (!(--size))
+			return dest;
+	}
+
+	/* fill each byte with fill value */
+	fill64 |= fill64 << 8;
+	fill64 |= fill64 << 16;
+	fill64 |= fill64 << 32;
+
+	/* write 64bit */
+	d64 = (uint64_t *)d;
+	for (; size >= 8; size -= 8) {
+		*d64 = fill64;
+		d64++;
+	}
+
+	/* write bytes for the rest of the buffer */
+	d = (uint8_t *)d64;
+	while (size-- > 0)  {
+		*d = (uint8_t)fill;
+		d++;
+	}
+
+	return dest;
+}
