@@ -296,7 +296,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			import_key_req->keyLen[0] = pkey0_len;
 			import_key_req->keyLen[1] = 0u;
 			import_key_req->keyLen[2] = 0u;
+#if (HSE_PLATFORM == HSE_S32G3XX)
 			import_key_req->keyFormat.eccKeyFormat = HSE_KEY_FORMAT_ECC_PUB_RAW;
+#endif
 
 			if (key->key_class == CKO_PRIVATE_KEY) {
 
