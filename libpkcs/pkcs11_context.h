@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Claus
 /*
- * Copyright 2021-2022 NXP
+ * Copyright 2021-2023 NXP
  */
 
 #ifndef ___PKCS11_CONTEXT_H___
@@ -33,6 +33,14 @@
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+#endif
+
+#ifndef CKM_SHA512_224
+#define CKM_SHA512_224	0x00000048UL
+#endif
+
+#ifndef CKM_SHA512_256
+#define CKM_SHA512_256	0x0000004CUL
 #endif
 
 /*

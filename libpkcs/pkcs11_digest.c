@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2022 NXP
+ * Copyright 2022-2023 NXP
  */
 
 #include <stdio.h>
@@ -74,13 +74,39 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestInit)(
 			gCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA_1;
 			gCtx->digestCtx.blockSize = SHA1_BLOCK_SIZE;
 			gCtx->digestCtx.digestSize = SHA1_DIGEST_SIZE;
-			gCtx->digestCtx.cache = malloc(SHA1_BLOCK_SIZE);
-			if (gCtx->digestCtx.cache == NULL)
-				return CKR_HOST_MEMORY;
+			break;
+		case CKM_SHA224:
+			gCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA2_224;
+			gCtx->digestCtx.blockSize = SHA224_BLOCK_SIZE;
+			gCtx->digestCtx.digestSize = SHA224_DIGEST_SIZE;
+			break;
+		case CKM_SHA256:
+			gCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA2_256;
+			gCtx->digestCtx.blockSize = SHA256_BLOCK_SIZE;
+			gCtx->digestCtx.digestSize = SHA256_DIGEST_SIZE;
+			break;
+		case CKM_SHA512:
+			gCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA2_512;
+			gCtx->digestCtx.blockSize = SHA512_BLOCK_SIZE;
+			gCtx->digestCtx.digestSize = SHA512_DIGEST_SIZE;
+			break;
+		case CKM_SHA512_224:
+			gCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA2_512_224;
+			gCtx->digestCtx.blockSize = SHA512_BLOCK_SIZE;
+			gCtx->digestCtx.digestSize = SHA224_DIGEST_SIZE;
+			break;
+		case CKM_SHA512_256:
+			gCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA2_512_256;
+			gCtx->digestCtx.blockSize = SHA512_BLOCK_SIZE;
+			gCtx->digestCtx.digestSize = SHA256_DIGEST_SIZE;
 			break;
 		default:
 			return CKR_MECHANISM_INVALID;
 	}
+
+	gCtx->digestCtx.cache = malloc(gCtx->digestCtx.blockSize);
+	if (gCtx->digestCtx.cache == NULL)
+		return CKR_HOST_MEMORY;
 
 	gCtx->digestCtx.init = CK_TRUE;
 	gCtx->digestCtx.stream_start = CK_TRUE;
@@ -133,8 +159,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
 		return CKR_OK;
 	}
 
-	if (*pulDigestLen < gCtx->digestCtx.digestSize)
+	if (*pulDigestLen < gCtx->digestCtx.digestSize) {
+		/* pkcs11-base-3.0: section 5.2: In either case, *pulBufLen is set to hold the exact number of bytes 
+		 * needed to hold the cryptographic output produced from the input to 
+		 * the function.*/
+		*pulDigestLen = gCtx->digestCtx.digestSize;
 		return CKR_BUFFER_TOO_SMALL;
+	}
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL) {
@@ -175,6 +206,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
 	}
 
 	hse_memcpy(pDigest, output, *(uint32_t *)output_len);
+
+	/* pkcs11-base-3.0: section 5.2: In either case, *pulBufLen is set to hold the exact number of bytes 
+	* needed to hold the cryptographic output produced from the input to 
+	* the function.*/
+	*pulDigestLen = *(uint32_t *)output_len;
 
 err_free_output:
 	hse_mem_free(output);
@@ -317,8 +353,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 		return CKR_OK;
 	}
 
-	if (*pulDigestLen < gCtx->digestCtx.digestSize)
+	if (*pulDigestLen < gCtx->digestCtx.digestSize) {
+		/* pkcs11-base-3.0: section 5.2: In either case, *pulBufLen is set to hold the exact number of bytes 
+		 * needed to hold the cryptographic output produced from the input to 
+		 * the function.*/
+		*pulDigestLen = gCtx->digestCtx.digestSize;
 		return CKR_BUFFER_TOO_SMALL;
+	}
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
@@ -333,14 +374,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 		goto err_free_output_len;
 	}
 
-	input = hse_mem_alloc(gCtx->digestCtx.cache_idx);
-	if (input == NULL) {
-		rc = CKR_HOST_MEMORY;
-		goto err_free_output;
-	}
+	if (gCtx->digestCtx.cache_idx > 0) {
+		input = hse_mem_alloc(gCtx->digestCtx.cache_idx);
+		if (input == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto err_free_output;
+		}
 
-	/* copy remaining data to buffer */
-	hse_memcpy(input, gCtx->digestCtx.cache, gCtx->digestCtx.cache_idx);
+		/* copy remaining data to buffer */
+		hse_memcpy(input, gCtx->digestCtx.cache, gCtx->digestCtx.cache_idx);
+	}
 
 	hash_req = &srv_desc.hseSrv.hashReq;
 	srv_desc.srvId = HSE_SRV_ID_HASH;
@@ -361,7 +404,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 	}
 
 	/* copy result back to pDigest */
-	memcpy(pDigest, output, *(uint32_t *)output_len);
+	hse_memcpy(pDigest, output, *(uint32_t *)output_len);
+
+	/* pkcs11-base-3.0: section 5.2: In either case, *pulBufLen is set to hold the exact number of bytes 
+	* needed to hold the cryptographic output produced from the input to 
+	* the function.*/
+	*pulDigestLen = *(uint32_t *)output_len;
 
 err_free_input:
 	hse_mem_free(input);
