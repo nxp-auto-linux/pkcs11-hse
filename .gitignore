@@ -4,6 +4,7 @@ examples/hse-sysimg/hse-sysimg
 examples/hse-encrypt/hse-encrypt
 examples/hse-secboot/hse-secboot
 examples/trustzone-key-provision/target/hse-kek-provision
+examples/trustzone-key-provision/target/hse-symkey-provision
 *.so*
 libhse/obj
 libpkcs/obj
