@@ -62,7 +62,7 @@ INCL = -I$(HSE_FWDIR)/interface                                                \
 
 DEFS := -DUIO_DEV=$(UIO_DEV)
 
-all: $(PKCS_LIB)
+all: $(PKCS_LIB) examples
 
 $(PKCS_LIB): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
 	$(CC) -shared $(CFLAGS) -L$(shell pwd) $(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
@@ -83,8 +83,13 @@ $(HSE_ODIR)/%.o: $(HSE_SDIR)/%.c $(HSE_ODIR)
 $(HSE_ODIR):
 	mkdir -p $@
 
+.PHONY: examples
+examples:
+	make -C examples PKCS11HSE_DIR=$(CURDIR)
+
 clean:
 	rm -f *.so*
 	rm -rf $(PKCS_ODIR) $(HSE_ODIR)
+	make -C examples clean
 
 .PHONY: clean all
