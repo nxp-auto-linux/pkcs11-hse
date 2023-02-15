@@ -32,6 +32,10 @@ ifeq (,$(UIO_DEV))
     $(warning HSE UIO device not defined, using default device $(UIO_DEV))
 endif
 
+INSTALL_DIR := $(CURDIR)/out
+INSTALL_LIBDIR := $(INSTALL_DIR)/lib
+INSTALL_BINDIR := $(INSTALL_DIR)/bin
+
 # Build libraries
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
@@ -96,4 +100,18 @@ clean:
 	rm -rf $(PKCS_ODIR) $(HSE_ODIR)
 	make -C examples clean
 
-.PHONY: clean all
+install: $(PKCS_LIB).$(PKCS_LIBVER) examples
+	@mkdir -p $(INSTALL_LIBDIR)
+	@mkdir -p $(INSTALL_BINDIR)
+
+	@echo "Installing pkcs11 libraries in $(INSTALL_LIBDIR)"
+	@install $(PKCS_LIB).$(PKCS_LIBVER) $(INSTALL_LIBDIR)
+	@ln -sf $(PKCS_LIB).$(PKCS_LIBVER) $(INSTALL_LIBDIR)/$(PKCS_LIB).$(PKCS_LIBVER_MAJOR)
+
+	@install $(HSE_LIB).$(HSE_LIBVER) $(INSTALL_LIBDIR)
+	@ln -sf $(HSE_LIB).$(HSE_LIBVER) $(INSTALL_LIBDIR)/$(HSE_LIB).$(HSE_LIBVER_MAJOR)
+
+	@echo "Installing example binaries in $(INSTALL_BINDIR)"
+	make -C examples install EXAMPLES_INSTALLDIR=$(INSTALL_BINDIR)
+
+.PHONY: clean all install

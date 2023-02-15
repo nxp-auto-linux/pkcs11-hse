@@ -6,3 +6,4 @@ examples/hse-secboot/hse-secboot
 *.so*
 libhse/obj
 libpkcs/obj
+out/*
