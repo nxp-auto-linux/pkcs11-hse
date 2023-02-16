@@ -39,6 +39,9 @@ CFLAGS ?= -fPIC -Wall -g
 LDFLAGS ?=
 
 PKCS_LIB ?= libpkcs-hse.so
+PKCS_LIBVER_MAJOR = 1
+PKCS_LIBVER_MINOR = 0
+PKCS_LIBVER = $(PKCS_LIBVER_MAJOR).$(PKCS_LIBVER_MINOR)
 PKCS_SDIR = libpkcs
 PKCS_ODIR = $(PKCS_SDIR)/obj
 PKCS_SRCS = $(wildcard $(PKCS_SDIR)/*.c)
@@ -62,10 +65,11 @@ INCL = -I$(HSE_FWDIR)/interface                                                \
 
 DEFS := -DUIO_DEV=$(UIO_DEV)
 
-all: $(PKCS_LIB) examples
+all: $(PKCS_LIB).$(PKCS_LIBVER) examples
 
-$(PKCS_LIB): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
-	$(CC) -shared $(CFLAGS) -L$(shell pwd) $(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
+$(PKCS_LIB).$(PKCS_LIBVER): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
+	$(CC) -shared $(CFLAGS) -L$(shell pwd) -Wl,-soname,$(PKCS_LIB).$(PKCS_LIBVER_MAJOR) \
+	$(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
 
 $(PKCS_ODIR)/%.o: $(PKCS_SDIR)/%.c $(PKCS_ODIR)
 	$(CC) -c $(CFLAGS) $(INCL) $(LDFLAGS) $< -o $@
