@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2022 NXP
+ * Copyright 2021-2023 NXP
  */
 
 #include <stdio.h>
@@ -225,7 +225,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			hse_memcpy(pkey1, getattr_pval(pTemplate, CKA_PUBLIC_EXPONENT, ulCount), pkey1_len);
 
 			/* rsa can be used for sign/verify */
-			key_info->keyFlags = HSE_KF_USAGE_VERIFY;
+			key_info->keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_USAGE_ENCRYPT;
 			key_info->keyBitLen = pkey0_len * 8;
 			key_info->specific.pubExponentSize = pkey1_len;
 			key_info->keyType = HSE_KEY_TYPE_RSA_PUB;
@@ -251,7 +251,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				}
 				hse_memcpy(pkey2, getattr_pval(pTemplate, CKA_PRIVATE_EXPONENT, ulCount), pkey2_len);
 
-				key_info->keyFlags |= HSE_KF_USAGE_SIGN;
+				key_info->keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_DECRYPT;
 				key_info->keyType = HSE_KEY_TYPE_RSA_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_dma(pkey2); /* private exponent */
