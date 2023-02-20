@@ -144,18 +144,22 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 	return key;
 }
 
-static CK_OBJECT_HANDLE util_lib_find_objects(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session)
+static CK_OBJECT_HANDLE util_lib_find_objects(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_CLASS class)
 {
-	CK_OBJECT_HANDLE key_match = 0;
+	CK_OBJECT_HANDLE aes_key = 0;
 	CK_ULONG num_keys;
 	CK_RV rv;
+	CK_OBJECT_CLASS key_class = class;
+	CK_ATTRIBUTE template[] = {
+		{ CKA_CLASS, &key_class, sizeof(key_class) },
+	};
 
-	rv = flist->C_FindObjectsInit(session, NULL, 0);
+	rv = flist->C_FindObjectsInit(session, template, ARRAY_SIZE(template));
 	if (rv != CKR_OK)
 		return 0;
 
 	do {
-		rv = flist->C_FindObjects(session, &key_match, 1, &num_keys);
+		rv = flist->C_FindObjects(session, &aes_key, 1, &num_keys);
 		/* no extra processing required, just return last key found */
 	} while (rv == CKR_OK && num_keys != 0);
 
@@ -163,7 +167,7 @@ static CK_OBJECT_HANDLE util_lib_find_objects(CK_FUNCTION_LIST_PTR flist, CK_SES
 	if (rv != CKR_OK)
 		return 0;
 
-	return key_match;
+	return aes_key;
 }
 
 static int util_lib_destroy_object(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key)
@@ -188,7 +192,7 @@ static int util_lib_finalize(CK_FUNCTION_LIST_PTR flist)
 	return 0;
 }
 
-static int ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key, CK_MECHANISM_PTR p_mech)
+static int block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key, CK_MECHANISM_PTR p_mech)
 {
 	CK_RV rv;
 
@@ -223,14 +227,14 @@ static int ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_O
 	return memcmp(decrypted_text, plain_text, decrypt_text_len);
 }
 
-static int util_lib_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key)
+static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key)
 {
 	int ret;
 	CK_MECHANISM mechanism;
 
 	mechanism.mechanism = CKM_AES_ECB;
 	mechanism.pParameter = NULL;
-	ret = ciphering(flist, session, key, &mechanism);
+	ret = block_ciphering(flist, session, key, &mechanism);
 	if (ret == 0)
 		INFO("CKM_AES_ECB Done!\n");
 	else 
@@ -239,7 +243,7 @@ static int util_lib_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE sess
 	mechanism.mechanism = CKM_AES_CBC;
 	mechanism.ulParameterLen = 16;
 	mechanism.pParameter = iv;
-	ret = ciphering(flist, session, key, &mechanism);
+	ret = block_ciphering(flist, session, key, &mechanism);
 	if (ret == 0)
 		INFO("CKM_AES_CBC Done!\n");
 	else 
@@ -248,7 +252,7 @@ static int util_lib_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE sess
 	mechanism.mechanism = CKM_AES_CTR;
 	mechanism.ulParameterLen = 16;
 	mechanism.pParameter = iv;
-	ret = ciphering(flist, session, key, &mechanism);
+	ret = block_ciphering(flist, session, key, &mechanism);
 	if (ret == 0)
 		INFO("CKM_AES_CTR Done!\n");
 	else 
@@ -257,11 +261,100 @@ static int util_lib_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE sess
 	mechanism.mechanism = CKM_AES_GCM;
 	mechanism.ulParameterLen = 16;
 	mechanism.pParameter = iv;
-	ret = ciphering(flist, session, key, &mechanism);
+	ret = block_ciphering(flist, session, key, &mechanism);
 	if (ret == 0)
 		INFO("CKM_AES_GCM Done!\n");
 	else 
 		INFO("CKM_AES_GCM Fail!\n");
+
+	return 0;
+}
+
+static int util_lib_rsa_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE pub_key, CK_OBJECT_HANDLE priv_key)
+{
+	CK_RV rv;
+	CK_MECHANISM mechanism;
+	char *plain_text = "rsa ciphering test; rsa ciphering test; rsa ciphering test";
+	uint8_t cipher_text[256] = {0};
+	CK_ULONG cipher_text_len = ARRAY_SIZE(cipher_text);
+	uint8_t decrypted_text[64] = {0};
+	CK_ULONG decrypted_text_length = 0;
+	CK_RSA_PKCS_OAEP_PARAMS rsa_oaep_param;
+
+	mechanism.mechanism = CKM_RSA_PKCS;
+	mechanism.pParameter = NULL;
+	mechanism.ulParameterLen = 0;
+
+	INFO("CKM_RSA_PKCS encrypt/decrypt ...\n");
+	/* encrypt:  plain_text -> cipher_text */
+	rv = flist->C_EncryptInit(session, &mechanism, pub_key);
+	if (rv != CKR_OK) {
+		INFO("C_EncryptInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Encrypt(session, (uint8_t *)plain_text, strlen(plain_text), cipher_text, &cipher_text_len);
+	if (rv != CKR_OK) {
+		INFO("C_Encrypt returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* decrypt: cipher_text -> decrypted_text */
+	rv = flist->C_DecryptInit(session, &mechanism, priv_key);
+	if (rv != CKR_OK) {
+		INFO("C_DecryptInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	decrypted_text_length = ARRAY_SIZE(decrypted_text);
+	rv = flist->C_Decrypt(session, (uint8_t *)cipher_text, sizeof(cipher_text), decrypted_text, &decrypted_text_length);
+	if (rv != CKR_OK) {
+		INFO("C_Decrypt returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	if (memcmp((void *)plain_text, (void *)decrypted_text, decrypted_text_length) == 0)
+		INFO("CKM_RSA_PKCS Done!\n");
+	else 
+		INFO("CKM_RSA_PKCS Fail!\n");
+
+	INFO("CKM_RSA_PKCS_OAEP encrypt/decrypt ...\n");
+	mechanism.mechanism = CKM_RSA_PKCS_OAEP;
+	mechanism.pParameter = (void *)&rsa_oaep_param;
+	mechanism.ulParameterLen = sizeof(CK_RSA_PKCS_OAEP_PARAMS);
+	rsa_oaep_param.hashAlg = CKM_SHA_1;
+
+	/* encrypt:  plain_text -> cipher_text */
+	rv = flist->C_EncryptInit(session, &mechanism, pub_key);
+	if (rv != CKR_OK) {
+		INFO("C_EncryptInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Encrypt(session, (uint8_t *)plain_text, strlen(plain_text), cipher_text, &cipher_text_len);
+	if (rv != CKR_OK) {
+		INFO("C_Encrypt returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* decrypt: cipher_text -> decrypted_text */
+	rv = flist->C_DecryptInit(session, &mechanism, priv_key);
+	if (rv != CKR_OK) {
+		INFO("C_DecryptInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	decrypted_text_length = ARRAY_SIZE(decrypted_text);
+	rv = flist->C_Decrypt(session, (uint8_t *)cipher_text, sizeof(cipher_text), decrypted_text, &decrypted_text_length);
+	if (rv != CKR_OK) {
+		INFO("C_Decrypt returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	if (memcmp((void *)plain_text, (void *)decrypted_text, decrypted_text_length) == 0)
+		INFO("CKM_RSA_PKCS_OAEP Done!\n");
+	else 
+		INFO("CKM_RSA_PKCS_OAEP Fail!\n");
 
 	return 0;
 }
@@ -276,7 +369,7 @@ int main(int argc, char *argv[])
 	
 	CK_SLOT_ID slot;
 	CK_SESSION_HANDLE session;
-	CK_OBJECT_HANDLE key_match, key;
+	CK_OBJECT_HANDLE aes_key, key, rsa_pub_key, rsa_priv_key;
 
 	if (argc == 2 && !strncmp(argv[1], arg_help, sizeof(*arg_help))) {
 		usage(argv[0]);
@@ -346,21 +439,44 @@ int main(int argc, char *argv[])
 
 	INFO("Calling C_FindObjects...\n");
 
-	key_match = util_lib_find_objects(flist, session);
-	if (!key_match) {
-		ERROR("Failed to find key object\n");
+	aes_key = util_lib_find_objects(flist, session, CKO_SECRET_KEY);
+	if (!aes_key) {
+		ERROR("Failed to find key object with Class CKO_SECRET_KEY\n");
 		ret = -ENOKEY;
 		goto err_lib_finalize;
 	}
 
-	INFO("Found Key Object with handle %06lx\n", key_match);
+	INFO("Found Key Object with handle %06lx\n", aes_key);
 
-	/* ciphering */
-	util_lib_ciphering(flist, session, key);
+	INFO("Block ciphering...\n");
+	/* block ciphering */
+	util_lib_block_ciphering(flist, session, aes_key);
 
-	INFO("Deleting Key Object with handle %06lx\n", key_match);
+	INFO("RSA ciphering...\n");
+	/* RSA ciphering */
+	rsa_pub_key = util_lib_find_objects(flist, session, CKO_PUBLIC_KEY);
+	if (!rsa_pub_key) {
+		ERROR("Failed to find key object with Class CKO_PUBLIC_KEY\n");
+		ret = -ENOKEY;
+		goto err_lib_finalize;
+	}
 
-	ret = util_lib_destroy_object(flist, session, key_match);
+	INFO("Found Key Object with handle %06lx\n", rsa_pub_key);
+
+	rsa_priv_key = util_lib_find_objects(flist, session, CKO_PRIVATE_KEY);
+	if (!rsa_priv_key) {
+		ERROR("Failed to find key object with Class CKO_PRIVATE_KEY\n");
+		ret = -ENOKEY;
+		goto err_lib_finalize;
+	}
+
+	INFO("Found Key Object with handle %06lx\n", rsa_priv_key);
+
+	util_lib_rsa_ciphering(flist, session, rsa_pub_key, rsa_priv_key);
+
+	INFO("Deleting Key Object with handle %06lx\n", aes_key);
+
+	ret = util_lib_destroy_object(flist, session, aes_key);
 	if (ret) {
 		ERROR("Failed to destroy key object\n");
 		goto err_lib_finalize;

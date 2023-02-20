@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "pkcs11_context.h"
+#include "pkcs11_util.h"
 
 CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 		CK_SESSION_HANDLE hSession,
@@ -33,9 +34,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 		return CKR_KEY_HANDLE_INVALID;
 
 	/* IV is optional for AES-ECB */
-	if (pMechanism->pParameter == NULL &&
-	    pMechanism->mechanism != CKM_AES_ECB)
-		return CKR_ARGUMENTS_BAD;
+	if (pMechanism->pParameter == NULL)
+	    if ((pMechanism->mechanism != CKM_AES_ECB) &&  
+			(pMechanism->mechanism != CKM_RSA_PKCS))
+			return CKR_ARGUMENTS_BAD;
 
 	gCtx->cryptCtx.init = CK_TRUE;
 	gCtx->cryptCtx.mechanism = pMechanism;
@@ -55,12 +57,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	struct globalCtx *gCtx = getCtx();
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
+	hseRsaCipherSrv_t *rsa_cipher_srv;
 	hseAeadSrv_t *aead_srv;
 	void *input, *output, *output_len, *pIV = NULL;
 	void *gcm_tag = NULL;
 	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
 	int err;
+	uint16_t key_bit_length;
+	CK_RSA_PKCS_OAEP_PARAMS *oaep_params;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -85,6 +90,19 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	}
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &gCtx->cryptCtx.keyHandle);
+	if (key == NULL)
+		return CKR_KEY_HANDLE_INVALID;
+
+	/* check for input length for RSA ciphering */
+	if ((gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) || 
+		(gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
+		key_bit_length = hse_get_key_bit_length(key);
+		if (key_bit_length == 0) 
+			return CKR_GENERAL_ERROR;
+
+		if (rsa_ciphering_get_max_input_length(key_bit_length, gCtx->cryptCtx.mechanism) < ulDataLen)
+			return CKR_DATA_LEN_RANGE;
+	}
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL) 
@@ -97,14 +115,27 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 		goto err_free_input;
 	}
 
+	/* Check the output length */
 	if ((gCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) || 
 		(gCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) || 
 		(gCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR) || 
 		(gCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM)) {
 		/* For AES, the output length is equal to the input length  */
 		hse_memcpy(output_len, &ulDataLen, sizeof(uint32_t));
+	} else if ((gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) || 
+			   (gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
+		/* get the output length based on the RSA key length */
+		*(uint32_t *)output_len = rsa_ciphering_get_out_length(key_bit_length);
 	}
 
+	if (*pulEncryptedDataLen < *(uint32_t *)output_len) {
+		/* tell the required size */
+		*pulEncryptedDataLen = *(uint32_t *)output_len;
+
+		rc = CKR_BUFFER_TOO_SMALL;
+		goto err_free_output_len;
+	}
+	
 	output = hse_mem_alloc(*(uint32_t *)output_len);
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
@@ -112,12 +143,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	}
 
 	if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
-		pIV = hse_mem_alloc(gCtx->cryptCtx.mechanism->ulParameterLen);
-		if (pIV == NULL) {
-			rc = CKR_HOST_MEMORY;
-			goto err_free_output;
+		if (gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP) {
+			oaep_params = (CK_RSA_PKCS_OAEP_PARAMS *)gCtx->cryptCtx.mechanism->pParameter;
+		} else {
+			pIV = hse_mem_alloc(gCtx->cryptCtx.mechanism->ulParameterLen);
+			if (pIV == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto err_free_output;
+			}
+			hse_memcpy(pIV, gCtx->cryptCtx.mechanism->pParameter, gCtx->cryptCtx.mechanism->ulParameterLen);
 		}
-		hse_memcpy(pIV, gCtx->cryptCtx.mechanism->pParameter, gCtx->cryptCtx.mechanism->ulParameterLen);
 	}
 
 	if (gCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) {
@@ -217,6 +252,37 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 
 			break;
 
+		case CKM_RSA_PKCS:
+			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
+			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			rsa_cipher_srv->keyHandle = key->key_handle;
+			rsa_cipher_srv->inputLength = ulDataLen;
+			rsa_cipher_srv->pInput = hse_virt_to_dma(input);
+			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len);
+			rsa_cipher_srv->pOutput = hse_virt_to_dma(output);
+
+			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_PKCS1_V15;
+			break;
+
+		case CKM_RSA_PKCS_OAEP:
+			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
+			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			rsa_cipher_srv->keyHandle = key->key_handle;
+			rsa_cipher_srv->inputLength = ulDataLen;
+			rsa_cipher_srv->pInput = hse_virt_to_dma(input);
+			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len);
+			rsa_cipher_srv->pOutput = hse_virt_to_dma(output);
+
+			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_OAEP;
+			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_get_hash_alg(oaep_params->hashAlg);
+			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.labelLength = 0;
+			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.pLabel = 0;
+			break;
+
 		default:
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_tag;
@@ -271,9 +337,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 		return CKR_KEY_HANDLE_INVALID;
 
 	/* IV is optional for AES-ECB */
-	if (pMechanism->pParameter == NULL &&
-		pMechanism->mechanism != CKM_AES_ECB)
-		return CKR_ARGUMENTS_BAD;
+	if (pMechanism->pParameter == NULL)
+	    if ((pMechanism->mechanism != CKM_AES_ECB) &&  
+			(pMechanism->mechanism != CKM_RSA_PKCS))
+			return CKR_ARGUMENTS_BAD;
 
 	gCtx->cryptCtx.init = CK_TRUE;
 	gCtx->cryptCtx.mechanism = pMechanism;
@@ -293,12 +360,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	struct globalCtx *gCtx = getCtx();
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
+	hseRsaCipherSrv_t *rsa_cipher_srv;
 	hseAeadSrv_t *aead_srv;
 	void *input, *output, *output_len, *pIV = NULL;
 	void *gcm_tag = NULL;
 	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
 	int err;
+	uint16_t key_bit_length = 0;
+	CK_RSA_PKCS_OAEP_PARAMS *oaep_params;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -323,6 +393,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	}
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &gCtx->cryptCtx.keyHandle);
+	if (key == NULL)
+		return CKR_KEY_HANDLE_INVALID;
+
+	if ((gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) || 
+		(gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
+		key_bit_length = hse_get_key_bit_length(key);
+		/* The input cipher text length should be equal to the key size */
+		if (ulEncryptedDataLen != (key_bit_length >> 3))
+			return CKR_ARGUMENTS_BAD;
+	}
 
 	input = hse_mem_alloc(ulEncryptedDataLen);
 	if (input == NULL)
@@ -341,6 +421,17 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 		(gCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM)) {
 		/* For AES, the output length is equal to the input length  */
 		hse_memcpy(output_len, &ulEncryptedDataLen, sizeof(uint32_t));
+		if (*(uint32_t *)output_len > *pulDataLen) {
+			/* tell the required size */
+			*pulDataLen = *(uint32_t *)output_len;
+
+			rc = CKR_BUFFER_TOO_SMALL;
+			goto err_free_output_len;
+		}
+	} else if ((gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) || 
+				(gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
+		/* to be safe, we allocate the max. length */
+		*(uint32_t *)output_len = rsa_ciphering_get_max_input_length(key_bit_length, gCtx->cryptCtx.mechanism);
 	}
 
 	output = hse_mem_alloc(*(uint32_t *)output_len);
@@ -350,12 +441,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	}
 
 	if (gCtx->cryptCtx.mechanism->pParameter != NULL) {
-		pIV = hse_mem_alloc(gCtx->cryptCtx.mechanism->ulParameterLen);
-		if (pIV == NULL) {
-			rc = CKR_HOST_MEMORY;
-			goto err_free_output;
+		if (gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP) {
+			oaep_params = (CK_RSA_PKCS_OAEP_PARAMS *)gCtx->cryptCtx.mechanism->pParameter;
+		} else {
+			pIV = hse_mem_alloc(gCtx->cryptCtx.mechanism->ulParameterLen);
+			if (pIV == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto err_free_output;
+			}
+			hse_memcpy(pIV, gCtx->cryptCtx.mechanism->pParameter, gCtx->cryptCtx.mechanism->ulParameterLen);
 		}
-		hse_memcpy(pIV, gCtx->cryptCtx.mechanism->pParameter, gCtx->cryptCtx.mechanism->ulParameterLen);
 	}
 
 	if (gCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) {
@@ -454,6 +549,37 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 
 			break;
 
+		case CKM_RSA_PKCS:
+			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
+			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			rsa_cipher_srv->keyHandle = key->key_handle;
+			rsa_cipher_srv->inputLength = ulEncryptedDataLen;
+			rsa_cipher_srv->pInput = hse_virt_to_dma(input);
+			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len);
+			rsa_cipher_srv->pOutput = hse_virt_to_dma(output);
+
+			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_PKCS1_V15;
+			break;
+
+		case CKM_RSA_PKCS_OAEP:
+			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
+			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			rsa_cipher_srv->keyHandle = key->key_handle;
+			rsa_cipher_srv->inputLength = ulEncryptedDataLen;
+			rsa_cipher_srv->pInput = hse_virt_to_dma(input);
+			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len);
+			rsa_cipher_srv->pOutput = hse_virt_to_dma(output);
+
+			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_OAEP;
+			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_get_hash_alg(oaep_params->hashAlg);
+			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.labelLength = 0;
+			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.pLabel = 0;
+			break;
+
 		default:
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_tag;
@@ -463,6 +589,18 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_tag;
+	}
+
+	/* check for output buffer length */
+	if ((gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) || 
+		(gCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
+		if (*(uint32_t *)output_len > *pulDataLen) {
+			/* tell the required size */
+			*pulDataLen = *(uint32_t *)output_len;
+
+			rc = CKR_BUFFER_TOO_SMALL;
+			goto err_free_output_len;
+		}
 	}
 
 	hse_memcpy(pData, output, *(uint32_t *)output_len);
