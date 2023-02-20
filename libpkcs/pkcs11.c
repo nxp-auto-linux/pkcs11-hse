@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2022 NXP
+ * Copyright 2021-2023 NXP
  */
 
 #include <stdlib.h>
@@ -22,6 +22,8 @@ struct globalCtx context = {
 static const CK_MECHANISM_TYPE mechanismList[] = {
 	CKM_AES_ECB,
 	CKM_AES_GCM,
+	CKM_AES_CBC,
+	CKM_AES_CTR,
 	CKM_SHA256_RSA_PKCS,
 	CKM_ECDSA_SHA1,
 	CKM_SHA_1
