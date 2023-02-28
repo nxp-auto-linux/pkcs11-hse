@@ -2,9 +2,10 @@
 # Copyright 2021, 2023 NXP
 #
 
-examples :=  pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot
-clean_examples = $(addprefix clean_,$(examples))
-install_examples = $(addprefix install_,$(examples))
+examples := pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot trustzone-key-provision
+default_examples := pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot
+clean_examples = $(addprefix clean_,$(default_examples))
+install_examples = $(addprefix install_,$(default_examples))
 
 .PHONY: all clean $(examples) $(clean_examples)
 
@@ -23,7 +24,7 @@ install_$(1):
 	make -C ./$(1) install
 endef
 
-all: $(examples)
+all: $(default_examples)
 clean: $(clean_examples)
 install: $(install_examples)
 
