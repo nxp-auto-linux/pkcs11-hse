@@ -1,65 +1,32 @@
 #
-# Copyright 2021 NXP
+# Copyright 2021, 2023 NXP
 #
 
-CFLAGS ?= -Wall -g
-LDFLAGS ?= -lcrypto -lp11
+examples :=  pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot
+clean_examples = $(addprefix clean_,$(examples))
+install_examples = $(addprefix install_,$(examples))
 
-ifeq (,$(CROSS_COMPILE))
-    $(error CROSS_COMPILE is not set)
-endif
+.PHONY: all clean $(examples) $(clean_examples)
 
-ifeq (,$(OPENSSL_DIR))
-$(warning Path to cross-compiled OpenSSL not defined, using default location)
-endif
-OPENSSL_DIR ?= $(HOME)/openssl-aarch64
+define generate_build_rule
+$(1):
+	make -C ./$(1)
+endef
 
-ifeq (,$(LIBP11_DIR))
-$(warning Path to cross-compiled libp11 not defined, using default location)
-endif
-LIBP11_DIR ?= $(HOME)/libp11-aarch64
+define generate_clean_rule
+clean_$(1):
+	make -C ./$(1) clean
+endef
 
-ifeq (,$(HSE_FWDIR))
-$(warning Path to HSE firmware package not defined, using default location)
-endif
-HSE_FWDIR ?= $(HOME)/HSE_FW_S32G2_0_1_0_0
+define generate_install_rule
+install_$(1):
+	make -C ./$(1) install
+endef
 
-LIBHSE_SRCDIR ?= ../libhse
-LIBHSE_DIR ?= ..
+all: $(examples)
+clean: $(clean_examples)
+install: $(install_examples)
 
-LIBPKCS_SRCDIR ?= ../libpkcs
-
-INCLUDE_KEYOP ?= -I$(OPENSSL_DIR)/include \
-		 -I$(LIBP11_DIR)/include
-
-INCLUDE_LIBHSE := -I$(LIBHSE_SRCDIR) \
-		  -I$(HSE_FWDIR)/interface \
-		  -I$(HSE_FWDIR)/interface/config \
-		  -I$(HSE_FWDIR)/interface/inc_common \
-		  -I$(HSE_FWDIR)/interface/inc_services
-
-INCLUDE_LIBPKCS := -I$(OPENSSL_DIR)/include \
-		   -I$(LIBPKCS_SRCDIR)
-
-LIBS ?= -L$(OPENSSL_DIR)/lib \
-	-L$(LIBP11_DIR)/lib
-
-all: pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot
-
-pkcs-keyop: pkcs-keyop.c
-	$(CROSS_COMPILE)gcc $(LIBS) $(INCLUDE_KEYOP) $(CFLAGS) $^ -o $@ $(LDFLAGS)
-
-pkcs-key-provision: pkcs-key-provision.c
-	$(CROSS_COMPILE)gcc -L$(OPENSSL_DIR)/lib $(INCLUDE_LIBPKCS) $(CFLAGS) $^ -o $@ -lcrypto -ldl
-
-hse-encrypt: hse-encrypt.c
-	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) $(INCLUDE_LIBHSE) $(CFLAGS) $^ -o $@ -lhse
-
-hse-sysimg: hse-sysimg.c
-	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) $(INCLUDE_LIBHSE) $(CFLAGS) $^ -o $@ -lhse
-
-hse-secboot: hse-secboot.c
-	$(CROSS_COMPILE)gcc -L$(LIBHSE_DIR) -L$(OPENSSL_DIR)/lib -I$(OPENSSL_DIR)/include $(INCLUDE_LIBHSE) $(CFLAGS) $^ -o $@ -lcrypto -lhse
-
-clean:
-	rm -f pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot
+$(foreach example, $(examples), $(eval $(call generate_build_rule,$(example))))
+$(foreach example, $(examples), $(eval $(call generate_clean_rule,$(example))))
+$(foreach example, $(examples), $(eval $(call generate_install_rule,$(example))))

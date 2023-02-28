@@ -1,8 +1,8 @@
-examples/pkcs-keyop
-examples/pkcs-key-provision
-examples/hse-sysimg
-examples/hse-encrypt
-examples/hse-secboot
+examples/pkcs-keyop/pkcs-keyop
+examples/pkcs-key-provision/pkcs-key-provision
+examples/hse-sysimg/hse-sysimg
+examples/hse-encrypt/hse-encrypt
+examples/hse-secboot/hse-secboot
 *.so*
 libhse/obj
 libpkcs/obj
