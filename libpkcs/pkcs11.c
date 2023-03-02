@@ -26,8 +26,21 @@ static const CK_MECHANISM_TYPE mechanismList[] = {
 	CKM_AES_CTR,
 	CKM_RSA_PKCS,
 	CKM_RSA_PKCS_OAEP,
+	CKM_SHA1_RSA_PKCS,
 	CKM_SHA256_RSA_PKCS,
+	CKM_SHA384_RSA_PKCS,
+	CKM_SHA512_RSA_PKCS,
+	CKM_RSA_PKCS_PSS,
+	CKM_SHA1_RSA_PKCS_PSS,
+	CKM_SHA256_RSA_PKCS_PSS,
+	CKM_SHA384_RSA_PKCS_PSS,
+	CKM_SHA512_RSA_PKCS_PSS,
+	CKM_ECDSA,
 	CKM_ECDSA_SHA1,
+	CKM_ECDSA_SHA224,
+	CKM_ECDSA_SHA256,
+	CKM_ECDSA_SHA384,
+	CKM_ECDSA_SHA512,
 	CKM_SHA_1, CKM_SHA224, CKM_SHA256, CKM_SHA512, CKM_SHA512_224, CKM_SHA512_256
 };
 
@@ -76,7 +89,7 @@ static CK_FUNCTION_LIST gFunctionList = {
 };
 
 /*
- * PKCS11 standard: char buffers MUST be padded with the blank character (‘ ‘).
+ * PKCS11 standard: char buffers MUST be padded with the blank character (' ').
  * MUST NOT be null-terminated.
  */
 static void strcpy_pkcs11_padding(unsigned char *dest, const char *source, size_t dest_len)

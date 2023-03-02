@@ -109,7 +109,7 @@ uint32_t rsa_ciphering_get_out_length(uint16_t rsa_key_length_bit)
 	return rsa_key_length_bit >> 3;
 }
 
-hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism)
+hseHashAlgo_t hse_pkcs_hash_alg_translate(CK_MECHANISM_TYPE mechanism)
 {
 	hseHashAlgo_t hash = HSE_HASH_ALGO_NULL;
 
@@ -148,3 +148,66 @@ hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism)
 	return hash;
 }
 
+hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism)
+{
+	hseHashAlgo_t hash = HSE_HASH_ALGO_NULL;
+
+	switch (mechanism) {
+		case CKM_SHA1_RSA_PKCS:
+		case CKM_ECDSA_SHA1:
+			hash = HSE_HASH_ALGO_SHA_1;
+			break;
+		case CKM_ECDSA_SHA224:
+			hash = HSE_HASH_ALGO_SHA2_224;
+			break;
+		case CKM_SHA256_RSA_PKCS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_ECDSA_SHA256:
+			hash = HSE_HASH_ALGO_SHA2_256;
+			break;
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_ECDSA_SHA384:
+			hash = HSE_HASH_ALGO_SHA2_384;
+			break;
+		case CKM_SHA512_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_ECDSA_SHA512:
+			hash = HSE_HASH_ALGO_SHA2_512;
+			break;
+		default:
+			break;
+	}
+
+	return hash;
+}
+
+uint32_t sig_get_out_length(struct hse_keyObject *key, CK_MECHANISM_PTR mechanism)
+{
+	CK_MECHANISM_TYPE mechanism_type = mechanism->mechanism;
+	uint32_t sig_len = 0;
+
+	switch (mechanism_type) {
+		case CKM_RSA_PKCS_OAEP:
+		case CKM_SHA256_RSA_PKCS:
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
+		case CKM_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+			sig_len = hse_get_key_bit_length(key) >> 3;
+			break;
+		case CKM_ECDSA:
+		case CKM_ECDSA_SHA1:
+		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
+			sig_len = (hse_get_key_bit_length(key) >> 3) * 2;
+			break;
+		default:
+			return 0;
+	}
+
+	return sig_len;
+}
