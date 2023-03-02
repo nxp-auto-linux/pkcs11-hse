@@ -8,9 +8,12 @@
 
 uint16_t hse_get_key_bit_length(struct hse_keyObject *key);
 
+hseHashAlgo_t hse_pkcs_hash_alg_translate(CK_MECHANISM_TYPE mechanism);
 hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism);
 
 uint32_t rsa_ciphering_get_max_input_length(uint16_t rsa_key_length_bit, CK_MECHANISM_PTR mechanism);
 uint32_t rsa_ciphering_get_out_length(uint16_t rsa_key_length_bit);
+
+uint32_t sig_get_out_length(struct hse_keyObject *key, CK_MECHANISM_PTR mechanism);
 
 #endif

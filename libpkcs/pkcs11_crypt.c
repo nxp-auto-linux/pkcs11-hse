@@ -278,7 +278,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			rsa_cipher_srv->pOutput = hse_virt_to_dma(output);
 
 			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_OAEP;
-			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_get_hash_alg(oaep_params->hashAlg);
+			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_pkcs_hash_alg_translate(oaep_params->hashAlg);
 			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.labelLength = 0;
 			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.pLabel = 0;
 			break;
@@ -575,7 +575,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			rsa_cipher_srv->pOutput = hse_virt_to_dma(output);
 
 			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_OAEP;
-			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_get_hash_alg(oaep_params->hashAlg);
+			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_pkcs_hash_alg_translate(oaep_params->hashAlg);
 			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.labelLength = 0;
 			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.pLabel = 0;
 			break;
@@ -668,6 +668,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
 	int err;
+	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -691,6 +692,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &gCtx->signCtx.keyHandle);
+	if (key == NULL) 
+		return CKR_KEY_HANDLE_INVALID;
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL)
@@ -702,66 +705,105 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 		rc = CKR_HOST_MEMORY;
 		goto err_free_input;
 	}
+
+	/* check the output length */
+	*(uint32_t *)output_len = sig_get_out_length(key, gCtx->signCtx.mechanism);
+	if (*(uint32_t *)output_len > *pulSignatureLen) {
+		*pulSignatureLen = *(uint32_t *)output_len;
+		rc = CKR_BUFFER_TOO_SMALL;
+		goto err_free_output_len;
+	}
 	hse_memcpy(output_len, pulSignatureLen, sizeof(uint32_t));
+
+	sign0 = hse_mem_alloc(*(uint32_t *)output_len);
+	if (sign0 == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_free_output_len;
+	}
 
 	sign_srv = &srv_desc.hseSrv.signReq;
 	sign_scheme = &sign_srv->signScheme;
 
 	switch (gCtx->signCtx.mechanism->mechanism) {
+		case CKM_RSA_PKCS:
+		case CKM_SHA1_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
-
-			sign0 = hse_mem_alloc(*(uint32_t *)output_len);
-			if (sign0 == NULL) {
-				rc = CKR_HOST_MEMORY;
-				goto err_free_output_len;
-			}
-
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
 			sign_scheme->signSch = HSE_SIGN_RSASSA_PKCS1_V15;
-			sign_scheme->sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA2_256;
-
+			sign_scheme->sch.rsaPkcs1v15.hashAlgo = hse_get_hash_alg(gCtx->signCtx.mechanism->mechanism);
 			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
 			sign_srv->pSignatureLength[1] = 0u;
-			sign_srv->pSignature[0] = hse_virt_to_dma(sign0); /* rsa */
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
 			sign_srv->pSignature[1] = 0u;
+			if (CKM_RSA_PKCS == gCtx->signCtx.mechanism->mechanism) {
+				sign_srv->bInputIsHashed = 1u;
+				/* The hashing algorithm must still be provided as it is included in the signature for various schemes
+				 * But there is no input parameter for CKM_RSA_PKCS. Use the hardcode value (SHA512).  */
+				sign_scheme->sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA2_512;
+			} else
+				sign_srv->bInputIsHashed = 0u;
 
 			break;
-		case CKM_ECDSA_SHA1:
+		case CKM_RSA_PKCS_PSS:
+		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)gCtx->signCtx.mechanism->pParameter;
+			if (rsa_pss_param == NULL) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_sign0;
+			}
 
+			sign_scheme->signSch = HSE_SIGN_RSASSA_PSS;
+			sign_scheme->sch.rsaPss.hashAlgo = hse_pkcs_hash_alg_translate(rsa_pss_param->hashAlg);
+			sign_scheme->sch.rsaPss.saltLength = rsa_pss_param->sLen;
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
+			sign_srv->pSignatureLength[1] = 0u;
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = 0u;
+
+			if (CKM_RSA_PKCS_PSS == gCtx->signCtx.mechanism->mechanism)
+				sign_srv->bInputIsHashed = 1u;
+			else
+				sign_srv->bInputIsHashed = 0u;
+
+			break;
+		case CKM_ECDSA:
+		case CKM_ECDSA_SHA1:
+		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA256:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
 			/* we only get one output length, which has to hold (r,s)
 			 * (r,s) are both the length of the used curve in bytes - equal
 			 * as such, assume it is doubled, and halve it */
 			*(uint32_t *)output_len = *(uint32_t *)output_len / 2;
-
-			sign0 = hse_mem_alloc(*(uint32_t *)output_len);
-			if (sign0 == NULL) {
-				rc = CKR_HOST_MEMORY;
-				goto err_free_output_len;
-			}
-			sign1 = hse_mem_alloc(*(uint32_t *)output_len);
-			if (sign1 == NULL) {
-				rc = CKR_HOST_MEMORY;
-				goto err_free_sign0;
-			}
+			sign1 = (uint8_t *)sign0 + (*(uint32_t *)output_len);
 
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
-			sign_scheme->sch.ecdsa.hashAlgo = HSE_HASH_ALGO_SHA_1;
-
+			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(gCtx->signCtx.mechanism->mechanism);
 			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
 			sign_srv->pSignatureLength[1] = hse_virt_to_dma(output_len);
 			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
 			sign_srv->pSignature[1] = hse_virt_to_dma(sign1);
 
+			if (CKM_ECDSA == gCtx->signCtx.mechanism->mechanism)
+				sign_srv->bInputIsHashed = 1u;
+			else
+				sign_srv->bInputIsHashed = 0u;
+
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_output_len;
+			goto err_free_sign0;
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_SIGN;
 	sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
 	sign_srv->streamId = 0u;
 	sign_srv->authDir = HSE_AUTH_DIR_GENERATE;
-	sign_srv->bInputIsHashed = 0u;
 	sign_srv->keyHandle = key->key_handle;
 	sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 	sign_srv->inputLength = ulDataLen;
@@ -770,17 +812,31 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_sign1;
+		goto err_free_sign0;
 	}
 
 	switch (gCtx->signCtx.mechanism->mechanism) {
+		case CKM_RSA_PKCS:
+		case CKM_SHA1_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
+		case CKM_RSA_PKCS_PSS:
+		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
 
 			hse_memcpy(pSignature, sign0, *(uint32_t *)output_len);
 			hse_memcpy(pulSignatureLen, output_len, sizeof(uint32_t));
 
 			break;
+		case CKM_ECDSA:
 		case CKM_ECDSA_SHA1:
+		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA256:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
 
 			hse_memcpy(pSignature, sign0, *(uint32_t *)output_len);
 			hse_memcpy(pSignature + *(uint32_t *)output_len, sign1, *(uint32_t *)output_len);
@@ -792,17 +848,18 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_sign1;
+			goto err_free_sign0;
 	}
 
-err_free_sign1:
-	hse_mem_free(sign1);
 err_free_sign0:
 	hse_mem_free(sign0);
 err_free_output_len:
 	hse_mem_free(output_len);
 err_free_input:
 	hse_mem_free(input);
+
+	gCtx->signCtx.init = CK_FALSE;
+
 	return rc;
 }
 
@@ -852,6 +909,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
 	int err;
+	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -875,6 +933,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &gCtx->signCtx.keyHandle);
+	if (key == NULL) 
+		return CKR_KEY_HANDLE_INVALID;
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL)
@@ -888,88 +948,121 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	}
 	hse_memcpy(output_len, &ulSignatureLen, sizeof(uint32_t));
 
+	sign0 = hse_mem_alloc(ulSignatureLen);
+	if (sign0 == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_free_output_len;
+	}
+	hse_memcpy(sign0, pSignature, ulSignatureLen);
+
 	sign_srv = &srv_desc.hseSrv.signReq;
 	sign_scheme = &sign_srv->signScheme;
 
 	switch (gCtx->signCtx.mechanism->mechanism) {
+		case CKM_RSA_PKCS:
+		case CKM_SHA1_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
-
-			sign0 = hse_mem_alloc(ulSignatureLen);
-			if (sign0 == NULL) {
-				rc = CKR_HOST_MEMORY;
-				goto err_free_output_len;
-			}
-			hse_memcpy(sign0, pSignature, ulSignatureLen);
-
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
 			sign_scheme->signSch = HSE_SIGN_RSASSA_PKCS1_V15;
-			sign_scheme->sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA2_256;
-
+			sign_scheme->sch.rsaPkcs1v15.hashAlgo = hse_get_hash_alg(gCtx->signCtx.mechanism->mechanism);
 			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
 			sign_srv->pSignatureLength[1] = 0u;
 			sign_srv->pSignature[0] = hse_virt_to_dma(sign0); /* rsa */
 			sign_srv->pSignature[1] = 0u;
 
-			break;
-		case CKM_ECDSA_SHA1:
+			if (CKM_RSA_PKCS == gCtx->signCtx.mechanism->mechanism) {
+				sign_srv->bInputIsHashed = 1u;
+				/* The hashing algorithm must still be provided as it is included in the signature for various schemes
+				 * But there is no input parameter for CKM_RSA_PKCS. Use the hardcode value (SHA512).  */
+				sign_scheme->sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA2_512;
+			} else
+				sign_srv->bInputIsHashed = 0u;
 
+			break;
+		case CKM_RSA_PKCS_PSS:
+		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)gCtx->signCtx.mechanism->pParameter;
+			if (rsa_pss_param == NULL) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_sign0;
+			}
+
+			sign_scheme->signSch = HSE_SIGN_RSASSA_PSS;
+			sign_scheme->sch.rsaPss.hashAlgo = hse_pkcs_hash_alg_translate(rsa_pss_param->hashAlg);
+			sign_scheme->sch.rsaPss.saltLength = rsa_pss_param->sLen;
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
+			sign_srv->pSignatureLength[1] = 0u;
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = 0u;
+
+			if (CKM_RSA_PKCS_PSS == gCtx->signCtx.mechanism->mechanism)
+				sign_srv->bInputIsHashed = 1u;
+			else
+				sign_srv->bInputIsHashed = 0u;
+
+			break;
+		case CKM_ECDSA:
+		case CKM_ECDSA_SHA1:
+		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA256:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
 			/* we only get one signature input and length
 			 * (r,s) are the same length
 			 * assume the signature contains both, one after the other */
 			*(uint32_t *)output_len = *(uint32_t *)output_len / 2;
-
-			sign0 = hse_mem_alloc(*(uint32_t *)output_len);
-			if (sign0 == NULL) {
-				rc = CKR_HOST_MEMORY;
-				goto err_free_output_len;
-			}
-			sign1 = hse_mem_alloc(*(uint32_t *)output_len);
-			if (sign1 == NULL) {
-				rc = CKR_HOST_MEMORY;
-				goto err_free_sign0;
-			}
-			hse_memcpy(sign0, pSignature, *(uint32_t *)output_len);
-			hse_memcpy(sign1, pSignature + *(uint32_t *)output_len, *(uint32_t *)output_len);
+			sign1 = (uint8_t *)sign0 + (*(uint32_t *)output_len);
 
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
-			sign_scheme->sch.ecdsa.hashAlgo = HSE_HASH_ALGO_SHA_1;
+			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(gCtx->signCtx.mechanism->mechanism);
 
 			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len);
 			sign_srv->pSignatureLength[1] = hse_virt_to_dma(output_len);
 			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
 			sign_srv->pSignature[1] = hse_virt_to_dma(sign1);
 
+			if (CKM_ECDSA == gCtx->signCtx.mechanism->mechanism)
+				sign_srv->bInputIsHashed = 1u;
+			else
+				sign_srv->bInputIsHashed = 0u;
+
+			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_output_len;
+			goto err_free_sign0;
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_SIGN;
 	sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
 	sign_srv->streamId = 0u;
 	sign_srv->authDir = HSE_AUTH_DIR_VERIFY;
-	sign_srv->bInputIsHashed = 0u;
 	sign_srv->keyHandle = key->key_handle;
 	sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 	sign_srv->inputLength = ulDataLen;
 	sign_srv->pInput = hse_virt_to_dma(input);
 
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
-	if (err == EBADMSG) {
+	if (!err) {
+		rc = CKR_OK;
+	} else if (err == EBADMSG) {
 		rc = CKR_SIGNATURE_INVALID;
-		goto err_free_sign1;
 	} else {
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_sign1;
 	}
 
-err_free_sign1:
-	hse_mem_free(sign1);
 err_free_sign0:
 	hse_mem_free(sign0);
 err_free_output_len:
 	hse_mem_free(output_len);
 err_free_input:
 	hse_mem_free(input);
+
+	gCtx->signCtx.init = CK_FALSE;
+
 	return rc;
 }
 
