@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 /*
+ * Copyright OpenSSL 2023
+ * Contents licensed under the terms of the OpenSSL license
+ * See https://www.openssl.org/source/license.html for details
+ * 
  * Copyright 2023 NXP
  */
 
