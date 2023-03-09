@@ -2,7 +2,7 @@
 /*
  * NXP HSE User Space Driver - Core
  *
- * Copyright 2019-2022 NXP
+ * Copyright 2019-2023 NXP
  */
 
 #include <stdio.h>
@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <poll.h>
+#include <pthread.h>
 #include <errno.h>
 
 #include "libhse.h"
@@ -49,7 +51,9 @@
 #define HSE_UIO_RMEM_SIZE    "/sys/class/uio/" HSE_UIO_DEVICE "/maps/map" \
 			     __stringify(HSE_UIO_MAP_RMEM) "/size"
 
-#define HSE_UIO_MAX_FILE_SIZE    20u
+#define HSE_UIO_FILE_SIZE    20u /* maximum size of sysfs file content */
+
+#define HSE_UIO_REQ_TIMEOUT    2000u /* request timeout, in milliseconds */
 
 /**
  * struct hse_mu_regs - HSE Messaging Unit Registers
@@ -118,7 +122,9 @@ struct hse_uio_intl {
  * @rmem_size: HSE reserved memory size
  * @fd: UIO file descriptor
  * @channel busy: cached channel status
+ * @channel_res: reserved for upper layer session
  * @init: UIO component initialized flag
+ * @ch_lock: used for channel acquisition
  */
 static struct hse_usr_priv {
 	struct hse_mu_regs *regs;
@@ -133,7 +139,9 @@ static struct hse_usr_priv {
 	uint64_t rmem_size;
 	int fd;
 	bool channel_busy[HSE_NUM_CHANNELS];
+	bool channel_res[HSE_NUM_CHANNELS];
 	bool init;
+	pthread_spinlock_t ch_lock;
 } priv;
 
 /**
@@ -219,7 +227,7 @@ static inline bool hse_mu_channel_available(uint8_t channel)
  * Return: 0 on success, ECHRNG for channel index out of range, EBUSY for
  *         selected service channel busy
  */
-static inline int hse_mu_msg_send(uint8_t channel, uint32_t msg)
+static int hse_mu_msg_send(uint8_t channel, uint32_t msg)
 {
 	if (channel >= HSE_NUM_CHANNELS)
 		return ECHRNG;
@@ -235,73 +243,166 @@ static inline int hse_mu_msg_send(uint8_t channel, uint32_t msg)
 }
 
 /**
+ * hse_mu_msg_recv - send a message over MU (non-blocking)
+ * @channel: channel index
+ *
+ * Return: 0 on success, ECHRNG for channel index out of range, EFAULT for
+ *         polling error ETIMEDOUT for service request timed out
+ */
+static int hse_mu_msg_recv(uint8_t channel)
+{
+	struct pollfd pfd;
+	int ret, err = 0;
+
+	if (channel >= HSE_NUM_CHANNELS)
+		return ECHRNG;
+
+	/* wait for reply */
+	pfd.fd = priv.fd;
+	pfd.events = POLLIN;
+
+	do {
+		ret = poll(&pfd, 1, HSE_UIO_REQ_TIMEOUT);
+		if (ret == -1) {
+			printf("hse: poll failed on channel %d\n", channel);
+			return EFAULT;
+		}
+
+		if (!ret) {
+			printf ("hse: reply timeout on channel %d\n", channel);
+			return ETIMEDOUT;
+		}
+	} while (priv.intl->ready[channel] == 0);
+
+	err = hse_err_decode(priv.intl->reply[channel]);
+	if (err) {
+		printf("hse: service response 0x%08X on channel %d\n",
+		       priv.intl->reply[channel], channel);
+	}
+
+	priv.intl->ready[channel] = 0;
+	priv.intl->reply[channel] = 0;
+
+	return err;
+}
+
+/**
  * hse_srv_req_sync - issue a synchronous service request (blocking)
  * @channel: service channel index
  * @srv_desc: service descriptor
  * @size: service descriptor size
  *
  * Send a HSE service descriptor on the selected channel and block until the
- * HSE response becomes available, then read the reply.
+ * HSE response has become available on the selected channel (or a timeout has
+ * occured since the last reply received from firmware), then read the reply.
  *
- * Return: 0 on success, EINVAL for invalid parameter, ECHRNG for channel
- *         index out of range, EBUSY for channel busy or none available,
- *         ENOMSG for failure to read the HSE service response
+ * Return: 0 on success, EINVAL for invalid parameter, ENODEV for device not
+ *         initialized, ECHRNG for channel index out of range, EBUSY for
+ *         channel busy or none available, ENOMSG for failure to read reply
  */
 int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size)
 {
-	uint32_t status;
 	size_t offset;
-	int i, err;
+	int i, err = 0;
 
 	if (!srv_desc || !size)
 		return EINVAL;
 
+	if (!priv.init || priv.intl->event)
+		return ENODEV;
+
 	if (channel != HSE_CHANNEL_ANY && channel >= HSE_NUM_CHANNELS)
 		return ECHRNG;
 
+	pthread_spin_lock(&priv.ch_lock);
+
 	if (channel == HSE_CHANNEL_ANY) {
 		for (i = 1u; i < HSE_NUM_CHANNELS; i++)
-			if (!priv.channel_busy[i]) {
+			if (!priv.channel_busy[i] && !priv.channel_res[i]) {
 				channel = i;
 				break;
 			}
-		if (channel > HSE_NUM_CHANNELS) {
-			printf("hse: no service channel currently available\n");
+		if (channel >= HSE_NUM_CHANNELS) {
+			pthread_spin_unlock(&priv.ch_lock);
 			return EBUSY;
 		}
 	}
 
 	priv.channel_busy[channel] = true;
 
+	pthread_spin_unlock(&priv.ch_lock);
+
+	/* copy service descriptor */
 	offset = channel * HSE_SRV_DESC_MAX_SIZE;
 	hse_memcpy(priv.desc + offset, srv_desc, size);
 	hse_memset(priv.desc + offset + size, 0, HSE_SRV_DESC_MAX_SIZE - size);
 
+	/* issue request */
 	err = hse_mu_msg_send(channel, priv.desc_dma + offset);
 	if (err) {
 		printf("hse: send request failed on channel %d\n", channel);
-		return err;
-	}
-	ssize_t rc = read(priv.fd, &status, sizeof(status));
-	if (rc != sizeof(status) || priv.intl->ready[channel] == 0) {
-		printf("hse: read response failed on channel %d\n", channel);
-		err = ENOMSG;
 		goto exit;
 	}
 
-	err = hse_err_decode(priv.intl->reply[channel]);
+	/* wait for reply */
+	err = hse_mu_msg_recv(channel);
 	if (err) {
-		printf("hse: service response 0x%08X on channel %d\n",
-		       priv.intl->reply[channel], channel);
+		printf("hse: read reply failed on channel %d\n", channel);
 		goto exit;
 	}
-
-	priv.intl->ready[channel] = 0;
-	priv.intl->reply[channel] = 0;
-
 exit:
 	priv.channel_busy[channel] = false;
 	return err;
+}
+
+/**
+ * hse_channel_acquire - acquire a service channel
+ *
+ * Acquire a service channel for an upper layer session or streaming operation.
+ * Skip channel zero, which is restricted to administrative requests and cannot
+ * be used for crypto operations.
+ *
+ * Return: 0 on success, ENODEV for device not initialized or disabled due to
+ *         fatal error or tamper detection, EBUSY for no channel available
+ */
+int hse_channel_acquire(void)
+{
+	uint8_t channel;
+
+	if (!priv.init || !priv.intl->event)
+		return ENODEV;
+
+	pthread_spin_lock(&priv.ch_lock);
+
+	for (channel = 1u; channel < HSE_NUM_CHANNELS; channel++)
+		if (!priv.channel_busy[channel] && !priv.channel_res[channel])
+			break;
+	if (channel >= HSE_NUM_CHANNELS) {
+		printf("hse: no service channel currently available\n");
+		pthread_spin_unlock(&priv.ch_lock);
+		return EBUSY;
+	}
+
+	priv.channel_res[channel] = true;
+
+	pthread_spin_unlock(&priv.ch_lock);
+
+	return 0;
+}
+
+/**
+ * hse_channel_free - free the selected service channel
+ * @channel: channel index
+ */
+void hse_channel_free(uint8_t channel)
+{
+	if (!priv.init || !priv.intl->event)
+		return;
+
+	if (channel >= HSE_NUM_CHANNELS)
+		return;
+
+	priv.channel_res[channel] = false;
 }
 
 /**
@@ -332,7 +433,7 @@ int hse_dev_open(void)
 	struct stat statbuf;
 	uint16_t status;
 	FILE *f;
-	char s[HSE_UIO_MAX_FILE_SIZE];
+	char s[HSE_UIO_FILE_SIZE];
 	int i, err;
 
 	if (priv.init) {
@@ -360,7 +461,7 @@ int hse_dev_open(void)
 		err = ENOENT;
 		goto err_close_fd;
 	}
-	fgets(s, HSE_UIO_MAX_FILE_SIZE, f);
+	fgets(s, HSE_UIO_FILE_SIZE, f);
 	priv.regs_size = (uint64_t)strtol(s, NULL, 0);
 	fclose(f);
 
@@ -378,7 +479,7 @@ int hse_dev_open(void)
 		err = ENOENT;
 		goto err_unmap_regs;
 	}
-	fgets(s, HSE_UIO_MAX_FILE_SIZE, f);
+	fgets(s, HSE_UIO_FILE_SIZE, f);
 	priv.desc_dma = (uint64_t)strtol(s, NULL, 0);
 	fclose(f);
 
@@ -387,7 +488,7 @@ int hse_dev_open(void)
 		err = ENXIO;
 		goto err_unmap_regs;
 	}
-	fgets(s, HSE_UIO_MAX_FILE_SIZE, f);
+	fgets(s, HSE_UIO_FILE_SIZE, f);
 	priv.desc_size = (uint64_t)strtol(s, NULL, 0);
 	fclose(f);
 
@@ -405,7 +506,7 @@ int hse_dev_open(void)
 		err = ENOENT;
 		goto err_unmap_desc;
 	}
-	fgets(s, HSE_UIO_MAX_FILE_SIZE, f);
+	fgets(s, HSE_UIO_FILE_SIZE, f);
 	priv.intl_size = (uint64_t)strtol(s, NULL, 0);
 	fclose(f);
 
@@ -423,7 +524,7 @@ int hse_dev_open(void)
 		err = ENOENT;
 		goto err_unmap_intl;
 	}
-	fgets(s, HSE_UIO_MAX_FILE_SIZE, f);
+	fgets(s, HSE_UIO_FILE_SIZE, f);
 	priv.rmem_dma = (uint64_t)strtol(s, NULL, 0);
 	fclose(f);
 
@@ -432,7 +533,7 @@ int hse_dev_open(void)
 		err = ENOENT;
 		goto err_unmap_intl;
 	}
-	fgets(s, HSE_UIO_MAX_FILE_SIZE, f);
+	fgets(s, HSE_UIO_FILE_SIZE, f);
 	priv.rmem_size = (uint64_t)strtol(s, NULL, 0);
 	fclose(f);
 
@@ -449,12 +550,13 @@ int hse_dev_open(void)
 		priv.intl->ready[i] = 0;
 		priv.intl->reply[i] = 0;
 		priv.channel_busy[i] = false;
+		priv.channel_res[i] = false;
 	}
+	pthread_spin_init(&priv.ch_lock, PTHREAD_PROCESS_SHARED);
 
 	/* initialize internal memory as buffer pool */
 	if (hse_mem_init((uint8_t *)priv.intl + sizeof(struct hse_uio_intl),
-			 priv.intl_size - sizeof(struct hse_uio_intl),
-			 true)) {
+			 priv.intl_size - sizeof(struct hse_uio_intl), true)) {
 		printf("hse: failed to init intl mem pool\n");
 		err = ENOMEM;
 		goto err_unmap_intl;
@@ -500,6 +602,8 @@ void hse_dev_close(void)
 		printf("hse: driver not initialized\n");
 		return;
 	}
+
+	pthread_spin_destroy(&priv.ch_lock);
 
 	/* unmap UIO mappings */
 	munmap(priv.rmem, priv.rmem_size);

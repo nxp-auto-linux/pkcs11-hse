@@ -82,7 +82,7 @@ $(PKCS_ODIR):
 	mkdir -p $@
 
 $(HSE_LIB).$(HSE_LIBVER): $(HSE_OBJS)
-	$(CC) -shared $(CFLAGS) -Wl,-soname,$(HSE_LIB).$(HSE_LIBVER_MAJOR) $(LDFLAGS) $(HSE_OBJS) -o $@
+	$(CC) -shared $(CFLAGS) -Wl,-soname,$(HSE_LIB).$(HSE_LIBVER_MAJOR) $(LDFLAGS) $(HSE_OBJS) -o $@ -lpthread
 	ln -sf $@ $(HSE_LIB)
 
 $(HSE_ODIR)/%.o: $(HSE_SDIR)/%.c $(HSE_ODIR)
