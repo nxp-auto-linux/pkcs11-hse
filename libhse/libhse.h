@@ -2,7 +2,7 @@
 /*
  * NXP HSE User Space Driver - Low-level Interface
  *
- * Copyright 2019-2022 NXP
+ * Copyright 2019-2023 NXP
  */
 
 #ifndef LIBHSE_H
@@ -21,7 +21,10 @@ void hse_dev_close(void);
 
 uint16_t hse_check_status(void);
 
-int hse_srv_req_sync(uint8_t channel, const void *srv_desc, size_t size);
+int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size);
+
+int hse_channel_acquire(void);
+void hse_channel_free(uint8_t channel);
 
 void *hse_mem_alloc(size_t size);
 void hse_mem_free(void *addr);
