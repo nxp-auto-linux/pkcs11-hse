@@ -509,8 +509,8 @@ int hse_secboot_enable(const char *device, const char *keypath)
 	uint16_t hse_status;
 	int fd, bytes, ret = 0;
 	FILE *f;
-	const BIGNUM *rsa_bn_modulus, *rsa_bn_pub_exponent;
-	RSA *rsa;
+	EVP_PKEY *pkey;
+	BIGNUM *rsa_bn_modulus = NULL, *rsa_bn_pub_exponent = NULL;
 
 	ret = hse_dev_open();
 	if (ret) {
@@ -565,26 +565,21 @@ int hse_secboot_enable(const char *device, const char *keypath)
 		goto err_close_fd;
 	}
 
-	/* try reading in SubjectPublicKeyInfo format */
-	rsa = PEM_read_RSA_PUBKEY(f, NULL, NULL, NULL);
-	if (!rsa) {
-		/* try reading in PKCS#1 RSAPublicKey format */
-		rsa = PEM_read_RSAPublicKey(f, NULL, NULL, NULL);
-		if (!rsa) {
-			ERROR("Failed to read RSA Public Key from file %s\n", keypath);
-			ret = -ENOKEY;
-			goto err_close_keyfile;
-		}
+	pkey = PEM_read_PUBKEY(f, NULL, NULL, NULL);
+	if (!pkey) {
+		ERROR("Failed to read RSA Public Key from file %s\n", keypath);
+		ret = -ENOKEY;
+		goto err_close_keyfile;
 	}
 
-	rsa_bn_modulus = RSA_get0_n(rsa);
+	ret = EVP_PKEY_get_bn_param(pkey, "n", &rsa_bn_modulus);
 	if (!rsa_bn_modulus) {
 		ERROR("Failed to read RSA Public Key Modulus from file %s\n", keypath);
 		ret = -ENOKEY;
 		goto err_close_keyfile;
 	}
 
-	rsa_bn_pub_exponent = RSA_get0_e(rsa);
+	ret = EVP_PKEY_get_bn_param(pkey, "e", &rsa_bn_pub_exponent);
 	if (!rsa_bn_pub_exponent) {
 		ERROR("Failed to read RSA Public Key Exponent from file %s\n", keypath);
 		ret = -ENOKEY;
