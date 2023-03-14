@@ -153,14 +153,14 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 	return key;
 }
 
-static CK_OBJECT_HANDLE util_lib_find_objects(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_CLASS class)
+static CK_OBJECT_HANDLE util_lib_find_objects(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, char *label)
 {
-	CK_OBJECT_HANDLE aes_key = 0;
+	CK_OBJECT_HANDLE match_key = 0;
 	CK_ULONG num_keys;
 	CK_RV rv;
-	CK_OBJECT_CLASS key_class = class;
+	
 	CK_ATTRIBUTE template[] = {
-		{ CKA_CLASS, &key_class, sizeof(key_class) },
+		{ CKA_LABEL, label, strlen(label)}
 	};
 
 	rv = flist->C_FindObjectsInit(session, template, ARRAY_SIZE(template));
@@ -168,7 +168,7 @@ static CK_OBJECT_HANDLE util_lib_find_objects(CK_FUNCTION_LIST_PTR flist, CK_SES
 		return 0;
 
 	do {
-		rv = flist->C_FindObjects(session, &aes_key, 1, &num_keys);
+		rv = flist->C_FindObjects(session, &match_key, 1, &num_keys);
 		/* no extra processing required, just return last key found */
 	} while (rv == CKR_OK && num_keys != 0);
 
@@ -176,7 +176,7 @@ static CK_OBJECT_HANDLE util_lib_find_objects(CK_FUNCTION_LIST_PTR flist, CK_SES
 	if (rv != CKR_OK)
 		return 0;
 
-	return aes_key;
+	return match_key;
 }
 
 static int util_lib_destroy_object(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key)
@@ -695,7 +695,7 @@ int main(int argc, char *argv[])
 
 	INFO("Calling C_FindObjects...\n");
 
-	aes_key = util_lib_find_objects(flist, session, CKO_SECRET_KEY);
+	aes_key = util_lib_find_objects(flist, session, "HSE-AES-128");
 	if (!aes_key) {
 		ERROR("Failed to find key object with Class CKO_SECRET_KEY\n");
 		ret = -ENOKEY;
@@ -710,7 +710,7 @@ int main(int argc, char *argv[])
 
 	INFO("RSA ciphering...\n");
 	/* RSA ciphering */
-	rsa_pub_key = util_lib_find_objects(flist, session, CKO_PUBLIC_KEY);
+	rsa_pub_key = util_lib_find_objects(flist, session, "HSE-RSAPUB-KEY");
 	if (!rsa_pub_key) {
 		ERROR("Failed to find key object with Class CKO_PUBLIC_KEY\n");
 		ret = -ENOKEY;
@@ -719,7 +719,7 @@ int main(int argc, char *argv[])
 
 	INFO("Found Key Object with handle %06lx\n", rsa_pub_key);
 
-	rsa_priv_key = util_lib_find_objects(flist, session, CKO_PRIVATE_KEY);
+	rsa_priv_key = util_lib_find_objects(flist, session, "HSE-RSAPRIV-KEY");
 	if (!rsa_priv_key) {
 		ERROR("Failed to find key object with Class CKO_PRIVATE_KEY\n");
 		ret = -ENOKEY;
