@@ -127,7 +127,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		return CKR_ATTRIBUTE_READ_ONLY;
 
 	if (getattr_len(pTemplate, CKA_LABEL, ulCount) <= 0 ||
-	    getattr_len(pTemplate, CKA_LABEL, ulCount) > 32)
+	    getattr_len(pTemplate, CKA_LABEL, ulCount) > MAX_LABEL_LEN)
 		return CKR_ARGUMENTS_BAD;
 
 	key_info = (hseKeyInfo_t *)hse_mem_alloc(sizeof(hseKeyInfo_t));
@@ -189,9 +189,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		key->key_class = CK_UNAVAILABLE_INFORMATION;
 	}
 
+	hse_memset(key->key_label, 0, MAX_LABEL_LEN);
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
 	if (label != NULL) {
-		memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
+		hse_memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
 	}
 
 	key_info->keyCounter = 0;
@@ -477,9 +478,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)(
 	if (ulCount > 0 && pTemplate) {
 		sCtx->findCtx.obj_class = (CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
 		sCtx->findCtx.obj_uid = (CK_ULONG *)getattr_pval(pTemplate, CKA_UNIQUE_ID, ulCount);
+		sCtx->findCtx.label = (CK_UTF8CHAR *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
+		if (getattr_len(pTemplate, CKA_ID, ulCount) == 3)
+			sCtx->findCtx.key_id = (CK_BYTE *)getattr_pval(pTemplate, CKA_ID, ulCount);
+		else 
+			sCtx->findCtx.key_id = NULL;
 	} else {
 		sCtx->findCtx.obj_class = NULL;
 		sCtx->findCtx.obj_uid = NULL;
+		sCtx->findCtx.label = NULL;
+		sCtx->findCtx.key_id = NULL;
 	}
 
 	sCtx->findCtx.init = CK_TRUE;
@@ -500,6 +508,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 	struct hse_keyObject *key;
 	struct hse_findCtx *finder;
 	int i;
+	CK_BYTE *key_id;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -528,6 +537,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 			continue;
 		if(finder->obj_uid && key->key_uid != *finder->obj_uid)
 			continue;
+
+		if ((finder->label != NULL) && (strcmp(key->key_label, (const char *)finder->label)))
+				continue;
+		
+		if (finder->key_id != NULL) {
+			key_id = finder->key_id;
+			if (GET_KEY_HANDLE(key_id[2], key_id[1], key_id[0]) != key->key_uid)
+				continue;
+		}
 
 		/* found a match */
 		phObject[i] = key->key_handle;

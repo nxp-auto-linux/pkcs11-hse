@@ -125,6 +125,8 @@ struct hse_findCtx {
 	CK_BBOOL init;
 	CK_OBJECT_CLASS *obj_class;
 	CK_ULONG *obj_uid;
+	CK_UTF8CHAR *label;
+	CK_BYTE *key_id;
 };
 
 /*

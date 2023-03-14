@@ -105,11 +105,29 @@ static CK_FUNCTION_LIST gFunctionList = {
  */
 static void strcpy_pkcs11_padding(unsigned char *dest, const char *source, size_t dest_len)
 {
+	/* todo: not safe in case the source is not null-terminated */
 	size_t src_len = strlen(source);
 	strncpy((char *)dest, source, dest_len);
 
 	if (src_len < dest_len)
 		memset(dest + src_len, ' ', dest_len - src_len);
+}
+
+/* Copy the ' ' padded string and restore it to NUL-terminated */
+static void strcpy_pkcs11_nul_padding(unsigned char *dest, const char *source, size_t dest_len)
+{
+	int tail = 0;
+	int index = (int)dest_len - 1;
+
+	for (; index >= 0; index--) {
+		if (((source[index] == ' ') || (source[index] == '\0')) && (tail == 0)) {
+			dest[index] = '\0';
+			continue;
+		} else {
+			tail = 1;
+			dest[index] = source[index];
+		}
+	}
 }
 
 /* simclist helper to serialize an element */
@@ -146,7 +164,7 @@ static void *object_list_unserializer(const void *data, uint32_t *data_len)
 
 	object = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
 
-	strcpy_pkcs11_padding((unsigned char *)object->key_label, (char *)s_key_label, MAX_LABEL_LEN);
+	strcpy_pkcs11_nul_padding((unsigned char *)object->key_label, (char *)s_key_label, MAX_LABEL_LEN);
 	object->key_uid = *(CK_ULONG *)s_key_uid;
 	object->key_handle = *(CK_OBJECT_HANDLE *)s_key_handle;
 	object->key_type = *(CK_KEY_TYPE *)s_key_type;
