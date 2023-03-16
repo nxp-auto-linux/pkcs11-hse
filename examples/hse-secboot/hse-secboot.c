@@ -238,7 +238,7 @@ err_free_nvm:
 int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_exponent, int rsa_pub_exponent_size)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseKeyInfo_t *key_info;
+	volatile hseKeyInfo_t *key_info;
 	int ret = 0;
 
 	key_info = hse_mem_alloc(sizeof(*key_info));
@@ -246,7 +246,7 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 		ERROR("Failed to allocate space for key info\n");
 		return -ENOMEM;
 	}
-	hse_memset(key_info, 0, sizeof(*key_info));
+	hse_memset((void *)key_info, 0, sizeof(*key_info));
 
 	key_info->keyFlags = HSE_KF_USAGE_VERIFY;
 	key_info->keyBitLen = HSE_BYTES_TO_BITS(rsa_modulus_size);
@@ -257,7 +257,7 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
 	srv_desc.hseSrv.importKeyReq.targetKeyHandle = HSE_BOOT_KEY_HANDLE;
-	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma(key_info);
+	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma((void *)key_info);
 	srv_desc.hseSrv.importKeyReq.pKey[0] = hse_virt_to_dma(rsa_modulus);
 	srv_desc.hseSrv.importKeyReq.pKey[1] = hse_virt_to_dma(rsa_pub_exponent);
 	srv_desc.hseSrv.importKeyReq.pKey[2] = 0u;
@@ -271,7 +271,7 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 	if (ret)
 		ERROR("Failed to import RSA Public Key\n");
 
-	hse_mem_free(key_info);
+	hse_mem_free((void *)key_info);
 	return ret;
 }
 
@@ -382,7 +382,7 @@ err_free_fip_header:
 int hse_cr_install(struct app_boot_hdr *app_boot)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseCrEntry_t *cr_entry;
+	volatile hseCrEntry_t *cr_entry;
 	int ret = 0;
 
 	cr_entry = hse_mem_alloc(sizeof(*cr_entry));
@@ -390,7 +390,7 @@ int hse_cr_install(struct app_boot_hdr *app_boot)
 		ERROR("Failed to allocate space for core reset entry\n");
 		return -ENOMEM;
 	}
-	hse_memset(cr_entry, 0, sizeof(*cr_entry));
+	hse_memset((void *)cr_entry, 0, sizeof(*cr_entry));
 
 	cr_entry->coreId = HSE_APP_CORE_A53_0;
 	cr_entry->crSanction = HSE_CR_SANCTION_KEEP_CORE_IN_RESET;
@@ -403,13 +403,13 @@ int hse_cr_install(struct app_boot_hdr *app_boot)
 
 	srv_desc.srvId = HSE_SRV_ID_CORE_RESET_ENTRY_INSTALL;
 	srv_desc.hseSrv.crEntryInstallReq.crEntryIndex = 1u;
-	srv_desc.hseSrv.crEntryInstallReq.pCrEntry = hse_virt_to_dma(cr_entry);
+	srv_desc.hseSrv.crEntryInstallReq.pCrEntry = hse_virt_to_dma((void *)cr_entry);
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to install Core Reset Entry\n");
 
-	hse_mem_free(cr_entry);
+	hse_mem_free((void *)cr_entry);
 	return ret;
 }
 
