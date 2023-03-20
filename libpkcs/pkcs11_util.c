@@ -155,24 +155,29 @@ hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism)
 	switch (mechanism) {
 		case CKM_SHA1_RSA_PKCS:
 		case CKM_ECDSA_SHA1:
+		case CKM_SHA_1_HMAC:
 			hash = HSE_HASH_ALGO_SHA_1;
 			break;
 		case CKM_ECDSA_SHA224:
+		case CKM_SHA224_HMAC:
 			hash = HSE_HASH_ALGO_SHA2_224;
 			break;
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_ECDSA_SHA256:
+		case CKM_SHA256_HMAC:
 			hash = HSE_HASH_ALGO_SHA2_256;
 			break;
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_ECDSA_SHA384:
+		case CKM_SHA384_HMAC:
 			hash = HSE_HASH_ALGO_SHA2_384;
 			break;
 		case CKM_SHA512_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS_PSS:
 		case CKM_ECDSA_SHA512:
+		case CKM_SHA512_HMAC:
 			hash = HSE_HASH_ALGO_SHA2_512;
 			break;
 		default:
@@ -204,6 +209,21 @@ uint32_t sig_get_out_length(struct hse_keyObject *key, CK_MECHANISM_PTR mechanis
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
 			sig_len = (hse_get_key_bit_length(key) >> 3) * 2;
+			break;
+		case CKM_AES_CMAC:
+			sig_len = 16;
+			break;
+		case CKM_SHA224_HMAC:
+			sig_len = 28;
+			break;
+		case CKM_SHA256_HMAC:
+			sig_len = 32;
+			break;
+		case CKM_SHA384_HMAC:
+			sig_len = 48;
+			break;
+		case CKM_SHA512_HMAC:
+			sig_len = 64;
 			break;
 		default:
 			return 0;
