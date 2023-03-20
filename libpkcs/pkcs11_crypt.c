@@ -669,6 +669,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	CK_RV rc = CKR_OK;
 	int err;
 	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
+	hseMacSrv_t *mac_srv = NULL;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -795,19 +796,45 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 				sign_srv->bInputIsHashed = 0u;
 
 			break;
+		case CKM_AES_CMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
+			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
+			break;
+		case CKM_SHA224_HMAC:
+		case CKM_SHA256_HMAC:
+		case CKM_SHA384_HMAC:
+		case CKM_SHA512_HMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_HMAC;
+			mac_srv->macScheme.sch.hmac.hashAlgo = hse_get_hash_alg(gCtx->signCtx.mechanism->mechanism);
+			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_sign0;
 	}
 
-	srv_desc.srvId = HSE_SRV_ID_SIGN;
-	sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-	sign_srv->streamId = 0u;
-	sign_srv->authDir = HSE_AUTH_DIR_GENERATE;
-	sign_srv->keyHandle = key->key_handle;
-	sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
-	sign_srv->inputLength = ulDataLen;
-	sign_srv->pInput = hse_virt_to_dma(input);
+	if (!mac_srv) {
+		srv_desc.srvId = HSE_SRV_ID_SIGN;
+		sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
+		sign_srv->streamId = 0u;
+		sign_srv->authDir = HSE_AUTH_DIR_GENERATE;
+		sign_srv->keyHandle = key->key_handle;
+		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		sign_srv->inputLength = ulDataLen;
+		sign_srv->pInput = hse_virt_to_dma(input);
+	} else {
+		srv_desc.srvId = HSE_SRV_ID_MAC;
+		mac_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
+		mac_srv->streamId = 0u;
+		mac_srv->authDir = HSE_AUTH_DIR_GENERATE;
+		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		mac_srv->keyHandle = key->key_handle;
+		mac_srv->inputLength = ulDataLen;
+		mac_srv->pInput = hse_virt_to_dma(input);
+		mac_srv->pTagLength = hse_virt_to_dma(output_len);
+		mac_srv->pTag = hse_virt_to_dma(sign0);
+	}
 
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err) {
@@ -826,6 +853,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_AES_CMAC:
+		case CKM_SHA224_HMAC:
+		case CKM_SHA256_HMAC:
+		case CKM_SHA384_HMAC:
+		case CKM_SHA512_HMAC:
 
 			hse_memcpy(pSignature, sign0, *(uint32_t *)output_len);
 			hse_memcpy(pulSignatureLen, output_len, sizeof(uint32_t));
@@ -910,6 +942,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	CK_RV rc = CKR_OK;
 	int err;
 	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
+	hseMacSrv_t *mac_srv = NULL;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -1031,19 +1064,45 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 				sign_srv->bInputIsHashed = 0u;
 
 			break;
+		case CKM_AES_CMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
+			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
+			break;
+		case CKM_SHA224_HMAC:
+		case CKM_SHA256_HMAC:
+		case CKM_SHA384_HMAC:
+		case CKM_SHA512_HMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_HMAC;
+			mac_srv->macScheme.sch.hmac.hashAlgo = hse_get_hash_alg(gCtx->signCtx.mechanism->mechanism);
+			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_sign0;
 	}
 
-	srv_desc.srvId = HSE_SRV_ID_SIGN;
-	sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-	sign_srv->streamId = 0u;
-	sign_srv->authDir = HSE_AUTH_DIR_VERIFY;
-	sign_srv->keyHandle = key->key_handle;
-	sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
-	sign_srv->inputLength = ulDataLen;
-	sign_srv->pInput = hse_virt_to_dma(input);
+	if (!mac_srv) {
+		srv_desc.srvId = HSE_SRV_ID_SIGN;
+		sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
+		sign_srv->streamId = 0u;
+		sign_srv->authDir = HSE_AUTH_DIR_VERIFY;
+		sign_srv->keyHandle = key->key_handle;
+		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		sign_srv->inputLength = ulDataLen;
+		sign_srv->pInput = hse_virt_to_dma(input);
+	} else {
+		srv_desc.srvId = HSE_SRV_ID_MAC;
+		mac_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
+		mac_srv->streamId = 0u;
+		mac_srv->authDir = HSE_AUTH_DIR_VERIFY;
+		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		mac_srv->keyHandle = key->key_handle;
+		mac_srv->inputLength = ulDataLen;
+		mac_srv->pInput = hse_virt_to_dma(input);
+		mac_srv->pTagLength = hse_virt_to_dma(output_len);
+		mac_srv->pTag = hse_virt_to_dma(sign0);
+	}
 
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (!err) {

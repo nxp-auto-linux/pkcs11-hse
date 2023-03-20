@@ -323,6 +323,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 			break;
 		case CKK_AES:
+		case CKK_SHA224_HMAC:
+		case CKK_SHA256_HMAC:
+		case CKK_SHA384_HMAC:
+		case CKK_SHA512_HMAC:
 
 			pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
 			if (!pkey2_len) {
@@ -336,10 +340,17 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			}
 			hse_memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
 
-			/* aes keys can only be used for encrypt/decrypt */
-			key_info->keyFlags = (HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT);
+			if (key->key_type == CKK_AES) {
+				/* aes keys can only be used for encrypt/decrypt */
+				key_info->keyFlags = (HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
+				key_info->keyType = HSE_KEY_TYPE_AES;
+			} else {
+				/* HMAC key */
+				key_info->keyFlags = (HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
+				key_info->keyType = HSE_KEY_TYPE_HMAC;
+			}
+
 			key_info->keyBitLen = pkey2_len * 8;
-			key_info->keyType = HSE_KEY_TYPE_AES;
 
 			import_key_req->pKey[0] = 0u;
 			import_key_req->pKey[1] = 0u;

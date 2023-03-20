@@ -12,6 +12,28 @@
 #include <openssl/sha.h>
 #include "pkcs11.h"
 
+/* add missing HMAC key type from pkcs11.h */
+#ifndef CKK_SHA256_HMAC
+#define CKK_SHA256_HMAC         0x0000002BUL
+#endif
+
+#ifndef CKK_SHA384_HMAC
+#define CKK_SHA384_HMAC         0x0000002CUL
+#endif
+
+#ifndef CKK_SHA512_HMAC
+#define CKK_SHA512_HMAC         0x0000002DUL
+#endif
+
+#ifndef CKK_SHA224_HMAC
+#define CKK_SHA224_HMAC         0x0000002EUL
+#endif
+
+
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+#endif
+
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #endif /* ARRAY_SIZE */
@@ -23,6 +45,24 @@
 #ifndef INFO
 #define INFO(fmt, ...) printf("[INFO] " fmt, ##__VA_ARGS__)
 #endif
+
+static unsigned char key_value_AES_128[] = {
+	0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF
+};
+
+/* key size should not bigger than the block size of SHA alg */
+static unsigned char key_value_HMAC_1[] = {
+	0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF,
+	0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF
+};
+
+/* key size should not bigger than the block size of SHA alg */
+static unsigned char key_value_HMAC_2[] = {
+	0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF,
+	0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF,
+	0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF,
+	0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF,
+};
 
 void usage(const char* progname)
 {
@@ -103,6 +143,31 @@ static CK_SESSION_HANDLE util_lib_open_session(CK_FUNCTION_LIST_PTR flist, CK_SL
 		return -1;
 
 	return session;
+}
+
+static CK_OBJECT_HANDLE install_aes_hmac_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
+					       CK_KEY_TYPE key_type, uint8_t *key_id, int key_len, uint8_t *key_value)
+{
+	CK_OBJECT_HANDLE key;
+	CK_RV rv;
+
+	/* define key template */
+	CK_OBJECT_CLASS key_class = CKO_SECRET_KEY;
+	CK_KEY_TYPE type = key_type;
+	CK_UTF8CHAR label[] = {"HSE-Sym-Key"};
+	CK_ATTRIBUTE keyTemplate[] = {
+		{ CKA_LABEL, label, sizeof(label)-1 },
+		{ CKA_CLASS, &key_class, sizeof(key_class) },
+		{ CKA_KEY_TYPE, &type, sizeof(type) },
+		{ CKA_ID, key_id, 3 },
+		{ CKA_VALUE, (CK_BYTE_PTR)key_value, key_len }
+	};
+
+	rv = flist->C_CreateObject(session, keyTemplate, ARRAY_SIZE(keyTemplate), &key);
+	if (rv != CKR_OK)
+		return -EKEYREJECTED;
+
+	return key;
 }
 
 static CK_OBJECT_HANDLE install_ecc_private_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session)
@@ -536,6 +601,105 @@ static int rsa_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJ
 	return 0;
 }
 
+static int util_lib_hmac_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE key)
+{
+	CK_RV rv;
+	char *tobe_sign = "data to be sign";
+	CK_BYTE hmac[128] = {0};
+	CK_ULONG hmac_len = ARRAY_SIZE(hmac);
+
+	INFO("\tGenerate signature ...\n");
+	rv = flist->C_SignInit(session, mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Sign(session, (uint8_t *)tobe_sign, strlen(tobe_sign), hmac, &hmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Sign returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tVerify signature ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), hmac, hmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int hmac_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key)
+{
+	CK_MECHANISM mechanism;
+
+	INFO("CKM_SHA224_HMAC ...\n");
+	mechanism.mechanism = CKM_SHA224_HMAC;
+	util_lib_hmac_sig(flist, session, &mechanism, key);
+
+	INFO("CKM_SHA256_HMAC ...\n");
+	mechanism.mechanism = CKM_SHA256_HMAC;
+	util_lib_hmac_sig(flist, session, &mechanism, key);
+
+	INFO("CKM_SHA384_HMAC ...\n");
+	mechanism.mechanism = CKM_SHA384_HMAC;
+	util_lib_hmac_sig(flist, session, &mechanism, key);
+
+	INFO("CKM_SHA512_HMAC ...\n");
+	mechanism.mechanism = CKM_SHA512_HMAC;
+	util_lib_hmac_sig(flist, session, &mechanism, key);
+
+	return 0;
+}
+
+static int cmac_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key)
+{
+	CK_RV rv;
+	CK_MECHANISM mechanism;
+	char *tobe_sign = "data to be sign";
+	CK_BYTE cmac[16] = {0};
+	CK_ULONG cmac_len = ARRAY_SIZE(cmac);
+
+	INFO("CKM_AES_CMAC ...\n");
+	mechanism.mechanism = CKM_AES_CMAC;
+
+	INFO("\tGenerate signature ...\n");
+	rv = flist->C_SignInit(session, &mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Sign(session, (uint8_t *)tobe_sign, strlen(tobe_sign), cmac, &cmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Sign returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tVerify signature ...\n");
+	rv = flist->C_VerifyInit(session, &mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), cmac, cmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	void *lib_handle;
@@ -546,7 +710,11 @@ int main(int argc, char *argv[])
 	
 	CK_SLOT_ID slot;
 	CK_SESSION_HANDLE session;
-	CK_OBJECT_HANDLE rsa_pub_key, rsa_priv_key, ec_pub_key, ec_priv_key;
+	CK_OBJECT_HANDLE rsa_pub_key, rsa_priv_key;
+	CK_OBJECT_HANDLE ec_pub_key = -EKEYREJECTED;
+	CK_OBJECT_HANDLE ec_priv_key = -EKEYREJECTED;
+	CK_OBJECT_HANDLE aes128_key, hmac_key_1, hmac_key_2;
+	uint8_t key_id[3];
 
 	if (argc == 2 && !strncmp(argv[1], arg_help, sizeof(*arg_help))) {
 		usage(argv[0]);
@@ -637,9 +805,54 @@ int main(int argc, char *argv[])
 	ec_pub_key = install_ecc_public_key(flist, session);
 	INFO("Created Key Object with handle %06lx\n", ec_pub_key);
 
+	/* ECC signature */
 	ec_sig(flist, session, ec_priv_key, ec_pub_key);
 
-	/* ECC signature */
+	/* CMAC */
+	INFO("Install AES key ...\n");
+	 /* key_id represent the HSE key slot in the key catalog
+	 *     - key_id[0] - slot ID
+	 *     - key_id[1] - group ID
+	 *     - key_id[2] - catalog ID
+	 */
+	key_id[0] = 0;
+	key_id[1] = 0;
+	key_id[2] = 2;	/* RAM key */
+	aes128_key = install_aes_hmac_key(flist, session, CKK_AES, key_id, sizeof(key_value_AES_128), key_value_AES_128);
+	if (!aes128_key) {
+		ERROR("Failed to create key object\n");
+		ret = -EKEYREJECTED;
+		goto err_lib_finalize;
+	}
+
+	cmac_sig(flist, session, aes128_key);
+
+	/* HMAC */
+	INFO("Install HMAC key ...\n");
+
+	key_id[0] = 0;
+	key_id[1] = 1;
+	key_id[2] = 2;	/* RAM key */
+	hmac_key_1 = install_aes_hmac_key(flist, session, CKK_SHA256_HMAC, key_id, sizeof(key_value_HMAC_1), key_value_HMAC_1);
+	if (!hmac_key_1) {
+		ERROR("Failed to create key object\n");
+		ret = -EKEYREJECTED;
+		goto err_lib_finalize;
+	}
+
+	key_id[0] = 1;
+	key_id[1] = 1;
+	key_id[2] = 2;	/* RAM key */
+	hmac_key_2 = install_aes_hmac_key(flist, session, CKK_SHA256_HMAC, key_id, sizeof(key_value_HMAC_2), key_value_HMAC_2);
+	if (!hmac_key_2) {
+		ERROR("Failed to create key object\n");
+		ret = -EKEYREJECTED;
+		goto err_lib_finalize;
+	}
+
+	hmac_sig(flist, session, hmac_key_1);
+	hmac_sig(flist, session, hmac_key_2);
+	
 	INFO("Deleting Key Objects ...\n");
 
 	if (ec_priv_key != (CK_OBJECT_HANDLE)(-EKEYREJECTED)) {
