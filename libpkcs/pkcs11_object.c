@@ -99,6 +99,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseImportKeySrv_t *import_key_req;
 	volatile hseKeyInfo_t *key_info;
@@ -117,7 +118,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	if (pTemplate == NULL || ulCount == 0)
 		return CKR_ARGUMENTS_BAD;
 
-	if (hSession != SESSION_ID)
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
 
 	if (getattr_pval(pTemplate, CKA_UNIQUE_ID, ulCount))
@@ -173,12 +174,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 	/* check if key is already in nvm catalog */
 	if (idtemp[2] == 1) {
+		gCtx->mtxFns.lock(gCtx->keyMtx);
 		if (list_seek(&gCtx->object_list, &key->key_handle) != NULL) {
+			gCtx->mtxFns.unlock(gCtx->keyMtx);
 			printf("ERROR: NVM Slot is already occupied.");
 			printf(" The slot should be cleared, before a new key can be added\n");
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_key_intl;
 		}
+		gCtx->mtxFns.unlock(gCtx->keyMtx);
 	}
 
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
@@ -365,14 +369,18 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			goto err_free_key_intl;
 	}
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_pkey2;
 	}
 
+	gCtx->mtxFns.lock(gCtx->keyMtx);
 	*phObject = key->key_handle;
 	list_append(&gCtx->object_list, key);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
 	hse_mem_free(pkey2);
 	hse_mem_free(pkey1);
@@ -400,6 +408,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	struct hse_keyObject *pkey;
 	int err;
@@ -407,10 +416,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (hSession != SESSION_ID)
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
 
+	gCtx->mtxFns.lock(gCtx->keyMtx);
 	pkey = (struct hse_keyObject *)list_seek(&gCtx->object_list, &hObject);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (pkey == NULL)
 		return CKR_OBJECT_HANDLE_INVALID;
 
@@ -418,12 +429,18 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 	srv_desc.hseSrv.eraseKeyReq.keyHandle = pkey->key_handle;
 	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (err)
 		return CKR_FUNCTION_FAILED;
 
-	if (list_delete(&gCtx->object_list, pkey) != 0)
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	if (list_delete(&gCtx->object_list, pkey) != 0) {
+		gCtx->mtxFns.unlock(gCtx->keyMtx);
 		return CKR_FUNCTION_FAILED;
+	}
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
 	hse_intl_mem_free(pkey);
 
@@ -437,24 +454,25 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx->findCtx.init == CK_TRUE)
-		return CKR_OPERATION_ACTIVE;
-
-	if (hSession != SESSION_ID)
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->findCtx.init == CK_TRUE)
+		return CKR_OPERATION_ACTIVE;
 
 	if (ulCount != 0) {
 		if (pTemplate != NULL)
-			gCtx->findCtx.obj_class = (CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
+			sCtx->findCtx.obj_class = (CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
 		else
-			gCtx->findCtx.obj_class = NULL;
+			sCtx->findCtx.obj_class = NULL;
 	}
 
-	gCtx->findCtx.init = CK_TRUE;
+	sCtx->findCtx.init = CK_TRUE;
 	list_iterator_start(&gCtx->object_list);
 
 	return CKR_OK;
@@ -468,6 +486,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	struct hse_keyObject *key;
 	struct hse_findCtx *finder;
 	int i;
@@ -475,11 +494,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if (gCtx->findCtx.init == CK_FALSE)
-		return CKR_OPERATION_NOT_INITIALIZED;
-
-	if (hSession != SESSION_ID)
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->findCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
 
 	if (phObject == NULL || ulMaxObjectCount == 0 || pulObjectCount == NULL)
 		return CKR_ARGUMENTS_BAD;
@@ -489,7 +508,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 		return CKR_OK;
 	}
 
-	finder = &gCtx->findCtx;
+	finder = &sCtx->findCtx;
 	i = 0;
 	do {
 		key = (struct hse_keyObject *)list_iterator_next(&gCtx->object_list);
@@ -513,17 +532,18 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsFinal)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	if(gCtx->findCtx.init == CK_FALSE)
-		return CKR_OPERATION_NOT_INITIALIZED;
-
-	if (hSession != SESSION_ID)
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	gCtx->findCtx.init = CK_FALSE;
+	if (sCtx->findCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
+
+	sCtx->findCtx.init = CK_FALSE;
 	list_iterator_stop(&gCtx->object_list);
 
 	return CKR_OK;

@@ -21,9 +21,8 @@
 #define TOKEN_DESC      "NXP-HSE-Token"
 
 #define SLOT_ID         0
-#define SESSION_ID      0
 
-#define MAX_SESSIONS    1
+#define MAX_SESSIONS    (HSE_NUM_CHANNELS - 1)
 #define MAX_LABEL_LEN   32
 
 /* add missing CKA_UNIQUE_ID from pkcs11.h */
@@ -137,6 +136,17 @@ struct hse_keyObject {
 	CK_OBJECT_CLASS key_class;
 };
 
+/* struct mutexFns - function pointers to mutex operations
+ *
+ *
+ */
+struct mutexFns {
+	CK_CREATEMUTEX create;
+	CK_DESTROYMUTEX destroy;
+	CK_LOCKMUTEX lock;
+	CK_UNLOCKMUTEX unlock;
+};
+
 /*
  * struct globalCtx - global context for PKCS11 operations
  *
@@ -151,16 +161,29 @@ struct hse_keyObject {
  */
 struct globalCtx {
 	CK_BBOOL cryptokiInit;
-	CK_SESSION_INFO session;
 	CK_SLOT_INFO slot;
 	CK_TOKEN_INFO token;
+	struct mutexFns mtxFns;
+	CK_VOID_PTR keyMtx;
+	list_t object_list;
+};
+
+/*
+ * struct sessionCtx - session context; 1 session = 1 HSE channel
+ *
+ *
+ */
+struct sessionCtx {
+	CK_BBOOL sessionInit;
+	CK_SESSION_INFO sessionInfo;
+	CK_SESSION_HANDLE sID;
 	struct hse_findCtx findCtx;
 	struct hse_cryptCtx cryptCtx;
 	struct hse_digestCtx digestCtx;
 	struct hse_signCtx signCtx;
-	list_t object_list;
 };
 
 struct globalCtx *getCtx(void);
+struct sessionCtx *getSessionCtx(CK_SESSION_HANDLE sID);
 
 #endif /* ___PKCS11_CONTEXT_H___ */
