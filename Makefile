@@ -6,7 +6,7 @@ PLATFORM ?= S32G2
 FWTYPE ?= 0
 FWMAJOR ?= 1
 FWMINOR ?= 0
-FWPATCH ?= 0
+FWPATCH ?= 9
 
 # Skip prerequisites check when invoking make clean
 ifeq ($(filter clean,$(MAKECMDGOALS)),$(strip $(MAKECMDGOALS)))

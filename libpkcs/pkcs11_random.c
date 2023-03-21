@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021 NXP
+ * Copyright 2021-2023 NXP
  */
 
 #include <stdio.h>
@@ -26,6 +26,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseGetRandomNumSrv_t *rng_req;
 	void *rng_output;
@@ -35,25 +36,25 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
 	if (pRandomData == NULL || ulRandomLen < 32 ||
 			ulRandomLen > 2048 || ulRandomLen % 4 != 0)
 		return CKR_ARGUMENTS_BAD;
-
-	if (hSession != SESSION_ID)
-		return CKR_SESSION_HANDLE_INVALID;
 
 	rng_output = hse_mem_alloc(ulRandomLen);
 	if (rng_output == NULL)
 		return CKR_HOST_MEMORY;
 
 	rng_req = &srv_desc.hseSrv.getRandomNumReq;
-	
+
 	srv_desc.srvId = HSE_SRV_ID_GET_RANDOM_NUM;
 	rng_req->rngClass = HSE_RNG_CLASS_PTG3;
 	rng_req->randomNumLength = ulRandomLen;
 	rng_req->pRandomNum = hse_virt_to_dma(rng_output);
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_output;
