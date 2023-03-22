@@ -108,6 +108,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	struct hse_keyObject *key;
 	CK_BYTE *idtemp;
 	CK_ULONG id_len;
+	CK_OBJECT_HANDLE search_obj;
+	CK_BBOOL obj_found = CK_FALSE;
 	char *label = NULL;
 	CK_RV rc = CKR_OK;
 	int err;
@@ -124,10 +126,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 	if (getattr_pval(pTemplate, CKA_UNIQUE_ID, ulCount))
 		return CKR_ATTRIBUTE_READ_ONLY;
 
-	/* error if id_len doesn't conform to hse expectations */
-	if (getattr_len(pTemplate, CKA_ID, ulCount) > 3)
-		return CKR_ARGUMENTS_BAD;
-
 	if (getattr_len(pTemplate, CKA_LABEL, ulCount) <= 0 ||
 	    getattr_len(pTemplate, CKA_LABEL, ulCount) > 32)
 		return CKR_ARGUMENTS_BAD;
@@ -137,24 +135,39 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		return CKR_HOST_MEMORY;
 	hse_memset((void *)key_info, 0, sizeof(hseKeyInfo_t));
 
-	key = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
-	if (key == NULL) {
-		rc = CKR_HOST_MEMORY;
+	/* error if id_len doesn't conform to hse expectations */
+	id_len = getattr_len(pTemplate, CKA_ID, ulCount);
+	if (!id_len || id_len != 3) {
+		return CKR_ARGUMENTS_BAD;
 		goto err_free_key_info;
 	}
-
-	id_len = getattr_len(pTemplate, CKA_ID, ulCount);
-	if (!id_len || id_len != 3)
-		return CKR_ARGUMENTS_BAD;
 
 	idtemp = (CK_BYTE *)getattr_pval(pTemplate, CKA_ID, ulCount);
 	if (idtemp == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_intl;
+		goto err_free_key_info;
 	}
 
-	/* get key data and create key object struct */
-	key->key_handle = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
+	search_obj = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &search_obj);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	if (!key) {
+		key = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
+		if (!key) {
+			rc = CKR_HOST_MEMORY;
+			goto err_free_key_info;
+		}
+	} else if (idtemp[2] == HSE_KEY_CATALOG_ID_NVM) {
+		printf("ERROR: NVM Slot is already occupied.");
+		printf(" The slot should be cleared, before a new key can be added\n");
+		rc = CKR_ARGUMENTS_BAD;
+		goto err_free_key_info;
+	} else obj_found = CK_TRUE;
+
+	/* get key handle for CKA_ID */
+	key->key_handle = search_obj;
+
 	/* key handles are unique in HSE; use them for UID */
 	key->key_uid = key->key_handle;
 
@@ -165,24 +178,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		key->key_type = *(CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount);
 	}
 
-	if ((CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount) == NULL) {
+	/* if key is not RSA or EC, it cannot be either private or public, so object class is optional */
+	if (((CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount) == NULL) &&
+	    (key->key_type == CKK_RSA || key->key_type == CKK_EC)) {
 		rc = CKR_ARGUMENTS_BAD;
 		goto err_free_key_intl;
-	} else {
+	} else if (getattr_pval(pTemplate, CKA_CLASS, ulCount)) {
 		key->key_class = *(CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
-	}
-
-	/* check if key is already in nvm catalog */
-	if (idtemp[2] == 1) {
-		gCtx->mtxFns.lock(gCtx->keyMtx);
-		if (list_seek(&gCtx->object_list, &key->key_handle) != NULL) {
-			gCtx->mtxFns.unlock(gCtx->keyMtx);
-			printf("ERROR: NVM Slot is already occupied.");
-			printf(" The slot should be cleared, before a new key can be added\n");
-			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_key_intl;
-		}
-		gCtx->mtxFns.unlock(gCtx->keyMtx);
+	} else {
+		key->key_class = CK_UNAVAILABLE_INFORMATION;
 	}
 
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
@@ -379,7 +383,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	*phObject = key->key_handle;
-	list_append(&gCtx->object_list, key);
+	/* append object to list if not already found */
+	if (obj_found == CK_FALSE)
+		list_append(&gCtx->object_list, key);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
 	hse_mem_free(pkey2);
