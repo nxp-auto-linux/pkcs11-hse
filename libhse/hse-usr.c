@@ -243,7 +243,7 @@ static int hse_mu_msg_send(uint8_t channel, uint32_t msg)
 }
 
 /**
- * hse_mu_msg_recv - send a message over MU (non-blocking)
+ * hse_mu_msg_recv - receive a message over MU (blocking)
  * @channel: channel index
  *
  * Return: 0 on success, ECHRNG for channel index out of range, EFAULT for
@@ -357,6 +357,7 @@ exit:
 
 /**
  * hse_channel_acquire - acquire a service channel
+ * @channel: channel index
  *
  * Acquire a service channel for an upper layer session or streaming operation.
  * Skip channel zero, which is restricted to administrative requests and cannot
@@ -365,25 +366,26 @@ exit:
  * Return: 0 on success, ENODEV for device not initialized or disabled due to
  *         fatal error or tamper detection, EBUSY for no channel available
  */
-int hse_channel_acquire(void)
+int hse_channel_acquire(uint8_t *channel)
 {
-	uint8_t channel;
+	uint8_t crt;
 
-	if (!priv.init || !priv.intl->event)
+	if (!priv.init || !channel || priv.intl->event)
 		return ENODEV;
 
 	pthread_spin_lock(&priv.ch_lock);
 
-	for (channel = 1u; channel < HSE_NUM_CHANNELS; channel++)
-		if (!priv.channel_busy[channel] && !priv.channel_res[channel])
+	for (crt = 1u; crt < HSE_NUM_CHANNELS; crt++)
+		if (!priv.channel_busy[crt] && !priv.channel_res[crt])
 			break;
-	if (channel >= HSE_NUM_CHANNELS) {
+	if (crt >= HSE_NUM_CHANNELS) {
 		printf("hse: no service channel currently available\n");
 		pthread_spin_unlock(&priv.ch_lock);
 		return EBUSY;
 	}
 
-	priv.channel_res[channel] = true;
+	priv.channel_res[crt] = true;
+	*channel = crt;
 
 	pthread_spin_unlock(&priv.ch_lock);
 
@@ -396,7 +398,7 @@ int hse_channel_acquire(void)
  */
 void hse_channel_free(uint8_t channel)
 {
-	if (!priv.init || !priv.intl->event)
+	if (!priv.init || priv.intl->event)
 		return;
 
 	if (channel >= HSE_NUM_CHANNELS)
@@ -552,6 +554,7 @@ int hse_dev_open(void)
 		priv.channel_busy[i] = false;
 		priv.channel_res[i] = false;
 	}
+	priv.channel_res[0] = true; /* restrict channel zero */
 	pthread_spin_init(&priv.ch_lock, PTHREAD_PROCESS_SHARED);
 
 	/* initialize internal memory as buffer pool */

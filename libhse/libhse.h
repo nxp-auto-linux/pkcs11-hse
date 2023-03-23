@@ -23,7 +23,7 @@ uint16_t hse_check_status(void);
 
 int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size);
 
-int hse_channel_acquire(void);
+int hse_channel_acquire(uint8_t *channel);
 void hse_channel_free(uint8_t channel);
 
 void *hse_mem_alloc(size_t size);
