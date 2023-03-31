@@ -39,7 +39,7 @@ INSTALL_BINDIR := $(INSTALL_DIR)/bin
 # Build libraries
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
-CFLAGS ?= -fPIC -Wall -g
+CFLAGS += -fPIC -Wall -g
 LDFLAGS ?=
 
 PKCS_LIB ?= libpkcs-hse.so
