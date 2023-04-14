@@ -326,7 +326,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseHashSrv_t *hash_req;
-	void *input, *output, *output_len;
+	void *input = NULL, *output, *output_len;
 	CK_RV rc = CKR_OK;
 	int err;
 
