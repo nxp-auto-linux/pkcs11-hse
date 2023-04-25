@@ -196,14 +196,14 @@ void *hse_memcpy(void *dest, const void *src, size_t size)
 	if (!size)
 		return dest;
 
-	/* write bytes if not 64bit-aligned */
-	while (((uintptr_t)d & 7)) {
+	/* write bytes if source OR destination are not 64bit-aligned */
+	while (((uintptr_t)d & 7) || ((uintptr_t)s & 7)) {
 		*d++ = *s++;
 		if (!(--size))
 			return dest;
 	}
 
-	/* write 64bit if aligned */
+	/* write 64bit if both source and destionation are aligned */
 	d64 = (uint64_t *)d;
 	s64 = (uint64_t *)s;
 	for (; size >= 8; size -= 8)
