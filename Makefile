@@ -33,6 +33,7 @@ ifeq (,$(UIO_DEV))
 endif
 
 INSTALL_DIR := $(CURDIR)/out
+INSTALL_INCLUDEDIR := $(INSTALL_DIR)/include
 INSTALL_LIBDIR := $(INSTALL_DIR)/lib
 INSTALL_BINDIR := $(INSTALL_DIR)/bin
 
@@ -56,6 +57,7 @@ HSE_LIBVER_MAJOR = 1
 HSE_LIBVER_MINOR = 0
 HSE_LIBVER = $(HSE_LIBVER_MAJOR).$(HSE_LIBVER_MINOR)
 HSE_SDIR = libhse
+HSE_HEADER = libhse.h
 HSE_ODIR = $(HSE_SDIR)/obj
 HSE_SRCS = $(wildcard $(HSE_SDIR)/*.c)
 HSE_OBJS = $(patsubst $(HSE_SDIR)/%.c,$(HSE_ODIR)/%.o,$(HSE_SRCS))
@@ -101,6 +103,7 @@ clean:
 	make -C examples clean
 
 install: $(PKCS_LIB).$(PKCS_LIBVER) examples
+	@mkdir -p $(INSTALL_INCLUDEDIR)
 	@mkdir -p $(INSTALL_LIBDIR)
 	@mkdir -p $(INSTALL_BINDIR)
 
@@ -110,6 +113,9 @@ install: $(PKCS_LIB).$(PKCS_LIBVER) examples
 
 	@install $(HSE_LIB).$(HSE_LIBVER) $(INSTALL_LIBDIR)
 	@ln -sf $(HSE_LIB).$(HSE_LIBVER) $(INSTALL_LIBDIR)/$(HSE_LIB).$(HSE_LIBVER_MAJOR)
+	@ln -sf $(HSE_LIB).$(HSE_LIBVER) $(INSTALL_LIBDIR)/$(HSE_LIB)
+
+	@install $(HSE_SDIR)/$(HSE_HEADER) $(INSTALL_INCLUDEDIR)
 
 	@echo "Installing example binaries in $(INSTALL_BINDIR)"
 	make -C examples install EXAMPLES_INSTALLDIR=$(INSTALL_BINDIR)
