@@ -130,7 +130,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	/* check for input length for RSA ciphering */
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
-		key_bit_length = hse_get_key_bit_length(key);
+		key_bit_length = hse_get_key_bit_length(sCtx->sID, key);
 		if (key_bit_length == 0) {
 			rc = CKR_GENERAL_ERROR;
 			goto err_uninit;
@@ -479,7 +479,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
-		key_bit_length = hse_get_key_bit_length(key);
+		key_bit_length = hse_get_key_bit_length(sCtx->sID, key);
 		/* The input cipher text length should be equal to the key size */
 		if (ulEncryptedDataLen != (key_bit_length >> 3)) {
 			rc = CKR_ARGUMENTS_BAD;
@@ -819,7 +819,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	}
 
 	/* check the output length */
-	*(uint32_t *)output_len = sig_get_out_length(key, sCtx->signCtx.mechanism);
+	*(uint32_t *)output_len = sig_get_out_length(sCtx->sID, key, sCtx->signCtx.mechanism);
 	if (*(uint32_t *)output_len > *pulSignatureLen) {
 		*pulSignatureLen = *(uint32_t *)output_len;
 		rc = CKR_BUFFER_TOO_SMALL;
