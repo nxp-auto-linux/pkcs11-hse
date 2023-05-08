@@ -15,6 +15,7 @@
 #include "pkcs11_context.h"
 #include "hse-internal.h"
 #include "simclist.h"
+#include "pkcs11_util.h"
 
 #define PKCS_HSE_FILE "/etc/pkcs-hse-objs"
 
@@ -607,6 +608,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	struct hse_keyObject *pkey;
 	int i;
+	CK_RV err = CKR_OK;
 
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -628,14 +630,26 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)(
 			case CKA_LABEL:
 				if (pTemplate[i].pValue == NULL)
 					pTemplate[i].ulValueLen = MAX_LABEL_LEN;
-				else
-					strcpy_pkcs11_padding(pTemplate[i].pValue, pkey->key_label, MAX_LABEL_LEN);
+				else 
+					strncpy(pTemplate[i].pValue, pkey->key_label, MAX_LABEL_LEN);
 				break;
 			case CKA_UNIQUE_ID:
 				if (pTemplate[i].pValue == NULL)
 					pTemplate[i].ulValueLen = sizeof(CK_ULONG);
 				else
 					memcpy(pTemplate[i].pValue, &pkey->key_uid, sizeof(CK_ULONG));
+				break;
+			case CKA_ID:
+				if (pTemplate[i].pValue == NULL) {
+					pTemplate[i].ulValueLen = 0x3u;
+				} else {
+					uint8_t *byte_value;
+					byte_value = (uint8_t *)pTemplate[i].pValue;
+					byte_value[0] = (uint8_t)pkey->key_uid;
+					byte_value[1] = (uint8_t)((pkey->key_uid) >> 8);
+					byte_value[2] = (uint8_t)((pkey->key_uid) >> 16);
+					pTemplate[i].ulValueLen = 0x3u;
+				}
 				break;
 			case CKA_CLASS:
 				if (pTemplate[i].pValue == NULL)
@@ -649,12 +663,67 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)(
 				else
 					memcpy(pTemplate[i].pValue, &pkey->key_type, sizeof(CK_KEY_TYPE));
 				break;
+			case CKA_MODULUS:
+				if (pTemplate[i].pValue == NULL) 
+					pTemplate[i].ulValueLen = (CK_ULONG)hse_get_key_bit_length(sCtx->sID, pkey) >> 3;
+				else
+					err = pkey_value_export(sCtx->sID, pkey, pTemplate[i].pValue, NULL, &pTemplate[i].ulValueLen, NULL);
+				break;
+			case CKA_PUBLIC_EXPONENT:
+				if (pTemplate[i].pValue == NULL)
+					err = pkey_value_export(sCtx->sID, pkey, NULL, NULL, NULL, &pTemplate[i].ulValueLen);
+				else
+					err = pkey_value_export(sCtx->sID, pkey, NULL, pTemplate[i].pValue, NULL, &pTemplate[i].ulValueLen);
+				break;
+			case CKA_EC_POINT:
+				{
+					/* DER-encoding of ANSI X9.62 ECPoint value Q, Only support EC keys of Weierstrass curves, uncompressed format */
+					CK_ULONG len;
+					uint8_t *tlv = (uint8_t *)pTemplate[i].pValue;
+
+					err = pkey_value_export(sCtx->sID, pkey, NULL, NULL, &len, NULL);
+					if (err)
+						break;
+					
+					if (pTemplate[i].pValue == NULL)
+						pTemplate[i].ulValueLen = len + 2; /* plus 2 to add length of TLV header */
+					else {
+
+						/* tlv+2 to leave 2 bytes room for TLV header (DER encoding) */
+						err = pkey_value_export(sCtx->sID, pkey, tlv + 2, NULL, NULL, NULL);
+						/* Fill the TLV header */
+						*tlv++ = 0x04; /* 0x4 = OCTET_STRING */
+						*tlv = (uint8_t)len; /* length: should be less than 127 bytes */
+					}
+				}
+				break;
+			case CKA_EC_PARAMS:
+				{
+					const uint8_t *oid;
+					uint8_t oid_len;
+					hseEccCurveId_t ec_curve_id;
+
+					if (hse_get_ec_curve_id(sCtx->sID, pkey, &ec_curve_id)) {
+						err = CKR_FUNCTION_FAILED;
+						break;
+					}
+
+					oid = curveid2ecparam(ec_curve_id, &oid_len);
+
+					if (pTemplate[i].pValue == NULL)
+						pTemplate[i].ulValueLen = (unsigned long)oid_len;
+					else if (oid != NULL)
+						memcpy(pTemplate[i].pValue, oid, oid_len);
+					else 
+						err = CKR_FUNCTION_FAILED;
+				}
+				break;
 			default:
 				pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
 		}
 	}
 
-	return CKR_OK;
+	return err;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_InitToken)(

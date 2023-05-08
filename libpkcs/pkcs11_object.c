@@ -10,6 +10,7 @@
 #include "pkcs11_context.h"
 #include "simclist.h"
 #include "hse-internal.h"
+#include "pkcs11_util.h"
 
 static uint16_t getkeybitlen(hseEccCurveId_t eccCurveId)
 {
@@ -35,30 +36,6 @@ static uint16_t getkeybitlen(hseEccCurveId_t eccCurveId)
 		default:
 			return 0u;
 	}
-}
-
-static uint8_t gethsecurveid(char *oid)
-{
-	if (strcmp(oid, "\x06\x08\x2A\x86\x48\xCE\x3D\x03\x01\x07") == 0)
-		return HSE_EC_SEC_SECP256R1;
-	else if (strcmp(oid, "\x06\x05\x2B\x81\x04\x00\x22") == 0)
-		return HSE_EC_SEC_SECP384R1;
-	else if (strcmp(oid, "\x06\x05\x2B\x81\x04\x00\x23") == 0)
-		return HSE_EC_SEC_SECP521R1;
-	else if (strcmp(oid, "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x07") == 0)
-		return HSE_EC_BRAINPOOL_BRAINPOOLP256R1;
-	else if (strcmp(oid, "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x09") == 0)
-		return HSE_EC_BRAINPOOL_BRAINPOOLP320R1;
-	else if (strcmp(oid, "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x0B") == 0)
-		return HSE_EC_BRAINPOOL_BRAINPOOLP384R1;
-	else if (strcmp(oid, "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x0D") == 0)
-		return HSE_EC_BRAINPOOL_BRAINPOOLP512R1;
-	else if (strcmp(oid, "\x06\x09\x2B\x06\x01\x04\x01\xDA\x47\x0F\x01") == 0)
-		return HSE_EC_25519_ED25519;
-	else if (strcmp(oid, "\x06\x03\x2B\x65\x6E") == 0)
-		return HSE_EC_25519_CURVE25519;
-	else
-		return HSE_EC_CURVE_NONE;
 }
 
 static void *getattr_pval(CK_ATTRIBUTE_PTR template,
@@ -234,7 +211,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			hse_memcpy(pkey1, getattr_pval(pTemplate, CKA_PUBLIC_EXPONENT, ulCount), pkey1_len);
 
 			/* rsa can be used for sign/verify */
-			key_info->keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_USAGE_ENCRYPT;
+			key_info->keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_USAGE_ENCRYPT | HSE_KF_ACCESS_EXPORTABLE;
 			key_info->keyBitLen = pkey0_len * 8;
 			key_info->specific.pubExponentSize = pkey1_len;
 			key_info->keyType = HSE_KEY_TYPE_RSA_PUB;
@@ -260,7 +237,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 				}
 				hse_memcpy(pkey2, getattr_pval(pTemplate, CKA_PRIVATE_EXPONENT, ulCount), pkey2_len);
 
-				key_info->keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_DECRYPT;
+				key_info->keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_DECRYPT | HSE_KF_ACCESS_EXPORTABLE;
 				key_info->keyType = HSE_KEY_TYPE_RSA_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_dma(pkey2); /* private exponent */
@@ -294,8 +271,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			}
 
 			/* ecc keys can only be used for sign/verify */
-			key_info->keyFlags = HSE_KF_USAGE_VERIFY;
-			key_info->specific.eccCurveId = gethsecurveid((char *)ecc_oid);
+			key_info->keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_ACCESS_EXPORTABLE;
+			key_info->specific.eccCurveId = ecparam2curveid((char *)ecc_oid, 
+							(uint8_t)getattr_len(pTemplate, CKA_EC_PARAMS, ulCount));
 			key_info->keyBitLen = getkeybitlen(key_info->specific.eccCurveId);
 			key_info->keyType = HSE_KEY_TYPE_ECC_PUB;
 
