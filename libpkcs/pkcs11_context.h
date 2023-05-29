@@ -60,6 +60,8 @@
 #define CKM_SHA512_256	0x0000004CUL
 #endif
 
+#define STREAM_ID_ENC_DEC	(1u)
+
 /*
  * struct hse_cryptCtx - crypto ops context
  *
@@ -71,6 +73,10 @@ struct hse_cryptCtx {
 	CK_BBOOL init;
 	CK_OBJECT_HANDLE keyHandle;
 	CK_MECHANISM *mechanism;
+	uint8_t *cache;
+	CK_BBOOL stream_start;
+	uint8_t cache_idx;
+	uint32_t blockSize;
 };
 
 /*

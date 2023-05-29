@@ -25,6 +25,17 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
 
+	if ((sCtx->cryptCtx.init == CK_TRUE) && (pMechanism == NULL)) {
+		/* condition to terminate an active encryption operation */
+		if (sCtx->cryptCtx.cache != NULL) {
+			free(sCtx->cryptCtx.cache);
+			sCtx->cryptCtx.cache = NULL;
+		}
+		sCtx->cryptCtx.init = CK_FALSE;
+		sCtx->cryptCtx.stream_start = CK_TRUE;
+		return CKR_OK;
+	}
+
 	if (sCtx->cryptCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
 
@@ -44,9 +55,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 			(pMechanism->mechanism != CKM_RSA_PKCS))
 			return CKR_ARGUMENTS_BAD;
 
+	sCtx->cryptCtx.blockSize = HSE_AES_BLOCK_LEN;
+	sCtx->cryptCtx.cache = malloc(sCtx->cryptCtx.blockSize);
+	if (sCtx->cryptCtx.cache == NULL)
+		return CKR_HOST_MEMORY;
+
 	sCtx->cryptCtx.init = CK_TRUE;
 	sCtx->cryptCtx.mechanism = pMechanism;
 	sCtx->cryptCtx.keyHandle = hKey;
+	sCtx->cryptCtx.stream_start = CK_TRUE;
+	sCtx->cryptCtx.cache_idx = 0;
 
 	return CKR_OK;
 }
@@ -82,39 +100,54 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	if (sCtx->cryptCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
-	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL)
-		return CKR_ARGUMENTS_BAD;
+	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto err_uninit;
+	}
 
 	/* Check for input length: For ECB, CBC & CFB cipher block modes, must be a multiple of block length. Cannot be zero. */
-	if (ulDataLen == 0)
-		return CKR_ARGUMENTS_BAD;
+	if (ulDataLen == 0) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto err_uninit;
+	}
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ) {
-			if ((ulDataLen & (HSE_AES_BLOCK_LEN - 1)) != 0)
-				return CKR_ARGUMENTS_BAD;
+			if ((ulDataLen & (HSE_AES_BLOCK_LEN - 1)) != 0) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_uninit;
+			}
 	}
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->cryptCtx.keyHandle);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key == NULL)
-		return CKR_KEY_HANDLE_INVALID;
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto err_uninit;
+	}
 
 	/* check for input length for RSA ciphering */
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
 		key_bit_length = hse_get_key_bit_length(key);
-		if (key_bit_length == 0)
-			return CKR_GENERAL_ERROR;
+		if (key_bit_length == 0) {
+			rc = CKR_GENERAL_ERROR;
+			goto err_uninit;
+		}
 
 		if (rsa_ciphering_get_max_input_length(key_bit_length, sCtx->cryptCtx.mechanism) < ulDataLen)
-			return CKR_DATA_LEN_RANGE;
+		{
+			rc = CKR_DATA_LEN_RANGE;
+			goto err_uninit;
+		}
 	}
 
 	input = hse_mem_alloc(ulDataLen);
-	if (input == NULL)
-		return CKR_HOST_MEMORY;
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_uninit;
+	}
 	hse_memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
@@ -315,8 +348,14 @@ err_free_output_len:
 	hse_mem_free(output_len);
 err_free_input:
 	hse_mem_free(input);
-
-	sCtx->cryptCtx.init = CK_FALSE;
+err_uninit:
+	if (rc != CKR_BUFFER_TOO_SMALL) {
+		sCtx->cryptCtx.init = CK_FALSE;
+		if (sCtx->cryptCtx.cache != NULL) {
+			free(sCtx->cryptCtx.cache);
+			sCtx->cryptCtx.cache = NULL;
+		}
+	}
 
 	return rc;
 }
@@ -335,6 +374,17 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 
 	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
+
+	if ((sCtx->cryptCtx.init == CK_TRUE) && (pMechanism == NULL)) {
+		/* condition to terminate an active decryption operation */
+		if (sCtx->cryptCtx.cache != NULL) {
+			free(sCtx->cryptCtx.cache);
+			sCtx->cryptCtx.cache = NULL;
+		}
+		sCtx->cryptCtx.init = CK_FALSE;
+		sCtx->cryptCtx.stream_start = CK_TRUE;
+		return CKR_OK;
+	}
 
 	if (sCtx->cryptCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
@@ -355,9 +405,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 			(pMechanism->mechanism != CKM_RSA_PKCS))
 			return CKR_ARGUMENTS_BAD;
 
+	sCtx->cryptCtx.blockSize = HSE_AES_BLOCK_LEN;
+	sCtx->cryptCtx.cache = malloc(sCtx->cryptCtx.blockSize);
+	if (sCtx->cryptCtx.cache == NULL)
+		return CKR_HOST_MEMORY;
+
 	sCtx->cryptCtx.init = CK_TRUE;
 	sCtx->cryptCtx.mechanism = pMechanism;
 	sCtx->cryptCtx.keyHandle = hKey;
+	sCtx->cryptCtx.stream_start = CK_TRUE;
+	sCtx->cryptCtx.cache_idx = 0;
 
 	return CKR_OK;
 }
@@ -393,36 +450,48 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	if (sCtx->cryptCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
-	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL)
-		return CKR_ARGUMENTS_BAD;
+	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto err_uninit;
+	}
 
 	/* Check for input length: For ECB, CBC & CFB cipher block modes, must be a multiple of block length. Cannot be zero. */
-	if (ulEncryptedDataLen == 0)
-		return CKR_ARGUMENTS_BAD;
+	if (ulEncryptedDataLen == 0) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto err_uninit;
+	}
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ) {
-			if ((ulEncryptedDataLen & (HSE_AES_BLOCK_LEN - 1)) != 0)
-				return CKR_ARGUMENTS_BAD;
+			if ((ulEncryptedDataLen & (HSE_AES_BLOCK_LEN - 1)) != 0) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_uninit;
+			}
 	}
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->cryptCtx.keyHandle);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key == NULL)
-		return CKR_KEY_HANDLE_INVALID;
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto err_uninit;
+	}
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
 		key_bit_length = hse_get_key_bit_length(key);
 		/* The input cipher text length should be equal to the key size */
-		if (ulEncryptedDataLen != (key_bit_length >> 3))
-			return CKR_ARGUMENTS_BAD;
+		if (ulEncryptedDataLen != (key_bit_length >> 3)) {
+			rc = CKR_ARGUMENTS_BAD;
+			goto err_uninit;
+		}
 	}
 
 	input = hse_mem_alloc(ulEncryptedDataLen);
-	if (input == NULL)
-		return CKR_HOST_MEMORY;
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_uninit;
+	}
 	hse_memcpy(input, pEncryptedData, ulEncryptedDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
@@ -615,7 +684,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			*pulDataLen = *(uint32_t *)output_len;
 
 			rc = CKR_BUFFER_TOO_SMALL;
-			goto err_free_output_len;
+			goto err_free_tag;
 		}
 	}
 
@@ -632,8 +701,14 @@ err_free_output_len:
 	hse_mem_free(output_len);
 err_free_input:
 	hse_mem_free(input);
-
-	sCtx->cryptCtx.init = CK_FALSE;
+err_uninit:
+	if (rc != CKR_BUFFER_TOO_SMALL) {
+		sCtx->cryptCtx.init = CK_FALSE;
+		if (sCtx->cryptCtx.cache != NULL) {
+			free(sCtx->cryptCtx.cache);
+			sCtx->cryptCtx.cache = NULL;
+		}
+	}
 
 	return rc;
 }
@@ -702,27 +777,39 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	if (sCtx->signCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
-	if (pData == NULL)
-		return CKR_DATA_INVALID;
+	if (pData == NULL) {
+		rc = CKR_DATA_INVALID;
+		goto err_uninit;
+	}
 
-	if (ulDataLen == 0)
-		return CKR_DATA_LEN_RANGE;
+	if (ulDataLen == 0) {
+		rc = CKR_DATA_LEN_RANGE;
+		goto err_uninit;
+	}
 
-	if (pSignature == NULL)
-		return CKR_SIGNATURE_INVALID;
+	if (pSignature == NULL) {
+		rc = CKR_SIGNATURE_INVALID;
+		goto err_uninit;
+	}
 
-	if (pulSignatureLen == NULL)
-		return CKR_SIGNATURE_LEN_RANGE;
+	if (pulSignatureLen == NULL) {
+		rc = CKR_SIGNATURE_LEN_RANGE;
+		goto err_uninit;
+	}
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->signCtx.keyHandle);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key == NULL)
-		return CKR_KEY_HANDLE_INVALID;
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto err_uninit;
+	}
 
 	input = hse_mem_alloc(ulDataLen);
-	if (input == NULL)
-		return CKR_HOST_MEMORY;
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_uninit;
+	}
 	hse_memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
@@ -860,7 +947,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 		mac_srv->pTag = hse_virt_to_dma(sign0);
 	}
 
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_sign0;
@@ -913,8 +1000,9 @@ err_free_output_len:
 	hse_mem_free(output_len);
 err_free_input:
 	hse_mem_free(input);
-
-	sCtx->signCtx.init = CK_FALSE;
+err_uninit:
+	if (rc != CKR_BUFFER_TOO_SMALL)
+		sCtx->signCtx.init = CK_FALSE;
 
 	return rc;
 }
@@ -983,27 +1071,39 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	if (sCtx->signCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
-	if (pData == NULL)
-		return CKR_DATA_INVALID;
+	if (pData == NULL) {
+		rc = CKR_DATA_INVALID;
+		goto err_uninit;
+	}
 
-	if (ulDataLen == 0)
-		return CKR_DATA_LEN_RANGE;
+	if (ulDataLen == 0) {
+		rc = CKR_DATA_LEN_RANGE;
+		goto err_uninit;
+	}
 
-	if (pSignature == NULL)
-		return CKR_SIGNATURE_INVALID;
+	if (pSignature == NULL) {
+		rc = CKR_SIGNATURE_INVALID;
+		goto err_uninit;
+	}
 
-	if (ulSignatureLen == 0)
-		return CKR_SIGNATURE_LEN_RANGE;
+	if (ulSignatureLen == 0) {
+		rc = CKR_SIGNATURE_LEN_RANGE;
+		goto err_uninit;
+	}
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->signCtx.keyHandle);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key == NULL)
-		return CKR_KEY_HANDLE_INVALID;
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto err_uninit;
+	}
 
 	input = hse_mem_alloc(ulDataLen);
-	if (input == NULL)
-		return CKR_HOST_MEMORY;
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_uninit;
+	}
 	hse_memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
@@ -1151,7 +1251,7 @@ err_free_output_len:
 	hse_mem_free(output_len);
 err_free_input:
 	hse_mem_free(input);
-
+err_uninit:
 	sCtx->signCtx.init = CK_FALSE;
 
 	return rc;
@@ -1165,7 +1265,220 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		CK_ULONG_PTR pulEncryptedPartLen
 )
 {
-	return CKR_FUNCTION_NOT_SUPPORTED;
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseSymCipherSrv_t *sym_cipher_srv;
+	void *input = NULL, *output = NULL, *pIV = NULL;
+	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
+	int err;
+	uint32_t bytes_left, full_blocks;
+	hseAccessMode_t access_mode;
+
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->cryptCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
+
+	if ((pPart == NULL) || (ulPartLen == 0) || (pulEncryptedPartLen == NULL)) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto err_uninit;
+	}
+
+	if (pEncryptedPart == NULL) {
+		/* if NULL, upper layer expects to receive needed size */
+		bytes_left = sCtx->cryptCtx.cache_idx + ulPartLen;
+		full_blocks = bytes_left - (bytes_left % sCtx->cryptCtx.blockSize);
+		/* the calculated length is not precise, max deviation is one block size */
+		*pulEncryptedPartLen = full_blocks;
+		return CKR_OK;
+	}
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->cryptCtx.keyHandle);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto err_uninit;
+	}
+
+	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) ) {
+		rc = CKR_FUNCTION_NOT_SUPPORTED;
+		goto err_uninit;
+	}
+
+	/* input process */
+	bytes_left = sCtx->cryptCtx.cache_idx + ulPartLen;
+	if (bytes_left < sCtx->cryptCtx.blockSize) {
+		/* cache data for next update and exit */
+		memcpy(sCtx->cryptCtx.cache + sCtx->cryptCtx.cache_idx, pPart, ulPartLen);
+		sCtx->cryptCtx.cache_idx = bytes_left;
+		bytes_left = 0;
+
+		/* call for START() with `0` data length */
+		if (sCtx->cryptCtx.stream_start == CK_FALSE) {
+			*pulEncryptedPartLen = 0;
+			return CKR_OK;
+		}
+	}
+
+	/* round down to nearest multiple of block size */
+	full_blocks = bytes_left - (bytes_left % sCtx->cryptCtx.blockSize);
+
+	/* Check length of output buffer. For AES, the output length is equal to the input length  */
+	if (*pulEncryptedPartLen < full_blocks) {
+		/* tell the required size */
+		*pulEncryptedPartLen = full_blocks;
+
+		rc = CKR_BUFFER_TOO_SMALL;
+		goto err_uninit;
+	}
+
+	if (full_blocks > 0) {
+		/* copy full_blocks to dynamic buffer */
+		input = hse_mem_alloc(full_blocks);
+		if (input == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto err_uninit;
+		}
+		hse_memcpy(input, sCtx->cryptCtx.cache, sCtx->cryptCtx.cache_idx);
+		hse_memcpy(input + sCtx->cryptCtx.cache_idx, pPart, full_blocks - sCtx->cryptCtx.cache_idx);
+		bytes_left -= full_blocks;
+
+		/* copy residue to block-sized cache */
+		if (bytes_left > 0)
+			memcpy(sCtx->cryptCtx.cache, pPart + (full_blocks - sCtx->cryptCtx.cache_idx), bytes_left);
+			
+		sCtx->cryptCtx.cache_idx = bytes_left;
+
+		/* output length is equal to the input length  */
+		output = hse_mem_alloc(full_blocks);
+		if (output == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto err_free_input;
+		}
+	}
+
+	/* IV input is used only when START */
+	if ((sCtx->cryptCtx.stream_start == CK_TRUE) && 
+		(sCtx->cryptCtx.mechanism->pParameter != NULL)) {
+		pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
+		if (pIV == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto err_free_output;
+		}
+		hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
+	}
+
+	if (sCtx->cryptCtx.stream_start) {
+		access_mode = HSE_ACCESS_MODE_START;
+		sCtx->cryptCtx.stream_start = CK_FALSE;
+	} else {
+		access_mode = HSE_ACCESS_MODE_UPDATE;
+	}
+
+	switch (sCtx->cryptCtx.mechanism->mechanism) {
+		case CKM_AES_ECB:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = access_mode;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+
+			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
+				sym_cipher_srv->pIV = hse_virt_to_dma(pIV);
+			} else {
+				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
+			}
+
+			sym_cipher_srv->inputLength = full_blocks;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+
+		case CKM_AES_CBC:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = access_mode;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = hse_virt_to_dma(pIV);
+			sym_cipher_srv->inputLength = full_blocks;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+
+		case CKM_AES_CTR:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = access_mode;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = hse_virt_to_dma(pIV);
+			sym_cipher_srv->inputLength = full_blocks;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+			goto err_free_piv;
+	}
+
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	if (err) {
+		rc = CKR_FUNCTION_FAILED;
+		goto err_free_piv;
+	}
+
+	if (full_blocks > 0)
+		hse_memcpy(pEncryptedPart, output, full_blocks);
+	*pulEncryptedPartLen = full_blocks;
+
+err_free_piv:
+	hse_mem_free(pIV);
+err_free_output:
+	hse_mem_free(output);
+err_free_input:
+	hse_mem_free(input);
+err_uninit:
+	if ((rc != CKR_OK) && (rc != CKR_BUFFER_TOO_SMALL)) {
+		sCtx->cryptCtx.init = CK_FALSE;
+		if (sCtx->cryptCtx.cache != NULL) {
+			free(sCtx->cryptCtx.cache);
+			sCtx->cryptCtx.cache = NULL;
+		}
+	}
+
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
@@ -1174,7 +1487,181 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 		CK_ULONG_PTR pulLastEncryptedPartLen
 )
 {
-	return CKR_FUNCTION_NOT_SUPPORTED;
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseSymCipherSrv_t *sym_cipher_srv;
+	void *input = NULL, *output;
+	uint8_t input_len = 0;
+	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
+	int err;
+
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->cryptCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
+
+	if (pulLastEncryptedPartLen == NULL) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto err_uninit;
+	}
+
+	if (pLastEncryptedPart == NULL) {
+		/* if NULL, upper layer expects to receive needed size */
+		*pulLastEncryptedPartLen = sCtx->cryptCtx.cache_idx;
+		return CKR_OK;
+	}
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->cryptCtx.keyHandle);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto err_uninit;
+	}
+
+	/* Check the output length */
+	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
+		/* For AES, the output length is equal to the input length  */
+		if (*pulLastEncryptedPartLen < sCtx->cryptCtx.cache_idx) {
+			/* tell the required size */
+			*pulLastEncryptedPartLen = sCtx->cryptCtx.cache_idx;
+
+			rc = CKR_BUFFER_TOO_SMALL;
+			goto err_uninit;
+		}
+	} else {
+		rc = CKR_FUNCTION_NOT_SUPPORTED;
+		goto err_uninit;
+	}
+
+	/* input length check:
+	 * For ECB, CBC & CFB cipher block modes, must be a multiple of block length. Cannot be zero.
+     * For remaining cipher block modes, can be any value except zero. */
+	input_len = sCtx->cryptCtx.cache_idx;
+	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC)) {
+		/* there is no data left for enc, fill dummy data */
+		if (input_len == 0) {
+			input_len = sCtx->cryptCtx.blockSize;
+		} else if (input_len != sCtx->cryptCtx.blockSize) {
+			rc = CKR_DATA_LEN_RANGE;
+			goto err_uninit;
+		}
+	} else {
+		/* there is no data left for enc, fill dummy data */
+		if (input_len == 0) {
+			input_len = sCtx->cryptCtx.blockSize;
+		}
+	}
+
+	/* input process */
+	input = hse_mem_alloc(input_len);
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_uninit;
+	}
+
+	hse_memcpy(input, sCtx->cryptCtx.cache, input_len);
+
+	output = hse_mem_alloc(input_len);
+	if (output == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_free_input;
+	}
+
+	switch (sCtx->cryptCtx.mechanism->mechanism) {
+		case CKM_AES_ECB:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = 0;
+			sym_cipher_srv->inputLength = input_len;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+
+		case CKM_AES_CBC:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = 0;
+			sym_cipher_srv->inputLength = input_len;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+
+		case CKM_AES_CTR:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = 0;
+			sym_cipher_srv->inputLength = input_len;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+			goto err_free_output;
+	}
+
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	if (err) {
+		rc = CKR_FUNCTION_FAILED;
+		goto err_free_output;
+	}
+	if (sCtx->cryptCtx.cache_idx > 0)
+		hse_memcpy(pLastEncryptedPart, output, sCtx->cryptCtx.cache_idx);
+	*pulLastEncryptedPartLen = sCtx->cryptCtx.cache_idx;
+
+err_free_output:
+	hse_mem_free(output);
+err_free_input:
+	hse_mem_free(input);
+err_uninit:
+	if (rc != CKR_BUFFER_TOO_SMALL) {
+		sCtx->cryptCtx.init = CK_FALSE;
+		if (sCtx->cryptCtx.cache != NULL) {
+			free(sCtx->cryptCtx.cache);
+			sCtx->cryptCtx.cache = NULL;
+		}
+	}
+
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
@@ -1185,7 +1672,219 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		CK_ULONG_PTR pulPartLen
 )
 {
-	return CKR_FUNCTION_NOT_SUPPORTED;
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseSymCipherSrv_t *sym_cipher_srv;
+	void *input = NULL, *output = NULL, *pIV = NULL;
+	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
+	int err;
+	uint32_t bytes_left, full_blocks;
+	hseAccessMode_t access_mode;
+
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->cryptCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
+
+	if ((pEncryptedPart == NULL) || (ulEncryptedPartLen == 0) || (pulPartLen == NULL)) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto err_uninit;
+	}
+
+	if (pPart == NULL) {
+		/* if NULL, upper layer expects to receive needed size */
+		bytes_left = sCtx->cryptCtx.cache_idx + ulEncryptedPartLen;
+		full_blocks = bytes_left - (bytes_left % sCtx->cryptCtx.blockSize);
+		/* the calculated length is not precise, max deviation is one block size */
+		*pulPartLen = full_blocks;
+		return CKR_OK;
+	}
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->cryptCtx.keyHandle);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto err_uninit;
+	}
+
+	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR)) {
+		rc = CKR_FUNCTION_NOT_SUPPORTED;
+		goto err_uninit;
+	}
+
+	/* input process */
+	bytes_left = sCtx->cryptCtx.cache_idx + ulEncryptedPartLen;
+	if (bytes_left < sCtx->cryptCtx.blockSize) {
+		/* cache data for next update and exit */
+		memcpy(sCtx->cryptCtx.cache + sCtx->cryptCtx.cache_idx, pEncryptedPart, ulEncryptedPartLen);
+		sCtx->cryptCtx.cache_idx = bytes_left;
+		bytes_left = 0;
+
+		/* call for START() with `0` data length */
+		if (sCtx->cryptCtx.stream_start == CK_FALSE) {
+			*pulPartLen = 0;
+			return CKR_OK;
+		}
+	}
+
+	/* round down to nearest multiple of block size */
+	full_blocks = bytes_left - (bytes_left % sCtx->cryptCtx.blockSize);
+
+	/* Check for length of output buffer. For AES, the output length is equal to the input length  */
+	if (*pulPartLen < full_blocks) {
+		/* tell the required size */
+		*pulPartLen = full_blocks;
+
+		rc = CKR_BUFFER_TOO_SMALL;
+		goto err_uninit;
+	}
+
+	/* copy full_blocks to dynamic buffer */
+	if (full_blocks > 0) {
+		input = hse_mem_alloc(full_blocks);
+		if (input == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto err_uninit;
+		}
+		hse_memcpy(input, sCtx->cryptCtx.cache, sCtx->cryptCtx.cache_idx);
+		hse_memcpy(input + sCtx->cryptCtx.cache_idx, pEncryptedPart, full_blocks - sCtx->cryptCtx.cache_idx);
+		bytes_left -= full_blocks;
+
+		/* copy residue to block-sized cache */
+		if (bytes_left > 0)
+			memcpy(sCtx->cryptCtx.cache, pEncryptedPart + (full_blocks - sCtx->cryptCtx.cache_idx), bytes_left);
+			
+		sCtx->cryptCtx.cache_idx = bytes_left;
+
+		/* output length is equal to the input length  */
+		output = hse_mem_alloc(full_blocks);
+		if (output == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto err_free_input;
+		}
+	}
+
+	/* IV input is used only when START */
+	if ((sCtx->cryptCtx.stream_start == CK_TRUE) && 
+		(sCtx->cryptCtx.mechanism->pParameter != NULL)) {
+		pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
+		if (pIV == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto err_free_output;
+		}
+		hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
+	}
+
+	if (sCtx->cryptCtx.stream_start) {
+		access_mode = HSE_ACCESS_MODE_START;
+		sCtx->cryptCtx.stream_start = CK_FALSE;
+	} else {
+		access_mode = HSE_ACCESS_MODE_UPDATE;
+	}
+
+	switch (sCtx->cryptCtx.mechanism->mechanism) {
+		case CKM_AES_ECB:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = access_mode;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+
+			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
+				sym_cipher_srv->pIV = hse_virt_to_dma(pIV);
+			} else {
+				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
+			}
+
+			sym_cipher_srv->inputLength = full_blocks;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+
+		case CKM_AES_CBC:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = access_mode;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = hse_virt_to_dma(pIV);
+			sym_cipher_srv->inputLength = full_blocks;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+
+		case CKM_AES_CTR:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = access_mode;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = hse_virt_to_dma(pIV);
+			sym_cipher_srv->inputLength = full_blocks;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+			goto err_free_piv;
+	}
+
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	if (err) {
+		rc = CKR_FUNCTION_FAILED;
+		goto err_free_piv;
+	}
+
+	if (full_blocks > 0)
+		hse_memcpy(pPart, output, full_blocks);
+	*pulPartLen = full_blocks;
+
+err_free_piv:
+	hse_mem_free(pIV);
+err_free_output:
+	hse_mem_free(output);
+err_free_input:
+	hse_mem_free(input);
+err_uninit:
+	if ((rc != CKR_OK) && (rc != CKR_BUFFER_TOO_SMALL)) {
+		sCtx->cryptCtx.init = CK_FALSE;
+		if (sCtx->cryptCtx.cache != NULL) {
+			free(sCtx->cryptCtx.cache);
+			sCtx->cryptCtx.cache = NULL;
+		}
+	}
+
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
@@ -1194,7 +1893,181 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 		CK_ULONG_PTR pulLastPartLen
 )
 {
-	return CKR_FUNCTION_NOT_SUPPORTED;
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseSymCipherSrv_t *sym_cipher_srv;
+	void *input = NULL, *output;
+	uint8_t input_len = 0;
+	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
+	int err;
+
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->cryptCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
+
+	if (pulLastPartLen == NULL) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto err_uninit;
+	}
+
+	if (pLastPart == NULL) {
+		/* if NULL, upper layer expects to receive needed size */
+		*pulLastPartLen = sCtx->cryptCtx.cache_idx;
+		return CKR_OK; 
+	}
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->cryptCtx.keyHandle);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto err_uninit;
+	}
+
+	/* Check the output length */
+	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
+		/* For AES, the output length is equal to the input length  */
+		if (*pulLastPartLen < sCtx->cryptCtx.cache_idx) {
+			/* tell the required size */
+			*pulLastPartLen = sCtx->cryptCtx.cache_idx;
+
+			rc = CKR_BUFFER_TOO_SMALL;
+			goto err_uninit;
+		}
+	} else {
+		rc = CKR_FUNCTION_NOT_SUPPORTED;
+		goto err_uninit;
+	}
+
+	/* input length check:
+	 * For ECB, CBC & CFB cipher block modes, must be a multiple of block length. Cannot be zero.
+     * For remaining cipher block modes, can be any value except zero. */
+	input_len = sCtx->cryptCtx.cache_idx;
+	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC)) {
+		if (input_len == 0) {
+			/* if no data left, fill dummy data */
+			input_len = sCtx->cryptCtx.blockSize;
+		} else if (sCtx->cryptCtx.cache_idx != sCtx->cryptCtx.blockSize) {
+			rc = CKR_DATA_LEN_RANGE;
+			goto err_uninit;
+		}
+	} else {
+		if (sCtx->cryptCtx.cache_idx == 0) {
+			/* if no data left, fill dummy data */
+			input_len = sCtx->cryptCtx.blockSize;
+		}
+	}
+
+	input = hse_mem_alloc(input_len);
+	if (input == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_uninit;
+	}
+
+	hse_memcpy(input, sCtx->cryptCtx.cache, input_len);
+
+	output = hse_mem_alloc(input_len);
+	if (output == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto err_free_input;
+	}
+
+	switch (sCtx->cryptCtx.mechanism->mechanism) {
+		case CKM_AES_ECB:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = 0;
+			sym_cipher_srv->inputLength = input_len;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+
+		case CKM_AES_CBC:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = 0;
+			sym_cipher_srv->inputLength = input_len;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+
+		case CKM_AES_CTR:
+
+			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
+			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
+			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
+			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->pIV = 0;
+			sym_cipher_srv->inputLength = input_len;
+			sym_cipher_srv->pInput = hse_virt_to_dma(input);
+			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
+
+			break;
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+			goto err_free_output;
+	}
+
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	if (err) {
+		rc = CKR_FUNCTION_FAILED;
+		goto err_free_output;
+	}
+
+	if (sCtx->cryptCtx.cache_idx > 0)
+		hse_memcpy(pLastPart, output, sCtx->cryptCtx.cache_idx);
+	*pulLastPartLen = sCtx->cryptCtx.cache_idx;
+
+err_free_output:
+	hse_mem_free(output);
+err_free_input:
+	hse_mem_free(input);
+err_uninit:
+	if (rc != CKR_BUFFER_TOO_SMALL) {
+		sCtx->cryptCtx.init = CK_FALSE;
+		if (sCtx->cryptCtx.cache != NULL) {
+			free(sCtx->cryptCtx.cache);
+			sCtx->cryptCtx.cache = NULL;
+		}
+	}
+
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_SignUpdate)(

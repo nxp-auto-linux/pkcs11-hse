@@ -80,8 +80,12 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_FindObjectsFinal =                   C_FindObjectsFinal,
 	.C_EncryptInit =                        C_EncryptInit,
 	.C_Encrypt =                            C_Encrypt,
+	.C_EncryptUpdate = 						C_EncryptUpdate,
+	.C_EncryptFinal = 						C_EncryptFinal,
 	.C_DecryptInit =                        C_DecryptInit,
 	.C_Decrypt =                            C_Decrypt,
+	.C_DecryptUpdate = 						C_DecryptUpdate,
+	.C_DecryptFinal = 						C_DecryptFinal,
 	.C_SignInit =                           C_SignInit,
 	.C_Sign =                               C_Sign,
 	.C_VerifyInit =                         C_VerifyInit,
@@ -736,6 +740,19 @@ CK_DEFINE_FUNCTION(CK_RV, C_CloseSession)(
 
 	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->cryptCtx.init) {
+		/* clean context */
+		sCtx->cryptCtx.init = CK_FALSE;
+		if (sCtx->cryptCtx.cache)
+			free(sCtx->cryptCtx.cache);
+	}
+
+	if (sCtx->digestCtx.init) {
+		sCtx->digestCtx.init = CK_FALSE;
+		if (sCtx->digestCtx.cache)
+			free(sCtx->digestCtx.cache);
+	}
 
 	sCtx->sessionInit = CK_FALSE;
 	pToken->ulSessionCount--;

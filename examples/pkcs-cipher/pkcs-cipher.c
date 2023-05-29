@@ -112,6 +112,15 @@ static CK_SESSION_HANDLE util_lib_open_session(CK_FUNCTION_LIST_PTR flist, CK_SL
 	return session;
 }
 
+static CK_RV util_lib_close_sessions(CK_FUNCTION_LIST_PTR flist, CK_SLOT_ID slot)
+{
+	CK_RV rv;
+
+	rv = flist->C_CloseAllSessions(slot);
+
+	return rv;
+}
+
 static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
 					       int aes_key_len, uint8_t *key_value)
 {
@@ -227,6 +236,235 @@ static int block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session
 	return memcmp(decrypted_text, plain_text, decrypt_text_len);
 }
 
+static int block_ciphering_parts(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key, CK_MECHANISM_PTR p_mech)
+{
+	CK_RV rv;
+	int32_t i, test_loop;
+
+	#define TEST_DATA_LEN		(128)
+	#define TEST_PART_GROUPS	(10)
+
+	unsigned char plain_text[TEST_DATA_LEN] = {0};
+
+	/* testing length groups */
+	CK_ULONG len1[TEST_PART_GROUPS] = {8,	16,	5,	40,	14,	1,	32, 80, 12,	10};
+	CK_ULONG len2[TEST_PART_GROUPS] = {16,	16, 7,	20,	2,	1,	15, 10,	13,	2};
+	CK_ULONG len3[TEST_PART_GROUPS] = {15,	32,	65,	10, 80,	2,	14, 10,	4, 	3};
+	CK_ULONG len4[TEST_PART_GROUPS] = {25,	64,	19,	10, 16,	12,	3, 	12,	3,	1};
+
+	CK_ULONG p1, p2, p3, p4;
+	CK_ULONG in_pos, out_pos;
+
+	unsigned char cipher_text[TEST_DATA_LEN] = {0};
+	unsigned char cipher_text_ref[TEST_DATA_LEN] = {0};
+	unsigned char decrypted_text[TEST_DATA_LEN] = {0};
+
+	CK_ULONG cipher_text_len, decrypt_text_len;
+
+	/* Init the plain text buffer */
+	for (i = 0; i < TEST_DATA_LEN; i++)
+		plain_text[i] = i;
+
+	for (test_loop = 0; test_loop < TEST_PART_GROUPS; test_loop++) {
+		p1 = len1[test_loop];
+		p2 = len2[test_loop];
+		p3 = len3[test_loop];
+		p4 = len4[test_loop];
+
+		INFO("Length: %ld + %ld + %ld + %ld (%ld)\n", p1, p2, p3, p4, p1+p2+p3+p4);
+
+		in_pos = 0;
+		out_pos = 0;
+
+		cipher_text_len = sizeof(cipher_text);
+		decrypt_text_len = sizeof(decrypted_text);
+
+		/* encrypt:  plain_text -> cipher_text */
+		rv = flist->C_EncryptInit(session, p_mech, key);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		rv = flist->C_EncryptUpdate(session, plain_text, p1, cipher_text, &cipher_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+		
+		in_pos += p1;
+		out_pos += cipher_text_len;
+		cipher_text_len = sizeof(cipher_text) - out_pos;
+		rv = flist->C_EncryptUpdate(session, &plain_text[in_pos], p2, &cipher_text[out_pos], &cipher_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		/* CKR_BUFFER_TOO_SMALL test */
+		in_pos += p2;
+		out_pos += cipher_text_len;
+		cipher_text_len = 0;
+		rv = flist->C_EncryptUpdate(session, &plain_text[in_pos], p3, &cipher_text[out_pos], &cipher_text_len);
+		if ((rv != CKR_BUFFER_TOO_SMALL) && (rv != CKR_OK)) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+		}
+
+		if (rv == CKR_BUFFER_TOO_SMALL) {
+			cipher_text_len = sizeof(cipher_text) - out_pos;
+			rv = flist->C_EncryptUpdate(session, &plain_text[in_pos], p3, &cipher_text[out_pos], &cipher_text_len);
+			if (rv != CKR_OK) {
+				ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+				continue;
+			}
+		}
+
+		in_pos += p3;
+		out_pos += cipher_text_len;
+		cipher_text_len = sizeof(cipher_text) - out_pos;
+		rv = flist->C_EncryptUpdate(session, &plain_text[in_pos], p4, &cipher_text[out_pos], &cipher_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		in_pos += p4;
+		out_pos += cipher_text_len;
+		cipher_text_len = sizeof(cipher_text) - out_pos;
+		rv = flist->C_EncryptFinal(session, &cipher_text[out_pos], &cipher_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		out_pos += cipher_text_len;
+
+		if (out_pos != in_pos) {
+			ERROR("Stream: encrypted data length was wrong\n");
+			continue;
+		}
+
+		/* encrypt:  plain_text -> cipher_text_ref */
+		rv = flist->C_EncryptInit(session, p_mech, key);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		cipher_text_len = sizeof(cipher_text_ref);
+		rv = flist->C_Encrypt(session, plain_text, p1+p2+p3+p4, cipher_text_ref, &cipher_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		if ( (cipher_text_len != out_pos) ||
+				(memcmp(cipher_text, cipher_text_ref, cipher_text_len) != 0)) {
+			ERROR("Stream: Encryption data error\n");
+			continue;
+		}
+
+		/* decrypt:  cipher_text -> decrypted_text */
+		rv = flist->C_DecryptInit(session, p_mech, key);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		rv = flist->C_Decrypt(session, cipher_text, out_pos, decrypted_text, &decrypt_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+		
+		if (memcmp(decrypted_text, plain_text, decrypt_text_len) != 0) {
+			ERROR("Stream: encryption data was wrong\n");
+			continue;
+		}
+
+
+		/* stream decryption */
+		memset(decrypted_text, 0x0, sizeof(decrypted_text));
+		in_pos = 0;
+		out_pos = 0;
+
+		rv = flist->C_DecryptInit(session, p_mech, key);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		rv = flist->C_DecryptUpdate(session, cipher_text, p1, decrypted_text, &decrypt_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		in_pos += p1;
+		out_pos += decrypt_text_len;
+		decrypt_text_len = sizeof(cipher_text) - out_pos;
+		rv = flist->C_DecryptUpdate(session, &cipher_text[in_pos], p2, &decrypted_text[out_pos], &decrypt_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		in_pos += p2;
+		out_pos += decrypt_text_len;
+		decrypt_text_len = sizeof(cipher_text) - out_pos;
+		rv = flist->C_DecryptUpdate(session, &cipher_text[in_pos], p3, &decrypted_text[out_pos], &decrypt_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		/* CKR_BUFFER_TOO_SMALL test */
+		in_pos += p3;
+		out_pos += decrypt_text_len;
+		decrypt_text_len = 0;
+		rv = flist->C_DecryptUpdate(session, &cipher_text[in_pos], p4, &decrypted_text[out_pos], &decrypt_text_len);
+		if ((rv != CKR_BUFFER_TOO_SMALL) && (rv != CKR_OK)) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+		}
+
+		if (rv == CKR_BUFFER_TOO_SMALL) {
+			decrypt_text_len = sizeof(cipher_text) - out_pos;
+			rv = flist->C_DecryptUpdate(session, &cipher_text[in_pos], p4, &decrypted_text[out_pos], &decrypt_text_len);
+			if (rv != CKR_OK) {
+				ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+				continue;
+			}
+		}
+
+		in_pos += p4;
+		out_pos += decrypt_text_len;
+		decrypt_text_len = sizeof(cipher_text) - out_pos;
+		rv = flist->C_DecryptFinal(session, &decrypted_text[out_pos], &decrypt_text_len);
+		if (rv != CKR_OK) {
+			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
+			continue;
+		}
+
+		out_pos += decrypt_text_len;
+
+		if (out_pos != in_pos) {
+			ERROR("Stream: Decrypted data length was wrong\n");
+			continue;
+		}
+
+		/* compare */
+		if (memcmp(decrypted_text, plain_text, out_pos) != 0) {
+			ERROR("Stream: encryption data was wrong\n");
+			continue;
+		}
+	}
+
+	if (test_loop != TEST_PART_GROUPS)
+		return -1;
+
+	return 0;
+}
+
 static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key)
 {
 	int ret;
@@ -240,6 +478,12 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 	else 
 		INFO("CKM_AES_ECB Fail!\n");
 
+	ret = block_ciphering_parts(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("Stream CKM_AES_ECB Done!\n");
+	else 
+		INFO("Stream CKM_AES_ECB Fail!\n");
+
 	mechanism.mechanism = CKM_AES_CBC;
 	mechanism.ulParameterLen = 16;
 	mechanism.pParameter = iv;
@@ -249,6 +493,12 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 	else 
 		INFO("CKM_AES_CBC Fail!\n");
 
+	ret = block_ciphering_parts(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("Stream CKM_AES_CBC Done!\n");
+	else 
+		INFO("Stream CKM_AES_CBC Fail!\n");
+
 	mechanism.mechanism = CKM_AES_CTR;
 	mechanism.ulParameterLen = 16;
 	mechanism.pParameter = iv;
@@ -257,6 +507,12 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 		INFO("CKM_AES_CTR Done!\n");
 	else 
 		INFO("CKM_AES_CTR Fail!\n");
+
+	ret = block_ciphering_parts(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("Stream CKM_AES_CTR Done!\n");
+	else 
+		INFO("Stream CKM_AES_CTR Fail!\n");
 
 	mechanism.mechanism = CKM_AES_GCM;
 	mechanism.ulParameterLen = 16;
@@ -434,7 +690,7 @@ int main(int argc, char *argv[])
 	if (!key) {
 		ERROR("Failed to create key object\n");
 		ret = -EKEYREJECTED;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	INFO("Calling C_FindObjects...\n");
@@ -443,7 +699,7 @@ int main(int argc, char *argv[])
 	if (!aes_key) {
 		ERROR("Failed to find key object with Class CKO_SECRET_KEY\n");
 		ret = -ENOKEY;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	INFO("Found Key Object with handle %06lx\n", aes_key);
@@ -458,7 +714,7 @@ int main(int argc, char *argv[])
 	if (!rsa_pub_key) {
 		ERROR("Failed to find key object with Class CKO_PUBLIC_KEY\n");
 		ret = -ENOKEY;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	INFO("Found Key Object with handle %06lx\n", rsa_pub_key);
@@ -467,7 +723,7 @@ int main(int argc, char *argv[])
 	if (!rsa_priv_key) {
 		ERROR("Failed to find key object with Class CKO_PRIVATE_KEY\n");
 		ret = -ENOKEY;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	INFO("Found Key Object with handle %06lx\n", rsa_priv_key);
@@ -479,11 +735,13 @@ int main(int argc, char *argv[])
 	ret = util_lib_destroy_object(flist, session, aes_key);
 	if (ret) {
 		ERROR("Failed to destroy key object\n");
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	INFO("Cleaning up and calling C_Finalize...\n");
 
+err_close_session:
+	util_lib_close_sessions(flist, slot);
 err_lib_finalize:	
 	if (util_lib_finalize(flist))
 		ERROR("Failed call to C_Finalize\n");
