@@ -119,10 +119,12 @@ struct hse_signCtx {
  *
  * @init:      check if search is running
  * @obj_class: class of object to search for
+ * @obj_uid:       CKA_UNIQUE_ID of object to search for
  */
 struct hse_findCtx {
 	CK_BBOOL init;
 	CK_OBJECT_CLASS *obj_class;
+	CK_ULONG *obj_uid;
 };
 
 /*

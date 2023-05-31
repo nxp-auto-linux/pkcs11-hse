@@ -471,11 +471,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)(
 	if (sCtx->findCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
 
-	if (ulCount != 0) {
-		if (pTemplate != NULL)
-			sCtx->findCtx.obj_class = (CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
-		else
-			sCtx->findCtx.obj_class = NULL;
+	if (ulCount > 0 && !pTemplate)
+		return CKR_ARGUMENTS_BAD;
+
+	if (ulCount > 0 && pTemplate) {
+		sCtx->findCtx.obj_class = (CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
+		sCtx->findCtx.obj_uid = (CK_ULONG *)getattr_pval(pTemplate, CKA_UNIQUE_ID, ulCount);
+	} else {
+		sCtx->findCtx.obj_class = NULL;
+		sCtx->findCtx.obj_uid = NULL;
 	}
 
 	sCtx->findCtx.init = CK_TRUE;
@@ -519,10 +523,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 	do {
 		key = (struct hse_keyObject *)list_iterator_next(&gCtx->object_list);
 
-		if (finder->obj_class == NULL || key->key_class == *finder->obj_class) {
-			phObject[i] = key->key_handle;
-			i++;
-		}
+		/* either ALL attributes match, or no attributes match (empty template -> return all) */
+		if (finder->obj_class && key->key_class != *finder->obj_class)
+			continue;
+		if(finder->obj_uid && key->key_uid != *finder->obj_uid)
+			continue;
+
+		/* found a match */
+		phObject[i] = key->key_handle;
+		i++;
 
 		if (i >= ulMaxObjectCount)
 			break;
