@@ -32,6 +32,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 	void *rng_output;
 	int err;
 	CK_RV rc = CKR_OK;
+#if (HSE_PLATFORM == HSE_S32G3XX)
+	CK_ULONG rng_max_len = 512;
+#else
+	CK_ULONG rng_max_len = 2048;
+#endif
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -39,28 +44,44 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	if (pRandomData == NULL || ulRandomLen < 32 ||
-			ulRandomLen > 2048 || ulRandomLen % 4 != 0)
+	if (pRandomData == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	rng_output = hse_mem_alloc(ulRandomLen);
+	rng_output = hse_mem_alloc((ulRandomLen > rng_max_len) ? rng_max_len : ulRandomLen);
 	if (rng_output == NULL)
 		return CKR_HOST_MEMORY;
 
 	rng_req = &srv_desc.hseSrv.getRandomNumReq;
-
 	srv_desc.srvId = HSE_SRV_ID_GET_RANDOM_NUM;
 	rng_req->rngClass = HSE_RNG_CLASS_PTG3;
-	rng_req->randomNumLength = ulRandomLen;
 	rng_req->pRandomNum = hse_virt_to_dma(rng_output);
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
-	if (err) {
-		rc = CKR_FUNCTION_FAILED;
-		goto err_free_output;
+	while (ulRandomLen > rng_max_len) {
+		rng_req->randomNumLength = rng_max_len;
+		
+		err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+		if (err) {
+			rc = CKR_FUNCTION_FAILED;
+			goto err_free_output;
+		}
+
+		hse_memcpy(pRandomData, rng_output, rng_max_len);
+
+		pRandomData += rng_max_len;
+		ulRandomLen -= rng_max_len;
 	}
 
-	hse_memcpy(pRandomData, rng_output, ulRandomLen);
+	if (ulRandomLen > 0) {
+		rng_req->randomNumLength = ulRandomLen;
+
+		err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+		if (err) {
+			rc = CKR_FUNCTION_FAILED;
+			goto err_free_output;
+		}
+
+		hse_memcpy(pRandomData, rng_output, ulRandomLen);
+	}
 
 err_free_output:
 	hse_mem_free(rng_output);
