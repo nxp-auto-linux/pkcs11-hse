@@ -94,7 +94,7 @@ $(HSE_ODIR):
 	mkdir -p $@
 
 .PHONY: examples
-examples:
+examples: $(HSE_LIB).$(HSE_LIBVER)
 	make -C examples PKCS11HSE_DIR=$(CURDIR)
 
 clean:
