@@ -31,9 +31,9 @@ int main(int argc, char *argv[])
 
 	switch (argc) {
 	case 1:
-		/* when no arguments are given, use handle 020103 by default */
-		group_id = 0x01u;
-		slot_id = 0x03u;
+		/* when no arguments are given, use handle 020205 by default */
+		group_id = 0x02u;
+		slot_id = 0x05u;
 		break;
 	case 3:
 		/* parse input key group and slot index */
@@ -84,7 +84,7 @@ int main(int argc, char *argv[])
 	/* allocate IV, input and output buffers */
 	iv = hse_mem_alloc(AES_BLOCK_SIZE);
 	if (!iv) {
-		return ENOMEM;
+		err = ENOMEM;
 		goto out_dev_close;
 	}
 	hse_memset(iv, 0, AES_BLOCK_SIZE);
