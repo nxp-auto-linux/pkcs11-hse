@@ -137,7 +137,7 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 	CK_OBJECT_CLASS key_class = CKO_SECRET_KEY;
 	CK_KEY_TYPE key_type = CKK_AES;
 	CK_UTF8CHAR label[] = {"HSE-AES-128"};
-	CK_BYTE key_id[] = { 0x03, 0x00, 0x02 };
+	CK_BYTE key_id[] = { 0x05, 0x02, 0x02 };
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
