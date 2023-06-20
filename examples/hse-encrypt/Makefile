@@ -2,7 +2,7 @@
 # Copyright 2023 NXP
 #
 
-include ../common.mk
+include ../../common.mk
 
 all: hse-encrypt
 

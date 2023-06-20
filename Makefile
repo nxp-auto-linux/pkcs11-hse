@@ -8,39 +8,9 @@ FWMAJOR ?= 1
 FWMINOR ?= 0
 FWPATCH ?= 9
 
-# Skip prerequisites check when invoking make clean
-ifeq ($(filter clean,$(MAKECMDGOALS)),$(strip $(MAKECMDGOALS)))
-    ifneq ($(filter clean,$(MAKECMDGOALS)),)
-        CROSS_COMPILE ?= not_set
-        HSE_FWDIR ?= not_set
-        UIO_DEV ?= not_set
-    endif
-endif
+include common.mk
 
-# Prerequisites check
-ifeq (,$(CROSS_COMPILE))
-    $(error CROSS_COMPILE is not set)
-endif
-
-ifeq (,$(HSE_FWDIR))
-    HSE_FWDIR ?= $(HOME)/HSE_FW_$(PLATFORM)_$(FWTYPE)_$(FWMAJOR)_$(FWMINOR)_$(FWPATCH)
-    $(warning Path to HSE firmware package not defined, using default $(HSE_FWDIR))
-endif
-
-ifeq (,$(UIO_DEV))
-    UIO_DEV ?= uio0
-    $(warning HSE UIO device not defined, using default device $(UIO_DEV))
-endif
-
-INSTALL_DIR := $(CURDIR)/out
-INSTALL_INCLUDEDIR := $(INSTALL_DIR)/include
-INSTALL_LIBDIR := $(INSTALL_DIR)/lib
-INSTALL_BINDIR := $(INSTALL_DIR)/bin
-
-# Build libraries
-CC := $(CROSS_COMPILE)gcc
-LD := $(CROSS_COMPILE)ld
-CFLAGS += -fPIC -Wall -g
+CFLAGS += -fPIC
 LDFLAGS ?=
 
 PKCS_LIB ?= libpkcs-hse.so

@@ -2,7 +2,7 @@
 # Copyright 2023 NXP
 #
 
-include ../../common.mk
+include ../../../common.mk
 
 ifeq (,$(TEEC_EXPORT))
 $(warning Path to TEE Client API not defined, using default location)
