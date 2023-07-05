@@ -2,7 +2,7 @@
 /*
  * NXP HSE User Space Driver - Internal
  *
- * Copyright 2019-2022 NXP
+ * Copyright 2019-2023 NXP
  */
 
 #ifndef HSE_INTERNAL_H
@@ -10,7 +10,10 @@
 
 #define HSE_SRV_DESC_MAX_SIZE    256u /* maximum service descriptor size */
 
-int hse_mem_init(void *base_addr, uint64_t mem_size, bool intl);
+int hse_mem_setup(const void *base_addr, const uint64_t mem_size, bool intl);
+int hse_mem_init(const void *intl_base_addr, const void *rmem_base_addr);
+
+pthread_spinlock_t *get_mem_lock(void);
 
 void *hse_intl_mem_alloc(size_t size);
 void hse_intl_mem_free(void *addr);
