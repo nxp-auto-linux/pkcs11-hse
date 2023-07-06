@@ -52,6 +52,7 @@
 			     __stringify(HSE_UIO_MAP_RMEM) "/addr"
 #define HSE_UIO_RMEM_SIZE    "/sys/class/uio/" HSE_UIO_DEVICE "/maps/map" \
 			     __stringify(HSE_UIO_MAP_RMEM) "/size"
+#define HSE_UIO_VERSION      "/sys/class/uio/" HSE_UIO_DEVICE "/version"
 
 #define HSE_UIO_FILE_SIZE    20u /* maximum size of sysfs file content */
 
@@ -512,6 +513,7 @@ int hse_dev_open(void)
 	uint16_t status;
 	FILE *f;
 	char s[HSE_UIO_FILE_SIZE];
+	unsigned int ver;
 	int err;
 
 	if (priv.locked) {
@@ -537,6 +539,22 @@ int hse_dev_open(void)
 	if(err < 0) {
 		printf("libhse: failed to open %s\n", HSE_UIO_DEVICE);
 		err = ENOENT;
+		goto err_close_fd;
+	}
+
+	/* check kernel driver version */
+	if ((f = fopen(HSE_UIO_VERSION, "r")) == NULL) {
+		printf("libhse: failed to open %s\n", HSE_UIO_VERSION);
+		err = ENOENT;
+		goto err_close_fd;
+	}
+	fgets(s, HSE_UIO_FILE_SIZE, f);
+	ver = (unsigned int)strtol(s, NULL, 0); /* skip minor */
+	fclose(f);
+
+	if (ver != HSE_LIBVER_MAJOR) {
+		printf("libhse: kernel driver version mismatch\n");
+		err = ENODEV;
 		goto err_close_fd;
 	}
 

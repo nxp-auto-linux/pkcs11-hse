@@ -39,7 +39,7 @@ INCL = -I$(HSE_FWDIR)/interface                                                \
        -I$(HSE_FWDIR)/interface/config                                         \
        -I$(HSE_SDIR)
 
-DEFS := -DUIO_DEV=$(UIO_DEV)
+DEFS := -DUIO_DEV=$(UIO_DEV) -DHSE_LIBVER_MAJOR=$(HSE_LIBVER_MAJOR)
 
 all: $(PKCS_LIB).$(PKCS_LIBVER) examples
 
