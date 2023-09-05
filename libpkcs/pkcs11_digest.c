@@ -385,7 +385,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 	srv_desc.srvId = HSE_SRV_ID_HASH;
 
 	hash_req->streamId = 0;
-	hash_req->accessMode = HSE_ACCESS_MODE_FINISH;
+	hash_req->accessMode = sCtx->digestCtx.stream_start ?
+						HSE_ACCESS_MODE_ONE_PASS :
+						HSE_ACCESS_MODE_FINISH;
 	hash_req->hashAlgo = sCtx->digestCtx.mechanism;
 	hash_req->sgtOption = HSE_SGT_OPTION_NONE;
 	hash_req->inputLength = sCtx->digestCtx.cache_idx;
