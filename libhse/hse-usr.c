@@ -702,7 +702,8 @@ void hse_dev_close(void)
 		return;
 	}
 
-	if (atomic_fetch_sub(&priv.thread_refcnt, 1) > 0)
+	/* check for other open instances */
+	if (atomic_fetch_sub(&priv.thread_refcnt, 1) > 1)
 		return;
 
 	/* unmap UIO mappings */
