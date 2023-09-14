@@ -28,6 +28,8 @@
 #define __stringify_1(x)    #x
 #define __stringify(x)      __stringify_1(x)
 
+#define hse_wmb() asm volatile("dmb oshst" : : : "memory")
+
 #ifndef UIO_DEV
 #error HSE UIO device not defined
 #endif /* UIO_DEV */
@@ -261,6 +263,7 @@ static int hse_mu_msg_send(uint8_t channel, uint32_t msg)
 		return EBUSY;
 	}
 
+	hse_wmb();
 	priv.regs->tr[channel] = msg;
 
 	return 0;
