@@ -61,6 +61,18 @@
 #define HSE_UIO_REQ_TIMEOUT    2000u /* request timeout, in milliseconds */
 
 /**
+ * enum hse_fw_status - HSE firmware status
+ * @HSE_FW_SHUTDOWN: firmware not initialized or shut down due to fatal error
+ * @HSE_FW_RUNNING: firmware running and able to service any type of request
+ * @HSE_FW_STANDBY: firmware considered in stand-by state, no service requests
+ */
+enum hse_fw_status {
+	HSE_FW_SHUTDOWN = 0u,
+	HSE_FW_RUNNING = 1u,
+	HSE_FW_STANDBY = 2u,
+};
+
+/**
  * struct hse_mu_regs - HSE Messaging Unit Registers
  * @ver: Version ID Register, offset 0x0
  * @par: Parameter Register, offset 0x4
@@ -107,6 +119,7 @@ struct hse_mu_regs {
  * @channel_reply[n]: response on channel n
  * @event: HSE firmware system event mask
  * @setup_done: initialization sequence done flag
+ * @firmware_status: cached status of HSE firmware
  * @channel_busy[n]: service channel busy flag
  * @channel_res[n]: channel currently reserved
  * @channel_lock: used for channel acquisition
@@ -117,7 +130,8 @@ struct hse_uio_intl {
 	volatile uint32_t channel_reply[HSE_NUM_CHANNELS];
 	volatile uint32_t event;
 	volatile bool setup_done;
-	uint8_t reserved[3];
+	enum hse_fw_status firmware_status;
+	uint8_t reserved[2];
 	volatile bool channel_busy[HSE_NUM_CHANNELS];
 	volatile bool channel_res[HSE_NUM_CHANNELS];
 	volatile pthread_spinlock_t channel_lock __attribute__((aligned(16)));
@@ -335,8 +349,9 @@ static int hse_mu_msg_recv(uint8_t channel)
  *
  * Return: 0 on success, EINVAL for invalid parameter, ENODEV for device not
  *         initialized or disabled due to fatal error or tamper detection,
- *         ECHRNG for channel index out of range, EBUSY for channel busy or
- *         none available, ENOMSG for failure to read service request response
+ *         ECHRNG for channel index out of range, EBUSY for channel busy, none
+ *         available or firmware on stand-by, -ENOTRECOVERABLE for firmware in
+ *         shutdown state, ENOMSG for failure to read service request response
  */
 int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size)
 {
@@ -351,6 +366,15 @@ int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size)
 
 	if (channel != HSE_CHANNEL_ANY && channel >= HSE_NUM_CHANNELS)
 		return ECHRNG;
+
+	switch (priv.intl->firmware_status) {
+	case HSE_FW_STANDBY:
+		return EBUSY;
+	case HSE_FW_SHUTDOWN:
+		return ENOTRECOVERABLE;
+	default:
+		break;
+	}
 
 	pthread_spin_lock(&priv.intl->channel_lock);
 
