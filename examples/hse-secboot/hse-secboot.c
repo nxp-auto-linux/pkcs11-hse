@@ -2,7 +2,7 @@
 /*
  * HSE advanced secure boot preparatory command demo
  *
- * Copyright 2022 NXP
+ * Copyright 2022-2023 NXP
  */
 
 #include <stdio.h>
@@ -16,6 +16,8 @@
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
 
+#include <sys/ioctl.h>
+#include <mtd/mtd-user.h>
 #include "libhse.h"
 #include "keys-config.h"
 #include "hse_interface.h"
@@ -26,13 +28,17 @@
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 
 #define APP_CODE_OFFSET 0x40u
-#define IVT_OFFSET 0x1000u
+#define IVT_OFFSET_QSPI 0x0
+#define IVT_OFFSET_SD 0x1000u
 #define HSE_BOOT_KEY_HANDLE 0x010700u
 #define HSE_SMR_ENTRY_1 BIT(1)
 #define HSE_IVT_BOOTSEQ_BIT BIT(3)
 #define HSE_EXT_FLASH_SD 2u
-#define HSE_EXT_FLASH_PAGE 512u
-
+#define HSE_EXT_FLASH_QSPI 0u
+// Assuming 64KB QSPI block size
+#define QSPI_BLOCK_SIZE 0x10000u
+#define HSE_EXT_FLASH_PAGE_QSPI	0x1000u
+#define HSE_EXT_FLASH_PAGE_SD 512u
 #if (HSE_PLATFORM == HSE_S32G2XX) || (HSE_PLATFORM == HSE_S32R45X)
 #define HSE_APP_CORE_A53_0 HSE_APP_CORE3
 #elif (HSE_PLATFORM == HSE_S32G3XX)
@@ -275,13 +281,13 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 	return ret;
 }
 
-int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot)
+int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, bool qspi_boot)
 {
 	struct uuid uuid_bl2_sign = UUID_BL2_SIGN;
 	struct fip_toc_entry *toc_bl2_sign;
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSmrEntry_t smr_entry, *smr_entry_hse;
-	uint8_t *fip_header, *bl2_sign, *fip_bin;
+	uint8_t *fip_header, *bl2_sign, *fip_bin = NULL;
 	int ret = 0;
 
 	fip_header = malloc(get_fip_header_size(fd, ivt));
@@ -341,7 +347,12 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot)
 	smr_entry.pSmrSrc = get_fip_start(ivt);
 	smr_entry.pSmrDest = app_boot->ram_load;
 	smr_entry.smrSize = toc_bl2_sign->offset;
-	smr_entry.configFlags = (HSE_SMR_CFG_FLAG_SD_FLASH | HSE_SMR_CFG_FLAG_INSTALL_AUTH);
+
+	if (qspi_boot)
+		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_QSPI_FLASH | HSE_SMR_CFG_FLAG_INSTALL_AUTH);
+	else
+		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_SD_FLASH | HSE_SMR_CFG_FLAG_INSTALL_AUTH);
+
 	smr_entry.checkPeriod = 0;
 	smr_entry.authKeyHandle = HSE_BOOT_KEY_HANDLE;
 	smr_entry.authScheme.sigScheme.signSch = HSE_SIGN_RSASSA_PKCS1_V15;
@@ -458,7 +469,7 @@ int hse_sysimg_publish(void *sysimg, uint32_t *sysimg_size)
 	return ret;
 }
 
-int hse_sysimg_write(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_size, bool secure)
+int hse_sysimg_write_sdcard(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_size, bool secure)
 {
 	off_t seek_off;
 	int bytes;
@@ -468,24 +479,22 @@ int hse_sysimg_write(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_siz
 		ERROR("Failed to find SYSIMG location\n");
 		return errno;
 	}
-
 	bytes = write(fd, sysimg, *sysimg_size);
 	if (bytes < 0 || bytes != *sysimg_size) {
 		ERROR("Failed to write SYSIMG\n");
 		return errno;
 	}
+	ivt->sysimg_ext_flash_type = HSE_EXT_FLASH_SD;
 
 	/* external flash type, flash page size */
-	ivt->sysimg_ext_flash_type = HSE_EXT_FLASH_SD;
-	ivt->sysimg_flash_page_size = HSE_EXT_FLASH_PAGE;
+	ivt->sysimg_flash_page_size = HSE_EXT_FLASH_PAGE_SD;
 
 	/* set BOOT_SEQ bit, if using secure boot */
 	if (secure)
 		ivt->boot_cfg |= HSE_IVT_BOOTSEQ_BIT;
 
-	/* write updated ivt */
-	seek_off = lseek(fd, IVT_OFFSET, SEEK_SET);
-	if (seek_off < 0 || seek_off != IVT_OFFSET) {
+	seek_off = lseek(fd, IVT_OFFSET_SD, SEEK_SET);
+	if (seek_off < 0 || seek_off != IVT_OFFSET_SD) {
 		ERROR("Failed to find original IVT location\n");
 		return errno;
 	}
@@ -499,7 +508,66 @@ int hse_sysimg_write(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_siz
 	return 0;
 }
 
-int hse_secboot_enable(const char *device, const char *keypath)
+int hse_sysimg_write_qspi(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_size, bool secure)
+{
+	off_t seek_off;
+	erase_info_t ei;
+	uint8_t sysimage[2 * QSPI_BLOCK_SIZE];
+	int bytes;
+
+	uint32_t rem, div;
+
+	// Assuming max 48KB SYSIMG size
+	// Reading max 2 blocks, as SYSIMG Offset may be present at the end of QSPI block
+	div = ivt->sysimg / QSPI_BLOCK_SIZE;
+	rem = ivt->sysimg % QSPI_BLOCK_SIZE;
+	get_dev_offset(fd, sysimage, (div * QSPI_BLOCK_SIZE), (2 * QSPI_BLOCK_SIZE));
+	ei.length = (2 * QSPI_BLOCK_SIZE);
+	ei.start = (div * QSPI_BLOCK_SIZE);
+	ioctl(fd, MEMUNLOCK, &ei);
+	ioctl(fd, MEMERASE, &ei);
+	memcpy(sysimage+rem, sysimg, *sysimg_size);
+	seek_off = lseek(fd, (div * QSPI_BLOCK_SIZE), SEEK_SET);
+	if (seek_off < 0) {
+		ERROR("Failed to find SYSIMG location\n");
+		return errno;
+	}
+	bytes = write(fd, sysimage, (2 * QSPI_BLOCK_SIZE));
+	if (bytes < 0 || bytes != (2 * QSPI_BLOCK_SIZE)) {
+		ERROR("Failed to write SYSIMG\n");
+		return errno;
+	}
+	ivt->sysimg_ext_flash_type = HSE_EXT_FLASH_QSPI;
+
+	/* external flash type, flash page size */
+	ivt->sysimg_flash_page_size = HSE_EXT_FLASH_PAGE_QSPI;
+
+	/* set BOOT_SEQ bit, if using secure boot */
+	if (secure)
+		ivt->boot_cfg |= HSE_IVT_BOOTSEQ_BIT;
+
+	get_dev_offset(fd, sysimage, IVT_OFFSET_QSPI, QSPI_BLOCK_SIZE);
+	ei.length = (QSPI_BLOCK_SIZE);
+	ei.start = 0;
+	ioctl(fd, MEMERASE, &ei);
+	memcpy(sysimage, ivt, sizeof(*ivt));
+
+	seek_off = lseek(fd, IVT_OFFSET_QSPI, SEEK_SET);
+	if (seek_off < 0 || seek_off != IVT_OFFSET_QSPI) {
+		ERROR("Failed to find original IVT location\n");
+		return errno;
+	}
+
+	bytes = write(fd, sysimage, QSPI_BLOCK_SIZE);
+	if (bytes < 0 || bytes != QSPI_BLOCK_SIZE) {
+		ERROR("Failed to write updated IVT\n");
+		return errno;
+	}
+
+	return 0;
+}
+
+int hse_secboot_enable(const char *device, const char *keypath, bool qspi_boot)
 {
 	struct ivt ivt;
 	struct app_boot_hdr app_boot;
@@ -535,7 +603,11 @@ int hse_secboot_enable(const char *device, const char *keypath)
 		goto err_close_hse;
 	}
 
-	ret = get_dev_offset(fd, &ivt, IVT_OFFSET, sizeof(ivt));
+	if (qspi_boot)
+		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_QSPI, sizeof(ivt));
+	else
+		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_SD, sizeof(ivt));
+
 	if (ret)
 		goto err_close_fd;
 
@@ -622,7 +694,7 @@ int hse_secboot_enable(const char *device, const char *keypath)
 
 	INFO("Generating Secure Memory Region entry\n");
 
-	ret = hse_smr_install(fd, &ivt, &app_boot);
+	ret = hse_smr_install(fd, &ivt, &app_boot, qspi_boot);
 	if (ret)
 		goto err_free_rsa_pub_exponent;
 
@@ -660,7 +732,10 @@ int hse_secboot_enable(const char *device, const char *keypath)
 
 	INFO("Writing SYSIMG to %s\n", device);
 
-	ret = hse_sysimg_write(fd, &ivt, sysimg, sysimg_size, 1);
+	if (qspi_boot)
+		ret = hse_sysimg_write_qspi(fd, &ivt, sysimg, sysimg_size, 1);
+	else
+		ret = hse_sysimg_write_sdcard(fd, &ivt, sysimg, sysimg_size, 1);
 
 err_free_sysimg:
 	hse_mem_free(sysimg);
@@ -679,7 +754,7 @@ err_close_hse:
 	return ret;
 }
 
-int hse_keycatalog_format(const char* device, bool overwrite)
+int hse_keycatalog_format(const char* device, bool overwrite, bool qspi_boot)
 {
 	struct ivt ivt;
 	void *sysimg;
@@ -716,7 +791,11 @@ int hse_keycatalog_format(const char* device, bool overwrite)
 		goto err_close_hse;
 	}
 
-	ret = get_dev_offset(fd, &ivt, IVT_OFFSET, sizeof(ivt));
+	if (qspi_boot)
+		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_QSPI, sizeof(ivt));
+	else
+		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_SD, sizeof(ivt));
+
 	if (ret)
 		goto err_close_fd;
 
@@ -759,7 +838,10 @@ int hse_keycatalog_format(const char* device, bool overwrite)
 
 	INFO("Writing SYSIMG to %s\n", device);
 
-	ret = hse_sysimg_write(fd, &ivt, sysimg, sysimg_size, 0);
+	if (qspi_boot)
+		ret = hse_sysimg_write_qspi(fd, &ivt, sysimg, sysimg_size, 0);
+	else
+		ret = hse_sysimg_write_sdcard(fd, &ivt, sysimg, sysimg_size, 0);
 
 err_free_sysimg:
 	hse_mem_free(sysimg);
@@ -778,7 +860,7 @@ void usage(char *progname)
 	printf("\n");
 	printf("Usage:\n");
 	printf("\n");
-	printf("%s [-h] [-f|s] [-k keypath] [-d devpath]\n", progname);
+	printf("%s [-h] [-q] [-f|s] [-k keypath] [-d devpath]\n", progname);
 	printf("\n");
 	printf("\t-h:\tdisplay this help string\n");
 	printf("\t-f:\tformat key catalogs\n");
@@ -788,16 +870,17 @@ void usage(char *progname)
 	printf("\t-s:\tset up advanced secure boot\n");
 	printf("\t\trequires -d and -k\n");
 	printf("\t\tmutually exclusive with -f\n");
+	printf("\t-q:\tuse implementation for QSPI secure boot instead of default SD secure boot\n");
 	printf("\t-k:\tspecify full path to PEM format key file\n");
-	printf("\t-d:\tspecify full path to SD device (e.g. /dev/sdb)\n");
+	printf("\t-d:\tspecify full path to SD/MTD device (e.g. /dev/sdb or /dev/mtd0)\n");
 }
 
 int main(int argc, char *argv[])
 {
 	char *keypath = NULL, *devpath = NULL;
-	int c, fflag = 0, sflag = 0, oflag = 0, ret = 0;
+	int c, fflag = 0, sflag = 0, oflag = 0, qspiflag = 0, ret = 0;
 
-	while ((c = getopt(argc, argv, "hfosk:d:")) != -1) {
+	while ((c = getopt(argc, argv, "hfosqk:d:")) != -1) {
 		switch (c) {
 			case 'h':
 				usage(argv[0]);
@@ -816,6 +899,10 @@ int main(int argc, char *argv[])
 				break;
 			case 'd':
 				devpath = optarg;
+				break;
+			case 'q':
+				printf("You will use QSPI flash as boot medium. Make sure the target device is correct! (e.g. /dev/mtd0)\n");
+				qspiflag = 1;
 				break;
 			case '?':
 				if (optopt == 'k' || optopt == 'd')
@@ -851,13 +938,13 @@ int main(int argc, char *argv[])
 
 	if (fflag && devpath) {
 		INFO("Formatting HSE key catalog\n");
-		ret = hse_keycatalog_format(devpath, oflag);
+		ret = hse_keycatalog_format(devpath, oflag, qspiflag);
 		return ret;
 	}
 
 	if (sflag && devpath && keypath) {
 		INFO("Setting up secure boot\n");
-		ret = hse_secboot_enable(devpath, keypath);
+		ret = hse_secboot_enable(devpath, keypath, qspiflag);
 		return ret;
 	}
 
