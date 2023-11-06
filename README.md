@@ -164,7 +164,7 @@ to the key's number (`00`), slot (`06`) and catalog (`01`), in hexadecimal, from
 
 ```
 ./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/rsa_keypair.der --type privkey --id 000601 --label "HSE-RSAPRIV-KEY"
-./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/rsa_keypub.der --type pubkey --id 000701 --label "HSE-RSAPUB-KEY"
+./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/rsa_keypub.der --type pubkey --id 000501 --label "HSE-RSAPUB-KEY"
 ./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/ec_keypub.der --type pubkey --id 000401 --label "HSE-ECPUB-prime256v1-KEY"
 ./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/aes.key --type secrkey --key-type AES:256 --id 000101 --label "HSE-AES-256-KEY"
 ```

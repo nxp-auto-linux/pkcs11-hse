@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2022 NXP
+ * Copyright 2022-2023 NXP
  */
 
 #include <stdio.h>
@@ -125,7 +125,7 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 	CK_OBJECT_CLASS key_class = CKO_PUBLIC_KEY;
 	CK_KEY_TYPE key_type = CKK_RSA;
 	CK_UTF8CHAR label[] = {"HSE-RSA2048-PUB"};
-	CK_BYTE key_id[] = { 0x01, 0x07, 0x01 };
+	CK_BYTE key_id[] = { 0x00, 0x05, 0x01 };
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },

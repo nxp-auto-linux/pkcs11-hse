@@ -17,7 +17,7 @@ Please take the below steps as referance:
 
     pkcs11-tool --module /usr/lib/libpkcs-hse.so --write-object rsa_priv.pem --type privkey --id 000601 --label "HSE-RSAPRIV-KEY"
 
-    pkcs11-tool --module /usr/lib/libpkcs-hse.so --write-object rsa_pub.pem --type pubkey --id 000701 --label "HSE-RSAPUB-KEY"
+    pkcs11-tool --module /usr/lib/libpkcs-hse.so --write-object rsa_pub.pem --type pubkey --id 000501 --label "HSE-RSAPUB-KEY"
 
 4. Run the pkcs-cipher
 
