@@ -817,7 +817,7 @@ int main(int argc, char *argv[])
 	 */
 	key_id[0] = 0;
 	key_id[1] = 0;
-	key_id[2] = 2;	/* RAM key */
+	key_id[2] = 1;	/* NVM key */
 	aes128_key = install_aes_hmac_key(flist, session, CKK_AES, key_id, sizeof(key_value_AES_128), key_value_AES_128);
 	if (!aes128_key) {
 		ERROR("Failed to create key object\n");
@@ -831,8 +831,8 @@ int main(int argc, char *argv[])
 	INFO("Install HMAC key ...\n");
 
 	key_id[0] = 0;
-	key_id[1] = 1;
-	key_id[2] = 2;	/* RAM key */
+	key_id[1] = 2;
+	key_id[2] = 1;	/* NVM key */
 	hmac_key_1 = install_aes_hmac_key(flist, session, CKK_SHA256_HMAC, key_id, sizeof(key_value_HMAC_1), key_value_HMAC_1);
 	if (!hmac_key_1) {
 		ERROR("Failed to create key object\n");
@@ -841,8 +841,8 @@ int main(int argc, char *argv[])
 	}
 
 	key_id[0] = 1;
-	key_id[1] = 1;
-	key_id[2] = 2;	/* RAM key */
+	key_id[1] = 2;
+	key_id[2] = 1;	/* NVM key */
 	hmac_key_2 = install_aes_hmac_key(flist, session, CKK_SHA256_HMAC, key_id, sizeof(key_value_HMAC_2), key_value_HMAC_2);
 	if (!hmac_key_2) {
 		ERROR("Failed to create key object\n");
@@ -870,6 +870,10 @@ int main(int argc, char *argv[])
 			goto err_lib_finalize;
 		}
 	}
+
+	util_lib_destroy_object(flist, session, aes128_key);
+	util_lib_destroy_object(flist, session, hmac_key_1);
+	util_lib_destroy_object(flist, session, hmac_key_2);
 
 	INFO("Cleaning up and calling C_Finalize...\n");
 

@@ -137,7 +137,7 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 	CK_OBJECT_CLASS key_class = CKO_SECRET_KEY;
 	CK_KEY_TYPE key_type = CKK_AES;
 	CK_UTF8CHAR label[] = {"HSE-AES-128"};
-	CK_BYTE key_id[] = { 0x05, 0x02, 0x02 };
+	CK_BYTE key_id[] = { 0x01, 0x00, 0x01 };
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
@@ -683,7 +683,7 @@ int main(int argc, char *argv[])
 		goto err_lib_finalize;
 	}
 
-	INFO("Install an AES-128 RAM key ...\n");
+	INFO("Install an AES-128 NVM key ...\n");
 	INFO("Calling C_CreateObject with session ID #%ld...\n", session);
 
 	key = util_lib_create_object(flist, session, 16, key_value_AES_128);
@@ -714,7 +714,7 @@ int main(int argc, char *argv[])
 	if (!rsa_pub_key) {
 		ERROR("Failed to find key object with Class CKO_PUBLIC_KEY\n");
 		ret = -ENOKEY;
-		goto err_close_session;
+		goto err_remove_aes;
 	}
 
 	INFO("Found Key Object with handle %06lx\n", rsa_pub_key);
@@ -723,23 +723,19 @@ int main(int argc, char *argv[])
 	if (!rsa_priv_key) {
 		ERROR("Failed to find key object with Class CKO_PRIVATE_KEY\n");
 		ret = -ENOKEY;
-		goto err_close_session;
+		goto err_remove_aes;
 	}
 
 	INFO("Found Key Object with handle %06lx\n", rsa_priv_key);
 
 	util_lib_rsa_ciphering(flist, session, rsa_pub_key, rsa_priv_key);
 
-	INFO("Deleting Key Object with handle %06lx\n", aes_key);
-
-	ret = util_lib_destroy_object(flist, session, aes_key);
-	if (ret) {
-		ERROR("Failed to destroy key object\n");
-		goto err_close_session;
-	}
-
 	INFO("Cleaning up and calling C_Finalize...\n");
 
+err_remove_aes:
+	INFO("Deleting Key Object with handle %06lx\n", aes_key);
+	if (util_lib_destroy_object(flist, session, aes_key))
+		ERROR("Failed to destroy key object\n");
 err_close_session:
 	util_lib_close_sessions(flist, slot);
 err_lib_finalize:	

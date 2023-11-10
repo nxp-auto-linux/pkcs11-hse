@@ -5,7 +5,7 @@
  * This is a simple application that generates an AES-256 key, encrypts some
  * data using AES-CBC, then decrypts it in-place and compares the result.
  *
- * Copyright 2022 NXP
+ * Copyright 2022-2023 NXP
  */
 
 #include <stdio.h>
@@ -20,6 +20,17 @@
 
 #define INPUT_SIZE    256u
 
+int hse_erase_key(uint32_t key_handle)
+{
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+
+	srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
+	srv_desc.hseSrv.eraseKeyReq.keyHandle = key_handle;
+	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = HSE_ERASE_NOT_USED;
+
+	return hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+}
+
 int main(int argc, char *argv[])
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
@@ -31,8 +42,8 @@ int main(int argc, char *argv[])
 
 	switch (argc) {
 	case 1:
-		/* when no arguments are given, use handle 020205 by default */
-		group_id = 0x02u;
+		/* when no arguments are given, use handle 010105 by default */
+		group_id = 0x01u;
 		slot_id = 0x05u;
 		break;
 	case 3:
@@ -42,10 +53,10 @@ int main(int argc, char *argv[])
 		 break;
 	default:
 		printf("usage: %s <group_id> <slot_index>\n", argv[1]);
-		printf("- must point to a valid AES-256 slot in RAM catalog\n");
+		printf("- must point to a valid AES-256 slot in NVM catalog\n");
 		return EINVAL;
 	}
-	key_handle = GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_RAM, group_id, slot_id);
+	key_handle = GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, group_id, slot_id);
 
 	/* open HSE device */
 	err = hse_dev_open();
@@ -61,7 +72,7 @@ int main(int argc, char *argv[])
 		err = ENODEV;
 		goto out_dev_close;
 	}
-	printf("DEMO: using RAM key group %d, slot %d\n", group_id, slot_id);
+	printf("DEMO: using NVM key group %d, slot %d\n", group_id, slot_id);
 
 	/* fill in key generation service descriptor */
 	srv_desc.srvId = HSE_SRV_ID_KEY_GENERATE;
@@ -85,7 +96,7 @@ int main(int argc, char *argv[])
 	iv = hse_mem_alloc(AES_BLOCK_SIZE);
 	if (!iv) {
 		err = ENOMEM;
-		goto out_dev_close;
+		goto out_erase_key;
 	}
 	hse_memset(iv, 0, AES_BLOCK_SIZE);
 
@@ -159,6 +170,9 @@ out_free_input:
 	hse_mem_free(plaintext);
 out_free_iv:
 	hse_mem_free(iv);
+out_erase_key:
+	if (hse_erase_key(key_handle))
+		printf("DEMO: key erase failed\n");
 out_dev_close:
 	hse_dev_close();
 	return err;
