@@ -12,62 +12,6 @@
 #include "hse-internal.h"
 #include "pkcs11_util.h"
 
-static uint16_t getkeybitlen(hseEccCurveId_t eccCurveId)
-{
-	switch(eccCurveId) {
-		case HSE_EC_SEC_SECP256R1:
-			return 256u;
-		case HSE_EC_SEC_SECP384R1:
-			return 384u;
-		case HSE_EC_SEC_SECP521R1:
-			return 521u;
-		case HSE_EC_BRAINPOOL_BRAINPOOLP256R1:
-			return 256u;
-		case HSE_EC_BRAINPOOL_BRAINPOOLP320R1:
-			return 320u;
-		case HSE_EC_BRAINPOOL_BRAINPOOLP384R1:
-			return 384u;
-		case HSE_EC_BRAINPOOL_BRAINPOOLP512R1:
-			return 512u;
-		case HSE_EC_25519_ED25519:
-			return 256u;
-		case HSE_EC_25519_CURVE25519:
-			return 256u;
-		default:
-			return 0u;
-	}
-}
-
-static void *getattr_pval(CK_ATTRIBUTE_PTR template,
-		CK_ATTRIBUTE_TYPE attribute,
-		CK_ULONG attrCount)
-{
-	int i;
-
-	for (i = 0; i < attrCount; i++) {
-		if (template[i].type == attribute) {
-			return template[i].pValue;
-		}
-	}
-
-	return NULL;
-}
-
-static CK_ULONG getattr_len(CK_ATTRIBUTE_PTR template,
-		CK_ATTRIBUTE_TYPE attribute,
-		CK_ULONG attrCount)
-{
-	int i;
-
-	for (i = 0; i < attrCount; i++) {
-		if (template[i].type == attribute) {
-			return template[i].ulValueLen;
-		}
-	}
-
-	return 0;
-}
-
 CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 		CK_SESSION_HANDLE hSession,
 		CK_ATTRIBUTE_PTR pTemplate,
@@ -274,7 +218,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
 			key_info->keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_ACCESS_EXPORTABLE;
 			key_info->specific.eccCurveId = ecparam2curveid((char *)ecc_oid, 
 							(uint8_t)getattr_len(pTemplate, CKA_EC_PARAMS, ulCount));
-			key_info->keyBitLen = getkeybitlen(key_info->specific.eccCurveId);
+			key_info->keyBitLen = hse_get_ec_key_bitlen(key_info->specific.eccCurveId);
 			key_info->keyType = HSE_KEY_TYPE_ECC_PUB;
 
 			import_key_req->pKey[0] = hse_virt_to_dma(pkey0); /* public x & y coords of ec */
