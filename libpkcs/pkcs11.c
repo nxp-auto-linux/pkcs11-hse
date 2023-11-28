@@ -81,12 +81,12 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_FindObjectsFinal =                   C_FindObjectsFinal,
 	.C_EncryptInit =                        C_EncryptInit,
 	.C_Encrypt =                            C_Encrypt,
-	.C_EncryptUpdate = 						C_EncryptUpdate,
-	.C_EncryptFinal = 						C_EncryptFinal,
+	.C_EncryptUpdate =                      C_EncryptUpdate,
+	.C_EncryptFinal =                       C_EncryptFinal,
 	.C_DecryptInit =                        C_DecryptInit,
 	.C_Decrypt =                            C_Decrypt,
-	.C_DecryptUpdate = 						C_DecryptUpdate,
-	.C_DecryptFinal = 						C_DecryptFinal,
+	.C_DecryptUpdate =                      C_DecryptUpdate,
+	.C_DecryptFinal =                       C_DecryptFinal,
 	.C_SignInit =                           C_SignInit,
 	.C_Sign =                               C_Sign,
 	.C_VerifyInit =                         C_VerifyInit,
@@ -97,7 +97,9 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_Digest =                             C_Digest,
 	.C_DigestUpdate =                       C_DigestUpdate,
 	.C_DigestFinal =                        C_DigestFinal,
-	.C_DigestKey =                          C_DigestKey
+	.C_DigestKey =                          C_DigestKey,
+	.C_GenerateKeyPair =                    C_GenerateKeyPair,
+	.C_GenerateKey =                        C_GenerateKey,
 };
 
 /*

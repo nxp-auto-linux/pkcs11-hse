@@ -8,10 +8,42 @@
 #include <string.h>
 #include <errno.h>
 
+#include "hse_interface.h"
 #include "pkcs11_context.h"
+#include "pkcs11_util.h"
 #include "hse-internal.h"
 
 #define CEIL_MOD_8(x)		(((x) + 7) >> 3)
+
+void *getattr_pval(CK_ATTRIBUTE_PTR template,
+		CK_ATTRIBUTE_TYPE attribute,
+		CK_ULONG attrCount)
+{
+	int i;
+
+	for (i = 0; i < attrCount; i++) {
+		if (template[i].type == attribute) {
+			return template[i].pValue;
+		}
+	}
+
+	return NULL;
+}
+
+CK_ULONG getattr_len(CK_ATTRIBUTE_PTR template,
+		CK_ATTRIBUTE_TYPE attribute,
+		CK_ULONG attrCount)
+{
+	int i;
+
+	for (i = 0; i < attrCount; i++) {
+		if (template[i].type == attribute) {
+			return template[i].ulValueLen;
+		}
+	}
+
+	return 0;
+}
 
 static int hse_get_key_info(uint8_t channel, hseKeyHandle_t key_handle, hseKeyInfo_t *info)
 {
@@ -76,6 +108,32 @@ int hse_get_ec_curve_id(uint8_t channel, struct hse_keyObject *key, hseEccCurveI
 	hse_mem_free(info);
 
 	return 0;
+}
+
+uint16_t hse_get_ec_key_bitlen(hseEccCurveId_t eccCurveId)
+{
+	switch(eccCurveId) {
+		case HSE_EC_SEC_SECP256R1:
+			return 256u;
+		case HSE_EC_SEC_SECP384R1:
+			return 384u;
+		case HSE_EC_SEC_SECP521R1:
+			return 521u;
+		case HSE_EC_BRAINPOOL_BRAINPOOLP256R1:
+			return 256u;
+		case HSE_EC_BRAINPOOL_BRAINPOOLP320R1:
+			return 320u;
+		case HSE_EC_BRAINPOOL_BRAINPOOLP384R1:
+			return 384u;
+		case HSE_EC_BRAINPOOL_BRAINPOOLP512R1:
+			return 512u;
+		case HSE_EC_25519_ED25519:
+			return 256u;
+		case HSE_EC_25519_CURVE25519:
+			return 256u;
+		default:
+			return 0u;
+	}
 }
 
 #define MAX_OID_LEN  (16)
