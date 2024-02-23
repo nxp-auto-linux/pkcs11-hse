@@ -85,7 +85,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	hseRsaCipherSrv_t *rsa_cipher_srv;
 	hseAeadSrv_t *aead_srv;
 	void *input, *output, *output_len, *pIV = NULL;
-	void *gcm_tag = NULL;
+	void *aead_tag = NULL;
 	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
 	int err;
@@ -161,7 +161,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR) ||
-		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM)) {
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CCM)) {
 		/* For AES, the output length is equal to the input length  */
 		hse_memcpy(output_len, &ulDataLen, sizeof(uint32_t));
 	} else if ((sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) ||
@@ -206,6 +207,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 		if (sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP) {
 			oaep_params = (CK_RSA_PKCS_OAEP_PARAMS *)sCtx->cryptCtx.mechanism->pParameter;
 		} else {
+			/* HSE requires CCM IV length to be between 7 and 13 */
+			if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CCM) &&
+				((sCtx->cryptCtx.mechanism->ulParameterLen < 7) ||
+			     (sCtx->cryptCtx.mechanism->ulParameterLen > 13))) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_output;
+			}
 			pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
 			if (pIV == NULL) {
 				rc = CKR_HOST_MEMORY;
@@ -215,11 +223,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 		}
 	}
 
-	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) {
+	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) ||
+	    (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CCM)) {
 		/* HSE requires GCM valid Tag sizes 4, 8, 12, 13, 14, 15, 16 bytes. Can not be 0.
+		   HSE requires CCM valid Tag sizes 4, 6, 8, 10, 12, 14, 16 bytes.
 		 * Use the length 16 for the tag here. */
-		gcm_tag = hse_mem_alloc(16u);
-		if (gcm_tag == NULL) {
+		aead_tag = hse_mem_alloc(16u);
+		if (aead_tag == NULL) {
 			rc = CKR_HOST_MEMORY;
 			goto err_free_piv;
 		}
@@ -310,11 +320,31 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			aead_srv->inputLength = ulDataLen;
 			aead_srv->pInput = hse_virt_to_dma(input);
 			aead_srv->tagLength = 16u;
-			aead_srv->pTag = hse_virt_to_dma(gcm_tag);
+			aead_srv->pTag = hse_virt_to_dma(aead_tag);
 			aead_srv->pOutput = hse_virt_to_dma(output);
 
 			break;
+		case CKM_AES_CCM:
+			aead_srv = &srv_desc.hseSrv.aeadReq;
 
+			srv_desc.srvId = HSE_SRV_ID_AEAD;
+			aead_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
+			aead_srv->streamId = 0u;
+			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_CCM;
+			aead_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			aead_srv->keyHandle = key->key_handle;
+			aead_srv->ivLength = sCtx->cryptCtx.mechanism->ulParameterLen;
+			aead_srv->pIV = hse_virt_to_dma(pIV);
+			aead_srv->aadLength = 0u;
+			aead_srv->pAAD = 0u;
+			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			aead_srv->inputLength = ulDataLen;
+			aead_srv->pInput = hse_virt_to_dma(input);
+			aead_srv->tagLength = 16u;
+			aead_srv->pTag = hse_virt_to_dma(aead_tag);
+			aead_srv->pOutput = hse_virt_to_dma(output);
+
+			break;
 		case CKM_RSA_PKCS:
 			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
 
@@ -361,7 +391,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	hse_memcpy(pulEncryptedDataLen, output_len, sizeof(uint32_t));
 
 err_free_tag:
-	hse_mem_free(gcm_tag);
+	hse_mem_free(aead_tag);
 err_free_piv:
 	hse_mem_free(pIV);
 err_free_output:
@@ -457,7 +487,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	hseRsaCipherSrv_t *rsa_cipher_srv;
 	hseAeadSrv_t *aead_srv;
 	void *input, *output, *output_len, *pIV = NULL;
-	void *gcm_tag = NULL;
+	void *aead_tag = NULL;
 	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
 	int err;
@@ -526,8 +556,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR) ||
-		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM)) {
-		/* For AES, the output length is equal to the input length if padding is not used*/
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CCM)) {
+		/* For AES, the output length is equal to the input length  */
 		hse_memcpy(output_len, &ulEncryptedDataLen, sizeof(uint32_t));
 		if (*(uint32_t *)output_len > *pulDataLen) {
 			/* tell the required size */
@@ -552,6 +583,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 		if (sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP) {
 			oaep_params = (CK_RSA_PKCS_OAEP_PARAMS *)sCtx->cryptCtx.mechanism->pParameter;
 		} else {
+			/* HSE requires CCM IV length to be between 7 and 13 */
+			if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CCM) &&
+				((sCtx->cryptCtx.mechanism->ulParameterLen < 7) ||
+			     (sCtx->cryptCtx.mechanism->ulParameterLen > 13))) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_output;
+			}
 			pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
 			if (pIV == NULL) {
 				rc = CKR_HOST_MEMORY;
@@ -561,11 +599,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 		}
 	}
 
-	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) {
+	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) ||
+	    (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CCM)) {
 		/* HSE requires GCM valid Tag sizes 4, 8, 12, 13, 14, 15, 16 bytes. Can not be 0.
+		 * HSE requires CCM valid Tag sizes 4, 6, 8, 10, 12, 14, 16 bytes.
 		 * Use the length 16 for the tag here. */
-		gcm_tag = hse_mem_alloc(16u);
-		if (gcm_tag == NULL) {
+		aead_tag = hse_mem_alloc(16u);
+		if (aead_tag == NULL) {
 			rc = CKR_HOST_MEMORY;
 			goto err_free_piv;
 		}
@@ -653,11 +693,32 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			aead_srv->inputLength = ulEncryptedDataLen;
 			aead_srv->pInput = hse_virt_to_dma(input);
 			aead_srv->tagLength = 16u;
-			aead_srv->pTag = hse_virt_to_dma(gcm_tag);
+			aead_srv->pTag = hse_virt_to_dma(aead_tag);
 			aead_srv->pOutput = hse_virt_to_dma(output);
 
 			break;
+		case CKM_AES_CCM:
 
+			aead_srv = &srv_desc.hseSrv.aeadReq;
+
+			srv_desc.srvId = HSE_SRV_ID_AEAD;
+			aead_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
+			aead_srv->streamId = 0u;
+			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_CCM;
+			aead_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			aead_srv->keyHandle = key->key_handle;
+			aead_srv->ivLength = sCtx->cryptCtx.mechanism->ulParameterLen;
+			aead_srv->pIV = hse_virt_to_dma(pIV);
+			aead_srv->aadLength = 0u;
+			aead_srv->pAAD = 0u;
+			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
+			aead_srv->inputLength = ulEncryptedDataLen;
+			aead_srv->pInput = hse_virt_to_dma(input);
+			aead_srv->tagLength = 16u;
+			aead_srv->pTag = hse_virt_to_dma(aead_tag);
+			aead_srv->pOutput = hse_virt_to_dma(output);
+
+			break;
 		case CKM_RSA_PKCS:
 			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
 
@@ -719,7 +780,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	hse_memcpy(pulDataLen, output_len, sizeof(uint32_t));
 
 err_free_tag:
-	hse_mem_free(gcm_tag);
+	hse_mem_free(aead_tag);
 err_free_piv:
 	hse_mem_free(pIV);
 err_free_output:

@@ -486,6 +486,7 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 {
 	int ret;
 	CK_MECHANISM mechanism;
+	unsigned char ccm_iv[8];
 
 	mechanism.mechanism = CKM_AES_ECB;
 	mechanism.pParameter = NULL;
@@ -555,6 +556,15 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 	else 
 		INFO("CKM_AES_GCM Fail!\n");
 
+	mechanism.mechanism = CKM_AES_CCM;
+	mechanism.ulParameterLen = 8;
+	memcpy(ccm_iv, iv, 8);
+	mechanism.pParameter = ccm_iv; 
+	ret = block_ciphering(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("CKM_AES_CCM Done!\n");
+	else 
+		INFO("CKM_AES_CCM Fail!\n");
 	return 0;
 }
 
