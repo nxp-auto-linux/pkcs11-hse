@@ -168,6 +168,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			   (sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
 		/* get the output length based on the RSA key length */
 		*(uint32_t *)output_len = rsa_ciphering_get_out_length(key_bit_length);
+	} else if(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
+		/* PKCS requires that, even for multiples of block size, padding must be applied.
+		 * If the input is a multiple of block length, we add an entire block of padded values.
+		 */
+		*(uint32_t *)output_len = sCtx->cryptCtx.blockSize * (ulDataLen / sCtx->cryptCtx.blockSize + 1);
 	}
 
 	if (*pulEncryptedDataLen < *(uint32_t *)output_len) {
@@ -182,6 +187,19 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
 		goto err_free_output_len;
+	}
+
+	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
+		/* PKCS#11 standard requires filling the vector with the number of padded bytes */
+		hse_mem_free(input);
+		input = hse_mem_alloc((*(uint32_t*)output_len));
+		if (input == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto err_free_output;
+		}
+		hse_memcpy(input, pData, ulDataLen);
+		uint8_t val = (*(uint32_t*)output_len) - ulDataLen / sCtx->cryptCtx.blockSize * sCtx->cryptCtx.blockSize;
+		hse_memset(input + (*(uint32_t*)output_len) - val, val, val);
 	}
 
 	if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
@@ -234,6 +252,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			break;
 
 		case CKM_AES_CBC:
+		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
 
@@ -247,6 +266,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 			sym_cipher_srv->keyHandle = key->key_handle;
 			sym_cipher_srv->pIV = hse_virt_to_dma(pIV);
 			sym_cipher_srv->inputLength = ulDataLen;
+			if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD)
+				sym_cipher_srv->inputLength = *(uint32_t*)output_len;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input);
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output);
 
@@ -506,7 +527,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM)) {
-		/* For AES, the output length is equal to the input length  */
+		/* For AES, the output length is equal to the input length if padding is not used*/
 		hse_memcpy(output_len, &ulEncryptedDataLen, sizeof(uint32_t));
 		if (*(uint32_t *)output_len > *pulDataLen) {
 			/* tell the required size */
@@ -577,6 +598,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			break;
 
 		case CKM_AES_CBC:
+		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
 
@@ -689,7 +711,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			goto err_free_tag;
 		}
 	}
-
+	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
+		hse_memcpy(pData, output, *pulDataLen);
+		goto err_free_tag;
+	}
 	hse_memcpy(pData, output, *(uint32_t *)output_len);
 	hse_memcpy(pulDataLen, output_len, sizeof(uint32_t));
 
@@ -1313,7 +1338,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 
 	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC) &&
-		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) ) {
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD)) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
 		goto err_uninit;
 	}
@@ -1420,6 +1446,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			break;
 
 		case CKM_AES_CBC:
+		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
 
@@ -1503,7 +1530,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
 	void *input = NULL, *output;
-	uint8_t input_len = 0;
+	uint8_t input_len = 0, pad_value = 0, pad_len = 0;
 	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
 	int err;
@@ -1548,6 +1575,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 			rc = CKR_BUFFER_TOO_SMALL;
 			goto err_uninit;
 		}
+	} else if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
+		pad_len = sCtx->cryptCtx.blockSize * (sCtx->cryptCtx.cache_idx / sCtx->cryptCtx.blockSize + 1);
+		if (*pulLastEncryptedPartLen < pad_len) {
+			*pulLastEncryptedPartLen = pad_len;
+
+			rc = CKR_BUFFER_TOO_SMALL;
+			goto err_uninit;
+		}
 	} else {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
 		goto err_uninit;
@@ -1557,6 +1592,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 	 * For ECB, CBC & CFB cipher block modes, must be a multiple of block length. Cannot be zero.
      * For remaining cipher block modes, can be any value except zero. */
 	input_len = sCtx->cryptCtx.cache_idx;
+
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC)) {
 		/* there is no data left for enc, fill dummy data */
@@ -1566,6 +1602,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 			rc = CKR_DATA_LEN_RANGE;
 			goto err_uninit;
 		}
+	} else if(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
+		pad_value = sCtx->cryptCtx.blockSize - input_len;
+		input_len = pad_len;
 	} else {
 		/* there is no data left for enc, fill dummy data */
 		if (input_len == 0) {
@@ -1580,7 +1619,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 		goto err_uninit;
 	}
 
-	hse_memcpy(input, sCtx->cryptCtx.cache, input_len);
+	hse_memcpy(input, sCtx->cryptCtx.cache, input_len - pad_value);
+
+	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
+		hse_memset(input + input_len - pad_value, pad_value, pad_value);
+	}
 
 	output = hse_mem_alloc(input_len);
 	if (output == NULL) {
@@ -1609,6 +1652,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 			break;
 
 		case CKM_AES_CBC:
+		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
 
@@ -1653,6 +1697,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
+		goto err_free_output;
+	}
+	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
+		hse_memcpy(pLastEncryptedPart, output, input_len);
+		*pulLastEncryptedPartLen = input_len;
 		goto err_free_output;
 	}
 	if (sCtx->cryptCtx.cache_idx > 0)
@@ -1728,7 +1777,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 
 	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC) &&
-		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR)) {
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD)) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
 		goto err_uninit;
 	}
@@ -1835,7 +1885,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 			break;
 
 		case CKM_AES_CBC:
-
+		case CKM_AES_CBC_PAD:
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
@@ -1962,7 +2012,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 			rc = CKR_BUFFER_TOO_SMALL;
 			goto err_uninit;
 		}
-	} else {
+	} else if (sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
 		goto err_uninit;
 	}
@@ -1972,7 +2022,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
      * For remaining cipher block modes, can be any value except zero. */
 	input_len = sCtx->cryptCtx.cache_idx;
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
-		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC)) {
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD)) {
 		if (input_len == 0) {
 			/* if no data left, fill dummy data */
 			input_len = sCtx->cryptCtx.blockSize;
@@ -2022,6 +2073,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 			break;
 
 		case CKM_AES_CBC:
+		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
 

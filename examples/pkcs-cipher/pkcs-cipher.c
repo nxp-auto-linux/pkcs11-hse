@@ -208,11 +208,16 @@ static int block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session
 	unsigned char plain_text[16] = {
 		0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf
 	};
-	unsigned char cipher_text[16] = {0};
+	unsigned char* cipher_text;
 	unsigned char decrypted_text[16] = {0};
 
-	CK_ULONG cipher_text_len = sizeof(cipher_text);
+	CK_ULONG cipher_text_len = sizeof(plain_text);
 	CK_ULONG decrypt_text_len = sizeof(decrypted_text);
+
+	if (p_mech->mechanism == CKM_AES_CBC_PAD) {
+		cipher_text_len = 16 * (sizeof(plain_text) / 16 + 1);
+	}
+	cipher_text = calloc(cipher_text_len, sizeof(unsigned char));
 
 	/* encrypt:  plain_text -> cipher_text */
 	rv = flist->C_EncryptInit(session, p_mech, key);
@@ -255,9 +260,9 @@ static int block_ciphering_parts(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE s
 	CK_ULONG p1, p2, p3, p4;
 	CK_ULONG in_pos, out_pos;
 
-	unsigned char cipher_text[TEST_DATA_LEN] = {0};
-	unsigned char cipher_text_ref[TEST_DATA_LEN] = {0};
-	unsigned char decrypted_text[TEST_DATA_LEN] = {0};
+	unsigned char cipher_text[TEST_DATA_LEN + 16] = {0};
+	unsigned char cipher_text_ref[TEST_DATA_LEN + 16] = {0};
+	unsigned char decrypted_text[TEST_DATA_LEN + 16] = {0};
 
 	CK_ULONG cipher_text_len, decrypt_text_len;
 
@@ -331,6 +336,11 @@ static int block_ciphering_parts(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE s
 		in_pos += p4;
 		out_pos += cipher_text_len;
 		cipher_text_len = sizeof(cipher_text) - out_pos;
+
+		if (p_mech->mechanism == CKM_AES_CBC_PAD) {
+			cipher_text_len = 16 * (cipher_text_len / 16 + 1);
+		}
+
 		rv = flist->C_EncryptFinal(session, &cipher_text[out_pos], &cipher_text_len);
 		if (rv != CKR_OK) {
 			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
@@ -339,7 +349,7 @@ static int block_ciphering_parts(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE s
 
 		out_pos += cipher_text_len;
 
-		if (out_pos != in_pos) {
+		if (out_pos != in_pos && p_mech->mechanism != CKM_AES_CBC_PAD) {
 			ERROR("Stream: encrypted data length was wrong\n");
 			continue;
 		}
@@ -352,6 +362,11 @@ static int block_ciphering_parts(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE s
 		}
 
 		cipher_text_len = sizeof(cipher_text_ref);
+
+		if (p_mech->mechanism == CKM_AES_CBC_PAD) {
+			cipher_text_len = 16 * (sizeof(plain_text) / 16 + 1);
+		}
+	
 		rv = flist->C_Encrypt(session, plain_text, p1+p2+p3+p4, cipher_text_ref, &cipher_text_len);
 		if (rv != CKR_OK) {
 			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
@@ -370,7 +385,7 @@ static int block_ciphering_parts(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE s
 			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
 			continue;
 		}
-
+		decrypt_text_len = in_pos;
 		rv = flist->C_Decrypt(session, cipher_text, out_pos, decrypted_text, &decrypt_text_len);
 		if (rv != CKR_OK) {
 			ERROR("Error at line [%d], rv=0x%lX\n", __LINE__, rv);
@@ -447,9 +462,11 @@ static int block_ciphering_parts(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE s
 
 		out_pos += decrypt_text_len;
 
-		if (out_pos != in_pos) {
+		if (out_pos != in_pos && p_mech->mechanism != CKM_AES_CBC_PAD) {
 			ERROR("Stream: Decrypted data length was wrong\n");
 			continue;
+		} else if (p_mech->mechanism == CKM_AES_CBC_PAD) {
+			memset(decrypted_text + in_pos, 0, out_pos - in_pos);
 		}
 
 		/* compare */
@@ -498,6 +515,21 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 		INFO("Stream CKM_AES_CBC Done!\n");
 	else 
 		INFO("Stream CKM_AES_CBC Fail!\n");
+
+	mechanism.mechanism = CKM_AES_CBC_PAD;
+	mechanism.ulParameterLen = 16;
+	mechanism.pParameter = iv;
+	ret = block_ciphering(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("CKM_AES_CBC_PAD Done!\n");
+	else
+		INFO("CKM_AES_CBC_PAD Fail!\n");
+
+	ret = block_ciphering_parts(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("Stream CKM_AES_CBC_PAD Done!\n");
+	else
+		INFO("Stream CKM_AES_CBC_PAD Fail!\n");
 
 	mechanism.mechanism = CKM_AES_CTR;
 	mechanism.ulParameterLen = 16;
