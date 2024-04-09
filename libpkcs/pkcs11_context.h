@@ -60,16 +60,18 @@
 #define CKM_SHA512_256	0x0000004CUL
 #endif
 
-#define STREAM_ID_ENC_DEC	(1u)
+#define INVALID_STREAM_ID	0xFFU
 
 /*
  * struct hse_cryptCtx - crypto ops context
  *
+ * @streamID:  assigned streaming context ID
  * @init:      check if op is running
  * @keyHandle: key to use in op
  * @mechanism: mechanism to use in op
  */
 struct hse_cryptCtx {
+	CK_BYTE streamID;
 	CK_BBOOL init;
 	CK_OBJECT_HANDLE keyHandle;
 	CK_MECHANISM *mechanism;
@@ -82,6 +84,7 @@ struct hse_cryptCtx {
 /*
  * struct hse_digestCtx - digest ops context
  *
+ * @streamID:     assigned streaming context ID
  * @init:         check if op is running
  * @stream_start: true if stream should be started, false if it should be updated
  * @mechanism:    mechanism to use in op
@@ -91,6 +94,7 @@ struct hse_cryptCtx {
  * @digestSize:   digest size for given mechanism
  */
 struct hse_digestCtx {
+	CK_BYTE streamID;
 	CK_BBOOL init;
 	CK_BBOOL stream_start;
 	uint8_t mechanism;
@@ -104,11 +108,13 @@ struct hse_digestCtx {
 /*
  * struct hse_signCtx - sign ops context
  *
+ * @streamID:  assigned streaming context ID
  * @init:      check if op is running
  * @keyHandle: key to use in op
  * @mechanism: mechanism to use in op
  */
 struct hse_signCtx {
+	CK_BYTE streamID;
 	CK_BBOOL init;
 	CK_OBJECT_HANDLE keyHandle;
 	CK_MECHANISM *mechanism;

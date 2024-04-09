@@ -64,6 +64,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 	sCtx->cryptCtx.mechanism = pMechanism;
 	sCtx->cryptCtx.keyHandle = hKey;
 	sCtx->cryptCtx.stream_start = CK_TRUE;
+	sCtx->cryptCtx.streamID = INVALID_STREAM_ID;
 	sCtx->cryptCtx.cache_idx = 0;
 
 	return CKR_OK;
@@ -213,7 +214,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = 0u;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
@@ -238,7 +239,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = 0u;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
@@ -257,7 +258,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = 0u;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
@@ -276,7 +277,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_AEAD;
 			aead_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			aead_srv->streamId = 0u;
+			aead_srv->streamId = sCtx->cryptCtx.streamID;
 			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_GCM;
 			aead_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			aead_srv->keyHandle = key->key_handle;
@@ -414,6 +415,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 	sCtx->cryptCtx.mechanism = pMechanism;
 	sCtx->cryptCtx.keyHandle = hKey;
 	sCtx->cryptCtx.stream_start = CK_TRUE;
+	sCtx->cryptCtx.streamID = INVALID_STREAM_ID;
 	sCtx->cryptCtx.cache_idx = 0;
 
 	return CKR_OK;
@@ -555,7 +557,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = 0u;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
@@ -580,7 +582,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = 0u;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
@@ -599,7 +601,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = 0u;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
@@ -617,7 +619,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_AEAD;
 			aead_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			aead_srv->streamId = 0u;
+			aead_srv->streamId = sCtx->cryptCtx.streamID;
 			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_GCM;
 			aead_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			aead_srv->keyHandle = key->key_handle;
@@ -744,6 +746,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 	sCtx->signCtx.init = CK_TRUE;
 	sCtx->signCtx.mechanism = pMechanism;
 	sCtx->signCtx.keyHandle = hKey;
+	sCtx->signCtx.streamID = INVALID_STREAM_ID;
 
 	return CKR_OK;
 }
@@ -928,7 +931,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	if (!mac_srv) {
 		srv_desc.srvId = HSE_SRV_ID_SIGN;
 		sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-		sign_srv->streamId = 0u;
+		sign_srv->streamId = sCtx->signCtx.streamID;
 		sign_srv->authDir = HSE_AUTH_DIR_GENERATE;
 		sign_srv->keyHandle = key->key_handle;
 		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
@@ -937,7 +940,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	} else {
 		srv_desc.srvId = HSE_SRV_ID_MAC;
 		mac_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-		mac_srv->streamId = 0u;
+		mac_srv->streamId = sCtx->signCtx.streamID;
 		mac_srv->authDir = HSE_AUTH_DIR_GENERATE;
 		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		mac_srv->keyHandle = key->key_handle;
@@ -1038,6 +1041,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 	sCtx->signCtx.init = CK_TRUE;
 	sCtx->signCtx.mechanism = pMechanism;
 	sCtx->signCtx.keyHandle = hKey;
+	sCtx->signCtx.streamID = INVALID_STREAM_ID;
 
 	return CKR_OK;
 }
@@ -1217,7 +1221,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	if (!mac_srv) {
 		srv_desc.srvId = HSE_SRV_ID_SIGN;
 		sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-		sign_srv->streamId = 0u;
+		sign_srv->streamId = sCtx->signCtx.streamID;
 		sign_srv->authDir = HSE_AUTH_DIR_VERIFY;
 		sign_srv->keyHandle = key->key_handle;
 		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
@@ -1226,7 +1230,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	} else {
 		srv_desc.srvId = HSE_SRV_ID_MAC;
 		mac_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-		mac_srv->streamId = 0u;
+		mac_srv->streamId = sCtx->signCtx.streamID;
 		mac_srv->authDir = HSE_AUTH_DIR_VERIFY;
 		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		mac_srv->keyHandle = key->key_handle;
@@ -1366,20 +1370,25 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		}
 	}
 
-	/* IV input is used only when START */
-	if ((sCtx->cryptCtx.stream_start == CK_TRUE) && 
-		(sCtx->cryptCtx.mechanism->pParameter != NULL)) {
-		pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
-		if (pIV == NULL) {
-			rc = CKR_HOST_MEMORY;
-			goto err_free_output;
+	if (sCtx->cryptCtx.stream_start == CK_TRUE) {
+		/* IV input is used only when START */
+		if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
+			pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
+			if (pIV == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto err_free_output;
+			}
+			hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
 		}
-		hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
-	}
 
-	if (sCtx->cryptCtx.stream_start) {
 		access_mode = HSE_ACCESS_MODE_START;
 		sCtx->cryptCtx.stream_start = CK_FALSE;
+
+		err = hse_stream_acquire(&sCtx->cryptCtx.streamID);
+		if (err) {
+			rc = CKR_STATE_UNSAVEABLE;
+			goto err_free_piv;
+		}
 	} else {
 		access_mode = HSE_ACCESS_MODE_UPDATE;
 	}
@@ -1391,7 +1400,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
@@ -1416,7 +1425,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
@@ -1435,7 +1444,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
@@ -1449,12 +1458,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			break;
 
 		default:
+			hse_stream_free(sCtx->cryptCtx.streamID);
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_piv;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
+		hse_stream_free(sCtx->cryptCtx.streamID);
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_piv;
 	}
@@ -1584,7 +1595,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
@@ -1603,7 +1614,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
@@ -1622,7 +1633,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
@@ -1653,6 +1664,7 @@ err_free_output:
 err_free_input:
 	hse_mem_free(input);
 err_uninit:
+	hse_stream_free(sCtx->cryptCtx.streamID);
 	if (rc != CKR_BUFFER_TOO_SMALL) {
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {
@@ -1773,20 +1785,25 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		}
 	}
 
-	/* IV input is used only when START */
-	if ((sCtx->cryptCtx.stream_start == CK_TRUE) && 
-		(sCtx->cryptCtx.mechanism->pParameter != NULL)) {
-		pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
-		if (pIV == NULL) {
-			rc = CKR_HOST_MEMORY;
-			goto err_free_output;
+	if (sCtx->cryptCtx.stream_start == CK_TRUE) {
+		/* IV input is used only when START */
+		if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
+			pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
+			if (pIV == NULL) {
+				rc = CKR_HOST_MEMORY;
+				goto err_free_output;
+			}
+			hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
 		}
-		hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
-	}
 
-	if (sCtx->cryptCtx.stream_start) {
 		access_mode = HSE_ACCESS_MODE_START;
 		sCtx->cryptCtx.stream_start = CK_FALSE;
+
+		err = hse_stream_acquire(&sCtx->cryptCtx.streamID);
+		if (err) {
+			rc = CKR_STATE_UNSAVEABLE;
+			goto err_free_piv;
+		}
 	} else {
 		access_mode = HSE_ACCESS_MODE_UPDATE;
 	}
@@ -1798,7 +1815,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
@@ -1823,7 +1840,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
@@ -1842,7 +1859,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
@@ -1855,12 +1872,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 
 			break;
 		default:
+			hse_stream_free(sCtx->cryptCtx.streamID);
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_piv;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
+		hse_stream_free(sCtx->cryptCtx.streamID);
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_piv;
 	}
@@ -1989,7 +2008,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
@@ -2008,7 +2027,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
@@ -2027,7 +2046,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 
 			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = STREAM_ID_ENC_DEC;
+			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
@@ -2059,6 +2078,7 @@ err_free_output:
 err_free_input:
 	hse_mem_free(input);
 err_uninit:
+	hse_stream_free(sCtx->cryptCtx.streamID);
 	if (rc != CKR_BUFFER_TOO_SMALL) {
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {

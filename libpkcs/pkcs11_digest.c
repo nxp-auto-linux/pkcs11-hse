@@ -111,6 +111,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestInit)(
 
 	sCtx->digestCtx.init = CK_TRUE;
 	sCtx->digestCtx.stream_start = CK_TRUE;
+	sCtx->digestCtx.streamID = INVALID_STREAM_ID;
 	sCtx->digestCtx.cache_idx = 0;
 
 	return CKR_OK;
@@ -187,7 +188,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
 
 	srv_desc.srvId = HSE_SRV_ID_HASH;
 	hash_req->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-	hash_req->streamId = 0;
+	hash_req->streamId = sCtx->digestCtx.streamID;
 	hash_req->hashAlgo = sCtx->digestCtx.mechanism;
 	hash_req->sgtOption = HSE_SGT_OPTION_NONE;
 	hash_req->inputLength = ulDataLen;
@@ -282,11 +283,17 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestUpdate)(
 	if (sCtx->digestCtx.stream_start) {
 		hash_req->accessMode = HSE_ACCESS_MODE_START;
 		sCtx->digestCtx.stream_start = CK_FALSE;
+
+		err = hse_stream_acquire(&sCtx->digestCtx.streamID);
+		if (err) {
+			rc = CKR_STATE_UNSAVEABLE;
+			goto err_free_input;
+		}
 	} else {
 		hash_req->accessMode = HSE_ACCESS_MODE_UPDATE;
 	}
 
-	hash_req->streamId = 0;
+	hash_req->streamId = sCtx->digestCtx.streamID;
 	hash_req->hashAlgo = sCtx->digestCtx.mechanism;
 	hash_req->sgtOption = HSE_SGT_OPTION_NONE;
 	hash_req->inputLength = full_blocks;
@@ -296,6 +303,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestUpdate)(
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
+		hse_stream_free(sCtx->digestCtx.streamID);
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_input;
 	}
@@ -384,7 +392,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 	hash_req = &srv_desc.hseSrv.hashReq;
 	srv_desc.srvId = HSE_SRV_ID_HASH;
 
-	hash_req->streamId = 0;
+	hash_req->streamId = sCtx->digestCtx.streamID;
 	hash_req->accessMode = sCtx->digestCtx.stream_start ?
 						HSE_ACCESS_MODE_ONE_PASS :
 						HSE_ACCESS_MODE_FINISH;
@@ -416,6 +424,7 @@ err_free_output:
 err_free_output_len:
 	hse_mem_free(output_len);
 err_uninit:
+	hse_stream_free(sCtx->digestCtx.streamID);
 	sCtx->digestCtx.init = CK_FALSE;
 	if (sCtx->digestCtx.cache != NULL) {
 		free(sCtx->digestCtx.cache);
