@@ -26,6 +26,9 @@ int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size);
 int hse_channel_acquire(uint8_t *channel);
 void hse_channel_free(uint8_t channel);
 
+int hse_stream_acquire(uint8_t *stream);
+void hse_stream_free(uint8_t stream);
+
 void *hse_mem_alloc(size_t size);
 void hse_mem_free(void *addr);
 

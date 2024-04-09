@@ -122,7 +122,9 @@ struct hse_mu_regs {
  * @firmware_status: cached status of HSE firmware
  * @channel_busy[n]: service channel busy flag
  * @channel_res[n]: channel currently reserved
+ * @stream_busy[n]: streaming context busy flag
  * @channel_lock: used for channel acquisition
+ * @stream_lock: used for streaming context acquisiton
  * @mem_lock: used for shared memory allocation
  */
 struct hse_uio_intl {
@@ -134,7 +136,9 @@ struct hse_uio_intl {
 	uint8_t reserved[2];
 	volatile bool channel_busy[HSE_NUM_CHANNELS];
 	volatile bool channel_res[HSE_NUM_CHANNELS];
+	volatile bool stream_busy[HSE_STREAM_COUNT];
 	volatile pthread_spinlock_t channel_lock __attribute__((aligned(16)));
+	volatile pthread_spinlock_t stream_lock __attribute__((aligned(16)));
 	volatile pthread_spinlock_t mem_lock __attribute__((aligned(16)));
 	uint32_t mem_ph __attribute__((aligned(16)));
 } __attribute__((packed));
@@ -476,6 +480,60 @@ void hse_channel_free(uint8_t channel)
 }
 
 /**
+ * hse_stream-aqcuire - acquire a streaming context
+ * @channel: streaming context index
+ *
+ * Acquire a streaming context for a streaming operation.
+ *
+ * Return: 0 on success, ENODEV for device not initialized or disabled due to
+ *         fatal error or tamper detection, EINVAL for invalid parameter,
+ *         EBUSY for no streaming context available
+ */
+int hse_stream_acquire(uint8_t *stream)
+{
+	uint8_t srt;
+
+	if (!priv.init || priv.intl->event)
+		return ENODEV;
+
+	if (!stream)
+		return EINVAL;
+
+	pthread_spin_lock(&priv.intl->stream_lock);
+
+	for (srt = 0; srt < HSE_STREAM_COUNT; srt++)
+		if (!priv.intl->stream_busy[srt])
+			break;
+	if (srt >= HSE_STREAM_COUNT) {
+		pthread_spin_unlock(&priv.intl->stream_lock);
+		printf("libhse: no streaming context currently available\n");
+		return EBUSY;
+	}
+
+	priv.intl->stream_busy[srt] = true;
+	*stream = srt;
+
+	pthread_spin_unlock(&priv.intl->stream_lock);
+
+	return 0;
+}
+
+/**
+ * hse_stream_free - free the selected streaming context
+ * @channel: streaming context index
+ */
+void hse_stream_free(uint8_t stream)
+{
+	if (!priv.init || priv.intl->event)
+		return;
+
+	if (stream >= HSE_STREAM_COUNT)
+		return;
+
+	priv.intl->stream_busy[stream] = false;
+}
+
+/**
  * hse_virt_to_dma - get DMA address from virtual address
  * @addr: virtual address in the reserved memory range
  */
@@ -509,6 +567,7 @@ static int hse_dev_setup(void)
 
 	/* initialize locks */
 	pthread_spin_init(&priv.intl->channel_lock, PTHREAD_PROCESS_SHARED);
+	pthread_spin_init(&priv.intl->stream_lock, PTHREAD_PROCESS_SHARED);
 	pthread_spin_init(&priv.intl->mem_lock, PTHREAD_PROCESS_SHARED);
 
 	/* initialize internal memory as buffer pool */
