@@ -427,7 +427,7 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	
 	err = hse_get_key_info(channel, key->key_handle, key_info);
 	if (err) {
-		goto free_key_info;
+		goto out_free_key_info;
 	}
 
 	/* get the key size */
@@ -480,25 +480,25 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 		pkey_length[1] = 0;	/* pkey[1] is unused for ECC keys */
 	} else {
 		err = CKR_ARGUMENTS_BAD;
-		goto free_key_info;
+		goto out_free_key_info;
 	}
 
 	key_value0 = hse_mem_alloc(pkey_length[0]);
 	if (NULL == key_value0) {
 		err = CKR_HOST_MEMORY;
-		goto free_key_info;
+		goto out_free_key_info;
 	}
 
 	key_value1 = hse_mem_alloc(pkey_length[1]);
 	if ((NULL == key_value1) && (key->key_type == CKK_RSA)) {
 		err = CKR_HOST_MEMORY;
-		goto free_pkey0;
+		goto out_free_pkey0;
 	}
 
 	hse_pkey_length = (uint16_t *)hse_mem_alloc(sizeof(uint16_t) * 2);
 	if (NULL == hse_pkey_length) {
 		err = CKR_HOST_MEMORY;
-		goto free_pkey1;
+		goto out_free_pkey1;
 	}
 
 	hse_memcpy(&hse_pkey_length[0], &pkey_length[0], sizeof(uint16_t));
@@ -527,7 +527,7 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 #endif
 	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc));
 	if (err)
-		goto free_pkey_len;
+		goto out_free_pkey_len;
 
 #if (HSE_PLATFORM == HSE_S32G3XX)
 	if (NULL != pkey0)
@@ -557,13 +557,13 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	if ((NULL != pkey1_len) && (key->key_type == CKK_RSA))
 		*(pkey1_len) = hse_pkey_length[1];
 
-free_pkey_len:
+out_free_pkey_len:
 	hse_mem_free(hse_pkey_length);
-free_pkey1:
+out_free_pkey1:
 	hse_mem_free(key_value1);
-free_pkey0:
+out_free_pkey0:
 	hse_mem_free(key_value0);
-free_key_info:
+out_free_key_info:
 	hse_mem_free(key_info);
 	return err;
 }

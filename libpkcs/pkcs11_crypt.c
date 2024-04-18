@@ -103,20 +103,20 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 
 	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* Check for input length: For ECB, CBC & CFB cipher block modes, must be a multiple of block length. Cannot be zero. */
 	if (ulDataLen == 0) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ) {
 			if ((ulDataLen & (HSE_AES_BLOCK_LEN - 1)) != 0) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto err_uninit;
+				goto out_uninit;
 			}
 	}
 
@@ -125,7 +125,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (key == NULL) {
 		rc = CKR_KEY_HANDLE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* check for input length for RSA ciphering */
@@ -134,27 +134,27 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 		key_bit_length = hse_get_key_bit_length(sCtx->sID, key);
 		if (key_bit_length == 0) {
 			rc = CKR_GENERAL_ERROR;
-			goto err_uninit;
+			goto out_uninit;
 		}
 
 		if (rsa_ciphering_get_max_input_length(key_bit_length, sCtx->cryptCtx.mechanism) < ulDataLen)
 		{
 			rc = CKR_DATA_LEN_RANGE;
-			goto err_uninit;
+			goto out_uninit;
 		}
 	}
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_uninit;
+		goto out_uninit;
 	}
 	hse_memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_input;
+		goto out_free_input;
 	}
 
 	/* Check the output length */
@@ -181,13 +181,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 		*pulEncryptedDataLen = *(uint32_t *)output_len;
 
 		rc = CKR_BUFFER_TOO_SMALL;
-		goto err_free_output_len;
+		goto out_free_output_len;
 	}
 
 	output = hse_mem_alloc(*(uint32_t *)output_len);
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_output_len;
+		goto out_free_output_len;
 	}
 
 	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
@@ -196,7 +196,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 		input = hse_mem_alloc((*(uint32_t*)output_len));
 		if (input == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto err_free_output;
+			goto out_free_output;
 		}
 		hse_memcpy(input, pData, ulDataLen);
 		uint8_t val = (*(uint32_t*)output_len) - ulDataLen / sCtx->cryptCtx.blockSize * sCtx->cryptCtx.blockSize;
@@ -212,12 +212,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 				((sCtx->cryptCtx.mechanism->ulParameterLen < 7) ||
 			     (sCtx->cryptCtx.mechanism->ulParameterLen > 13))) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto err_free_output;
+				goto out_free_output;
 			}
 			pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
 			if (pIV == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto err_free_output;
+				goto out_free_output;
 			}
 			hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
 		}
@@ -231,7 +231,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 		aead_tag = hse_mem_alloc(16u);
 		if (aead_tag == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto err_free_piv;
+			goto out_free_piv;
 		}
 	}
 
@@ -378,29 +378,29 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_tag;
+			goto out_free_tag;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_tag;
+		goto out_free_tag;
 	}
 
 	hse_memcpy(pEncryptedData, output, *(uint32_t *)output_len);
 	hse_memcpy(pulEncryptedDataLen, output_len, sizeof(uint32_t));
 
-err_free_tag:
+out_free_tag:
 	hse_mem_free(aead_tag);
-err_free_piv:
+out_free_piv:
 	hse_mem_free(pIV);
-err_free_output:
+out_free_output:
 	hse_mem_free(output);
-err_free_output_len:
+out_free_output_len:
 	hse_mem_free(output_len);
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	if (rc != CKR_BUFFER_TOO_SMALL) {
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {
@@ -505,20 +505,20 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 
 	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* Check for input length: For ECB, CBC & CFB cipher block modes, must be a multiple of block length. Cannot be zero. */
 	if (ulEncryptedDataLen == 0) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ) {
 			if ((ulEncryptedDataLen & (HSE_AES_BLOCK_LEN - 1)) != 0) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto err_uninit;
+				goto out_uninit;
 			}
 	}
 
@@ -527,7 +527,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (key == NULL) {
 		rc = CKR_KEY_HANDLE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) ||
@@ -536,21 +536,21 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 		/* The input cipher text length should be equal to the key size */
 		if (ulEncryptedDataLen != (key_bit_length >> 3)) {
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_uninit;
+			goto out_uninit;
 		}
 	}
 
 	input = hse_mem_alloc(ulEncryptedDataLen);
 	if (input == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_uninit;
+		goto out_uninit;
 	}
 	hse_memcpy(input, pEncryptedData, ulEncryptedDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_input;
+		goto out_free_input;
 	}
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
@@ -565,7 +565,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			*pulDataLen = *(uint32_t *)output_len;
 
 			rc = CKR_BUFFER_TOO_SMALL;
-			goto err_free_output_len;
+			goto out_free_output_len;
 		}
 	} else if ((sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) ||
 				(sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
@@ -576,7 +576,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	output = hse_mem_alloc(*(uint32_t *)output_len);
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_output_len;
+		goto out_free_output_len;
 	}
 
 	if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
@@ -588,12 +588,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 				((sCtx->cryptCtx.mechanism->ulParameterLen < 7) ||
 			     (sCtx->cryptCtx.mechanism->ulParameterLen > 13))) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto err_free_output;
+				goto out_free_output;
 			}
 			pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
 			if (pIV == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto err_free_output;
+				goto out_free_output;
 			}
 			hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
 		}
@@ -607,7 +607,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 		aead_tag = hse_mem_alloc(16u);
 		if (aead_tag == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto err_free_piv;
+			goto out_free_piv;
 		}
 	}
 
@@ -752,13 +752,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_tag;
+			goto out_free_tag;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_tag;
+		goto out_free_tag;
 	}
 
 	/* check for output buffer length */
@@ -769,27 +769,27 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 			*pulDataLen = *(uint32_t *)output_len;
 
 			rc = CKR_BUFFER_TOO_SMALL;
-			goto err_free_tag;
+			goto out_free_tag;
 		}
 	}
 	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
 		hse_memcpy(pData, output, *pulDataLen);
-		goto err_free_tag;
+		goto out_free_tag;
 	}
 	hse_memcpy(pData, output, *(uint32_t *)output_len);
 	hse_memcpy(pulDataLen, output_len, sizeof(uint32_t));
 
-err_free_tag:
+out_free_tag:
 	hse_mem_free(aead_tag);
-err_free_piv:
+out_free_piv:
 	hse_mem_free(pIV);
-err_free_output:
+out_free_output:
 	hse_mem_free(output);
-err_free_output_len:
+out_free_output_len:
 	hse_mem_free(output_len);
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	if (rc != CKR_BUFFER_TOO_SMALL) {
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {
@@ -868,22 +868,22 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 
 	if (pData == NULL) {
 		rc = CKR_DATA_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (ulDataLen == 0) {
 		rc = CKR_DATA_LEN_RANGE;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pSignature == NULL) {
 		rc = CKR_SIGNATURE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pulSignatureLen == NULL) {
 		rc = CKR_SIGNATURE_LEN_RANGE;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
@@ -891,20 +891,20 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (key == NULL) {
 		rc = CKR_KEY_HANDLE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_uninit;
+		goto out_uninit;
 	}
 	hse_memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_input;
+		goto out_free_input;
 	}
 
 	/* check the output length */
@@ -912,14 +912,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	if (*(uint32_t *)output_len > *pulSignatureLen) {
 		*pulSignatureLen = *(uint32_t *)output_len;
 		rc = CKR_BUFFER_TOO_SMALL;
-		goto err_free_output_len;
+		goto out_free_output_len;
 	}
 	hse_memcpy(output_len, pulSignatureLen, sizeof(uint32_t));
 
 	sign0 = hse_mem_alloc(*(uint32_t *)output_len);
 	if (sign0 == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_output_len;
+		goto out_free_output_len;
 	}
 
 	sign_srv = &srv_desc.hseSrv.signReq;
@@ -954,7 +954,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)sCtx->signCtx.mechanism->pParameter;
 			if (rsa_pss_param == NULL) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto err_free_sign0;
+				goto out_free_sign0;
 			}
 
 			sign_scheme->signSch = HSE_SIGN_RSASSA_PSS;
@@ -1011,7 +1011,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_sign0;
+			goto out_free_sign0;
 	}
 
 	if (!mac_srv) {
@@ -1039,7 +1039,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_sign0;
+		goto out_free_sign0;
 	}
 
 	switch (sCtx->signCtx.mechanism->mechanism) {
@@ -1080,16 +1080,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_sign0;
+			goto out_free_sign0;
 	}
 
-err_free_sign0:
+out_free_sign0:
 	hse_mem_free(sign0);
-err_free_output_len:
+out_free_output_len:
 	hse_mem_free(output_len);
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	if (rc != CKR_BUFFER_TOO_SMALL)
 		sCtx->signCtx.init = CK_FALSE;
 
@@ -1163,22 +1163,22 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 
 	if (pData == NULL) {
 		rc = CKR_DATA_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (ulDataLen == 0) {
 		rc = CKR_DATA_LEN_RANGE;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pSignature == NULL) {
 		rc = CKR_SIGNATURE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (ulSignatureLen == 0) {
 		rc = CKR_SIGNATURE_LEN_RANGE;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
@@ -1186,27 +1186,27 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (key == NULL) {
 		rc = CKR_KEY_HANDLE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_uninit;
+		goto out_uninit;
 	}
 	hse_memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_input;
+		goto out_free_input;
 	}
 	hse_memcpy(output_len, &ulSignatureLen, sizeof(uint32_t));
 
 	sign0 = hse_mem_alloc(ulSignatureLen);
 	if (sign0 == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_output_len;
+		goto out_free_output_len;
 	}
 	hse_memcpy(sign0, pSignature, ulSignatureLen);
 
@@ -1243,7 +1243,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)sCtx->signCtx.mechanism->pParameter;
 			if (rsa_pss_param == NULL) {
 				rc = CKR_ARGUMENTS_BAD;
-				goto err_free_sign0;
+				goto out_free_sign0;
 			}
 
 			sign_scheme->signSch = HSE_SIGN_RSASSA_PSS;
@@ -1301,7 +1301,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_sign0;
+			goto out_free_sign0;
 	}
 
 	if (!mac_srv) {
@@ -1335,13 +1335,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 		rc = CKR_FUNCTION_FAILED;
 	}
 
-err_free_sign0:
+out_free_sign0:
 	hse_mem_free(sign0);
-err_free_output_len:
+out_free_output_len:
 	hse_mem_free(output_len);
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	sCtx->signCtx.init = CK_FALSE;
 
 	return rc;
@@ -1377,7 +1377,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 
 	if ((pPart == NULL) || (ulPartLen == 0) || (pulEncryptedPartLen == NULL)) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pEncryptedPart == NULL) {
@@ -1394,7 +1394,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (key == NULL) {
 		rc = CKR_KEY_HANDLE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
@@ -1402,7 +1402,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD)) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* input process */
@@ -1429,7 +1429,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		*pulEncryptedPartLen = full_blocks;
 
 		rc = CKR_BUFFER_TOO_SMALL;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (full_blocks > 0) {
@@ -1437,7 +1437,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		input = hse_mem_alloc(full_blocks);
 		if (input == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto err_uninit;
+			goto out_uninit;
 		}
 		hse_memcpy(input, sCtx->cryptCtx.cache, sCtx->cryptCtx.cache_idx);
 		hse_memcpy(input + sCtx->cryptCtx.cache_idx, pPart, full_blocks - sCtx->cryptCtx.cache_idx);
@@ -1453,7 +1453,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		output = hse_mem_alloc(full_blocks);
 		if (output == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto err_free_input;
+			goto out_free_input;
 		}
 	}
 
@@ -1463,7 +1463,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
 			if (pIV == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto err_free_output;
+				goto out_free_output;
 			}
 			hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
 		}
@@ -1474,7 +1474,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		err = hse_stream_acquire(&sCtx->cryptCtx.streamID);
 		if (err) {
 			rc = CKR_STATE_UNSAVEABLE;
-			goto err_free_piv;
+			goto out_free_piv;
 		}
 	} else {
 		access_mode = HSE_ACCESS_MODE_UPDATE;
@@ -1548,27 +1548,27 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		default:
 			hse_stream_free(sCtx->cryptCtx.streamID);
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_piv;
+			goto out_free_piv;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		hse_stream_free(sCtx->cryptCtx.streamID);
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_piv;
+		goto out_free_piv;
 	}
 
 	if (full_blocks > 0)
 		hse_memcpy(pEncryptedPart, output, full_blocks);
 	*pulEncryptedPartLen = full_blocks;
 
-err_free_piv:
+out_free_piv:
 	hse_mem_free(pIV);
-err_free_output:
+out_free_output:
 	hse_mem_free(output);
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	if ((rc != CKR_OK) && (rc != CKR_BUFFER_TOO_SMALL)) {
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {
@@ -1607,7 +1607,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 
 	if (pulLastEncryptedPartLen == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pLastEncryptedPart == NULL) {
@@ -1621,7 +1621,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (key == NULL) {
 		rc = CKR_KEY_HANDLE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* Check the output length */
@@ -1634,7 +1634,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 			*pulLastEncryptedPartLen = sCtx->cryptCtx.cache_idx;
 
 			rc = CKR_BUFFER_TOO_SMALL;
-			goto err_uninit;
+			goto out_uninit;
 		}
 	} else if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
 		pad_len = sCtx->cryptCtx.blockSize * (sCtx->cryptCtx.cache_idx / sCtx->cryptCtx.blockSize + 1);
@@ -1642,11 +1642,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 			*pulLastEncryptedPartLen = pad_len;
 
 			rc = CKR_BUFFER_TOO_SMALL;
-			goto err_uninit;
+			goto out_uninit;
 		}
 	} else {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* input length check:
@@ -1661,7 +1661,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 			input_len = sCtx->cryptCtx.blockSize;
 		} else if (input_len != sCtx->cryptCtx.blockSize) {
 			rc = CKR_DATA_LEN_RANGE;
-			goto err_uninit;
+			goto out_uninit;
 		}
 	} else if(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
 		pad_value = sCtx->cryptCtx.blockSize - input_len;
@@ -1677,7 +1677,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 	input = hse_mem_alloc(input_len);
 	if (input == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	hse_memcpy(input, sCtx->cryptCtx.cache, input_len - pad_value);
@@ -1689,7 +1689,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 	output = hse_mem_alloc(input_len);
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_input;
+		goto out_free_input;
 	}
 
 	switch (sCtx->cryptCtx.mechanism->mechanism) {
@@ -1752,28 +1752,28 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_output;
+			goto out_free_output;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_output;
+		goto out_free_output;
 	}
 	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD) {
 		hse_memcpy(pLastEncryptedPart, output, input_len);
 		*pulLastEncryptedPartLen = input_len;
-		goto err_free_output;
+		goto out_free_output;
 	}
 	if (sCtx->cryptCtx.cache_idx > 0)
 		hse_memcpy(pLastEncryptedPart, output, sCtx->cryptCtx.cache_idx);
 	*pulLastEncryptedPartLen = sCtx->cryptCtx.cache_idx;
 
-err_free_output:
+out_free_output:
 	hse_mem_free(output);
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	hse_stream_free(sCtx->cryptCtx.streamID);
 	if (rc != CKR_BUFFER_TOO_SMALL) {
 		sCtx->cryptCtx.init = CK_FALSE;
@@ -1816,7 +1816,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 
 	if ((pEncryptedPart == NULL) || (ulEncryptedPartLen == 0) || (pulPartLen == NULL)) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pPart == NULL) {
@@ -1833,7 +1833,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (key == NULL) {
 		rc = CKR_KEY_HANDLE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
@@ -1841,7 +1841,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD)) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* input process */
@@ -1868,7 +1868,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		*pulPartLen = full_blocks;
 
 		rc = CKR_BUFFER_TOO_SMALL;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* copy full_blocks to dynamic buffer */
@@ -1876,7 +1876,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		input = hse_mem_alloc(full_blocks);
 		if (input == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto err_uninit;
+			goto out_uninit;
 		}
 		hse_memcpy(input, sCtx->cryptCtx.cache, sCtx->cryptCtx.cache_idx);
 		hse_memcpy(input + sCtx->cryptCtx.cache_idx, pEncryptedPart, full_blocks - sCtx->cryptCtx.cache_idx);
@@ -1892,7 +1892,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		output = hse_mem_alloc(full_blocks);
 		if (output == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto err_free_input;
+			goto out_free_input;
 		}
 	}
 
@@ -1902,7 +1902,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 			pIV = hse_mem_alloc(sCtx->cryptCtx.mechanism->ulParameterLen);
 			if (pIV == NULL) {
 				rc = CKR_HOST_MEMORY;
-				goto err_free_output;
+				goto out_free_output;
 			}
 			hse_memcpy(pIV, sCtx->cryptCtx.mechanism->pParameter, sCtx->cryptCtx.mechanism->ulParameterLen);
 		}
@@ -1913,7 +1913,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		err = hse_stream_acquire(&sCtx->cryptCtx.streamID);
 		if (err) {
 			rc = CKR_STATE_UNSAVEABLE;
-			goto err_free_piv;
+			goto out_free_piv;
 		}
 	} else {
 		access_mode = HSE_ACCESS_MODE_UPDATE;
@@ -1985,27 +1985,27 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		default:
 			hse_stream_free(sCtx->cryptCtx.streamID);
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_piv;
+			goto out_free_piv;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		hse_stream_free(sCtx->cryptCtx.streamID);
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_piv;
+		goto out_free_piv;
 	}
 
 	if (full_blocks > 0)
 		hse_memcpy(pPart, output, full_blocks);
 	*pulPartLen = full_blocks;
 
-err_free_piv:
+out_free_piv:
 	hse_mem_free(pIV);
-err_free_output:
+out_free_output:
 	hse_mem_free(output);
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	if ((rc != CKR_OK) && (rc != CKR_BUFFER_TOO_SMALL)) {
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {
@@ -2044,7 +2044,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 
 	if (pulLastPartLen == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pLastPart == NULL) {
@@ -2058,7 +2058,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (key == NULL) {
 		rc = CKR_KEY_HANDLE_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* Check the output length */
@@ -2071,11 +2071,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 			*pulLastPartLen = sCtx->cryptCtx.cache_idx;
 
 			rc = CKR_BUFFER_TOO_SMALL;
-			goto err_uninit;
+			goto out_uninit;
 		}
 	} else if (sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	/* input length check:
@@ -2090,7 +2090,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 			input_len = sCtx->cryptCtx.blockSize;
 		} else if (sCtx->cryptCtx.cache_idx != sCtx->cryptCtx.blockSize) {
 			rc = CKR_DATA_LEN_RANGE;
-			goto err_uninit;
+			goto out_uninit;
 		}
 	} else {
 		if (sCtx->cryptCtx.cache_idx == 0) {
@@ -2102,7 +2102,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 	input = hse_mem_alloc(input_len);
 	if (input == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	hse_memcpy(input, sCtx->cryptCtx.cache, input_len);
@@ -2110,7 +2110,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 	output = hse_mem_alloc(input_len);
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_input;
+		goto out_free_input;
 	}
 
 	switch (sCtx->cryptCtx.mechanism->mechanism) {
@@ -2173,24 +2173,24 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
-			goto err_free_output;
+			goto out_free_output;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_output;
+		goto out_free_output;
 	}
 
 	if (sCtx->cryptCtx.cache_idx > 0)
 		hse_memcpy(pLastPart, output, sCtx->cryptCtx.cache_idx);
 	*pulLastPartLen = sCtx->cryptCtx.cache_idx;
 
-err_free_output:
+out_free_output:
 	hse_mem_free(output);
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	hse_stream_free(sCtx->cryptCtx.streamID);
 	if (rc != CKR_BUFFER_TOO_SMALL) {
 		sCtx->cryptCtx.init = CK_FALSE;

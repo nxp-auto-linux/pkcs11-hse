@@ -62,7 +62,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 		err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 		if (err) {
 			rc = CKR_FUNCTION_FAILED;
-			goto err_free_output;
+			goto out_free_output;
 		}
 
 		hse_memcpy(pRandomData, rng_output, rng_max_len);
@@ -77,13 +77,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
 		err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 		if (err) {
 			rc = CKR_FUNCTION_FAILED;
-			goto err_free_output;
+			goto out_free_output;
 		}
 
 		hse_memcpy(pRandomData, rng_output, ulRandomLen);
 	}
 
-err_free_output:
+out_free_output:
 	hse_mem_free(rng_output);
 	return rc;
 }

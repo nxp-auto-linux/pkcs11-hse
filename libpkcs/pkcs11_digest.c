@@ -137,22 +137,22 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
 		if (rc == CKR_OPERATION_NOT_INITIALIZED)
 			return rc;
 		else
-			goto err_uninit;
+			goto out_uninit;
 	}
 
 	if (ulDataLen == 0) {
 		rc = CKR_DATA_LEN_RANGE;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pData == NULL) {
 		rc = CKR_DATA_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pulDigestLen == NULL) {
 		rc = CKR_ENCRYPTED_DATA_LEN_RANGE;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pDigest == NULL) {
@@ -167,21 +167,21 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
 	input = hse_mem_alloc(ulDataLen);
 	if (input == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_uninit;
+		goto out_uninit;
 	}
 	hse_memcpy(input, pData, ulDataLen);
 
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_input;
+		goto out_free_input;
 	}
 	hse_memcpy(output_len, pulDigestLen, sizeof(uint32_t));
 
 	output = hse_mem_alloc(*pulDigestLen);
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_output_len;
+		goto out_free_output_len;
 	}
 
 	hash_req = &srv_desc.hseSrv.hashReq;
@@ -199,7 +199,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_output;
+		goto out_free_output;
 	}
 
 	hse_memcpy(pDigest, output, *(uint32_t *)output_len);
@@ -209,13 +209,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
 	* the function.*/
 	*pulDigestLen = *(uint32_t *)output_len;
 
-err_free_output:
+out_free_output:
 	hse_mem_free(output);
-err_free_output_len:
+out_free_output_len:
 	hse_mem_free(output_len);
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	sCtx->digestCtx.init = CK_FALSE;
 	if (sCtx->digestCtx.cache != NULL) {
 		free(sCtx->digestCtx.cache);
@@ -243,17 +243,17 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestUpdate)(
 		if (rc == CKR_OPERATION_NOT_INITIALIZED)
 			return rc;
 		else
-			goto err_uninit;
+			goto out_uninit;
 	}
 
 	if (pPart == NULL) {
 		rc = CKR_DATA_INVALID;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (ulPartLen == 0) {
 		rc = CKR_DATA_LEN_RANGE;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	bytes_left = sCtx->digestCtx.cache_idx + ulPartLen;
@@ -271,7 +271,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestUpdate)(
 	input = hse_mem_alloc(full_blocks);
 	if (input == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_uninit;
+		goto out_uninit;
 	}
 	hse_memcpy(input, sCtx->digestCtx.cache, sCtx->digestCtx.cache_idx);
 	hse_memcpy(input + sCtx->digestCtx.cache_idx, pPart, full_blocks - sCtx->digestCtx.cache_idx);
@@ -287,7 +287,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestUpdate)(
 		err = hse_stream_acquire(&sCtx->digestCtx.streamID);
 		if (err) {
 			rc = CKR_STATE_UNSAVEABLE;
-			goto err_free_input;
+			goto out_free_input;
 		}
 	} else {
 		hash_req->accessMode = HSE_ACCESS_MODE_UPDATE;
@@ -305,16 +305,16 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestUpdate)(
 	if (err) {
 		hse_stream_free(sCtx->digestCtx.streamID);
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_input;
+		goto out_free_input;
 	}
 
 	/* copy residue to block-sized cache */
 	memcpy(sCtx->digestCtx.cache, pPart + (full_blocks - sCtx->digestCtx.cache_idx), bytes_left);
 	sCtx->digestCtx.cache_idx = bytes_left;
 
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_uninit:
+out_uninit:
 	if (rc != CKR_OK) {
 		sCtx->digestCtx.init = CK_FALSE;
 		if (sCtx->digestCtx.cache != NULL) {
@@ -343,12 +343,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 		if (rc == CKR_OPERATION_NOT_INITIALIZED)
 			return rc;
 		else
-			goto err_uninit;
+			goto out_uninit;
 	}
 
 	if (pulDigestLen == NULL) {
 		rc = CKR_ENCRYPTED_DATA_LEN_RANGE;
-		goto err_uninit;
+		goto out_uninit;
 	}
 
 	if (pDigest == NULL) {
@@ -368,21 +368,21 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 	output_len = hse_mem_alloc(sizeof(uint32_t));
 	if (output_len == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_uninit;
+		goto out_uninit;
 	}
 	hse_memcpy(output_len, pulDigestLen, sizeof(uint32_t));
 
 	output = hse_mem_alloc(*pulDigestLen);
 	if (output == NULL) {
 		rc = CKR_HOST_MEMORY;
-		goto err_free_output_len;
+		goto out_free_output_len;
 	}
 
 	if (sCtx->digestCtx.cache_idx > 0) {
 		input = hse_mem_alloc(sCtx->digestCtx.cache_idx);
 		if (input == NULL) {
 			rc = CKR_HOST_MEMORY;
-			goto err_free_output;
+			goto out_free_output;
 		}
 
 		/* copy remaining data to buffer */
@@ -406,7 +406,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
-		goto err_free_input;
+		goto out_free_input;
 	}
 
 	/* copy result back to pDigest */
@@ -417,13 +417,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 	* the function.*/
 	*pulDigestLen = *(uint32_t *)output_len;
 
-err_free_input:
+out_free_input:
 	hse_mem_free(input);
-err_free_output:
+out_free_output:
 	hse_mem_free(output);
-err_free_output_len:
+out_free_output_len:
 	hse_mem_free(output_len);
-err_uninit:
+out_uninit:
 	hse_stream_free(sCtx->digestCtx.streamID);
 	sCtx->digestCtx.init = CK_FALSE;
 	if (sCtx->digestCtx.cache != NULL) {
