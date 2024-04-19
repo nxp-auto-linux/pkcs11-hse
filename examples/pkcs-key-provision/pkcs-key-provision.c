@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2022-2023 NXP
+ * Copyright 2022-2024 NXP
  */
 
 #include <stdio.h>
@@ -13,6 +13,7 @@
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
 
+#include "libhse.h"
 #include "pkcs11.h"
 
 #ifndef ARRAY_SIZE
@@ -203,6 +204,12 @@ int main(int argc, char *argv[])
 	CK_SESSION_HANDLE session;
 	CK_OBJECT_HANDLE key_match, key;
 
+	CK_BYTE_PTR pModulus = NULL, pExponent = NULL;
+	CK_ATTRIBUTE template[] = {
+		{CKA_MODULUS, NULL, 0},
+		{CKA_PUBLIC_EXPONENT, NULL, 0}
+	};
+
 	if (argc == 2 && !strncmp(argv[1], arg_help, sizeof(*arg_help))) {
 		usage(argv[0]);
 		return 0;
@@ -341,16 +348,73 @@ int main(int argc, char *argv[])
 	}
 
 	INFO("Found Key Object with handle %06lx\n", key_match);
+	/* first call C_GetAttributeValue to retrieve length of attributes */
+	ret = flist->C_GetAttributeValue(session, key_match, template, 2);
+
+	if (ret == CKR_OK) {
+		pModulus = (CK_BYTE_PTR)hse_mem_alloc(template[0].ulValueLen);
+		if (!pModulus) {
+			ERROR("Failed to allocate space for RSA Public Key Modulus\n");
+			ret = -ENOMEM;
+			goto err_lib_finalize;
+		}
+		template[0].pValue = pModulus;
+		/* template[0].ulValueLen was set by C_GetAttributeValue */
+		pExponent = (CK_BYTE_PTR)hse_mem_alloc(template[1].ulValueLen);
+		if (!pExponent) {
+			ERROR("Failed to allocate space for RSA Public Key Exponent\n");
+			ret = -ENOMEM;
+			goto err_free_rsa_mod;
+		}
+		template[1].pValue = pExponent;
+		/* template[1].ulValueLen was set by C_GetAttributeValue */
+	} else {
+		goto err_free_rsa_pub_exponent;
+	}
+
+	/* second call is needed to retrieve actual attribute values */
+	ret = flist->C_GetAttributeValue(session, key_match, template, 2);
+	if (ret == CKR_OK) {
+		/* check sizes */
+		if (BN_num_bytes(rsa_bn_modulus) != template[0].ulValueLen) {
+			ERROR("Failed to export RSA Public Key Modulus ... size mismatch\n");
+			goto err_free_rsa_mod;
+		}
+		if (BN_num_bytes(rsa_bn_pub_exponent) != template[1].ulValueLen) {
+			ERROR("Failed to export RSA Public Key Exponent ... size mismatch\n");
+			goto err_free_rsa_pub_exp;
+		}
+		/* check against original values */
+		ret = memcmp(rsa_modulus, pModulus, template[0].ulValueLen);
+		if (ret) {
+			ERROR("Failed to export RSA Public Key Modulus ... values mismatch\n");
+			goto err_free_rsa_mod;
+		} else {
+			INFO("RSA Public Key Modulus successfully exported\n");
+		}
+		ret = memcmp(rsa_pub_exponent, pExponent, template[1].ulValueLen);
+		if (ret) {
+			ERROR("Failed to export RSA Public Key Exponent ... values mismatch\n");
+			goto err_free_rsa_pub_exp;
+		} else {
+			INFO("RSA Public Key Exponent successfully exported\n");
+		}
+	}
+
 	INFO("Deleting Key Object with handle %06lx\n", key_match);
 
 	ret = util_lib_destroy_object(flist, session, key_match);
 	if (ret) {
 		ERROR("Failed to destroy key object\n");
-		goto err_free_rsa_pub_exponent;
+		goto err_free_rsa_pub_exp;
 	}
 
 	INFO("Cleaning up and calling C_Finalize...\n");
 
+err_free_rsa_pub_exp:
+	hse_mem_free(pExponent);
+err_free_rsa_mod:
+	hse_mem_free(pModulus);
 err_free_rsa_pub_exponent:
 	free(rsa_pub_exponent);
 err_free_rsa_modulus:
