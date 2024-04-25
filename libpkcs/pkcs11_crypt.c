@@ -1599,14 +1599,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			break;
 
 		default:
-			hse_stream_free(sCtx->cryptCtx.streamID);
 			rc = CKR_ARGUMENTS_BAD;
 			goto out_free_piv;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
-		hse_stream_free(sCtx->cryptCtx.streamID);
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_piv;
 	}
@@ -1623,6 +1621,7 @@ out_free_input:
 	hse_mem_free(input);
 out_uninit:
 	if ((rc != CKR_OK) && (rc != CKR_BUFFER_TOO_SMALL)) {
+		hse_stream_free(sCtx->cryptCtx.streamID);
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {
 			free(sCtx->cryptCtx.cache);
@@ -1827,8 +1826,8 @@ out_free_output:
 out_free_input:
 	hse_mem_free(input);
 out_uninit:
-	hse_stream_free(sCtx->cryptCtx.streamID);
 	if (rc != CKR_BUFFER_TOO_SMALL) {
+		hse_stream_free(sCtx->cryptCtx.streamID);
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {
 			free(sCtx->cryptCtx.cache);
@@ -2036,14 +2035,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
 
 			break;
 		default:
-			hse_stream_free(sCtx->cryptCtx.streamID);
 			rc = CKR_ARGUMENTS_BAD;
 			goto out_free_piv;
 	}
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
-		hse_stream_free(sCtx->cryptCtx.streamID);
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_piv;
 	}
@@ -2060,6 +2057,7 @@ out_free_input:
 	hse_mem_free(input);
 out_uninit:
 	if ((rc != CKR_OK) && (rc != CKR_BUFFER_TOO_SMALL)) {
+		hse_stream_free(sCtx->cryptCtx.streamID);
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {
 			free(sCtx->cryptCtx.cache);
@@ -2244,8 +2242,8 @@ out_free_output:
 out_free_input:
 	hse_mem_free(input);
 out_uninit:
-	hse_stream_free(sCtx->cryptCtx.streamID);
 	if (rc != CKR_BUFFER_TOO_SMALL) {
+		hse_stream_free(sCtx->cryptCtx.streamID);
 		sCtx->cryptCtx.init = CK_FALSE;
 		if (sCtx->cryptCtx.cache != NULL) {
 			free(sCtx->cryptCtx.cache);

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2022-2023 NXP
+ * Copyright 2022-2024 NXP
  */
 
 #include <stdio.h>
@@ -303,7 +303,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestUpdate)(
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
-		hse_stream_free(sCtx->digestCtx.streamID);
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_input;
 	}
@@ -316,6 +315,7 @@ out_free_input:
 	hse_mem_free(input);
 out_uninit:
 	if (rc != CKR_OK) {
+		hse_stream_free(sCtx->digestCtx.streamID);
 		sCtx->digestCtx.init = CK_FALSE;
 		if (sCtx->digestCtx.cache != NULL) {
 			free(sCtx->digestCtx.cache);
