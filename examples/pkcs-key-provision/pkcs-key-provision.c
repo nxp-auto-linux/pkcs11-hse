@@ -199,7 +199,7 @@ int main(int argc, char *argv[])
 	EVP_PKEY *pkey;
 
 	CK_FUNCTION_LIST_PTR flist;
-	
+
 	CK_SLOT_ID slot;
 	CK_SESSION_HANDLE session;
 	CK_OBJECT_HANDLE key_match, key;
@@ -419,7 +419,7 @@ err_free_rsa_pub_exponent:
 	free(rsa_pub_exponent);
 err_free_rsa_modulus:
 	free(rsa_modulus);
-err_lib_finalize:	
+err_lib_finalize:
 	if (util_lib_finalize(flist))
 		ERROR("Failed call to C_Finalize\n");
 err_close_fd:
