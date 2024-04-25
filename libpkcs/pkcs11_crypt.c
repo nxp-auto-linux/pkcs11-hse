@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2023 NXP
+ * Copyright 2021-2024 NXP
  */
 
 #include <stdio.h>
@@ -809,12 +809,24 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 {
 	struct globalCtx *gCtx = getCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	uint32_t blockSize = 0;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
 	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
+
+	if ((sCtx->signCtx.init == CK_TRUE) && (pMechanism == NULL)) {
+		/* condition to terminate an active operation */
+		if (sCtx->signCtx.cache != NULL) {
+			free(sCtx->signCtx.cache);
+			sCtx->signCtx.cache = NULL;
+		}
+		sCtx->signCtx.init = CK_FALSE;
+		sCtx->signCtx.stream_start = CK_TRUE;
+		return CKR_OK;
+	}
 
 	if (sCtx->signCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
@@ -829,10 +841,20 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 	}
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
+	if (hse_get_hash_block_size(pMechanism->mechanism, &blockSize)) 
+		return CKR_ARGUMENTS_BAD;
+
+	sCtx->signCtx.blockSize = blockSize;
+	sCtx->signCtx.cache = malloc(sCtx->signCtx.blockSize);
+	if (!sCtx->signCtx.cache)
+		return CKR_HOST_MEMORY;
+
 	sCtx->signCtx.init = CK_TRUE;
+	sCtx->signCtx.stream_start = CK_TRUE;
 	sCtx->signCtx.mechanism = pMechanism;
 	sCtx->signCtx.keyHandle = hKey;
 	sCtx->signCtx.streamID = INVALID_STREAM_ID;
+	sCtx->signCtx.cache_idx = 0;
 
 	return CKR_OK;
 }
@@ -1090,8 +1112,13 @@ out_free_output_len:
 out_free_input:
 	hse_mem_free(input);
 out_uninit:
-	if (rc != CKR_BUFFER_TOO_SMALL)
-		sCtx->signCtx.init = CK_FALSE;
+	if (rc != CKR_BUFFER_TOO_SMALL) {
+ 		sCtx->signCtx.init = CK_FALSE;
+		if (sCtx->signCtx.cache != NULL) {
+			free(sCtx->signCtx.cache);
+			sCtx->signCtx.cache = NULL;
+		}
+	}
 
 	return rc;
 }
@@ -1104,12 +1131,24 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 {
 	struct globalCtx *gCtx = getCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	uint32_t blockSize = 0;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
 	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
+
+	if ((sCtx->signCtx.init == CK_TRUE) && (pMechanism == NULL)) {
+		/* condition to terminate an active operation */
+		if (sCtx->signCtx.cache != NULL) {
+			free(sCtx->signCtx.cache);
+			sCtx->signCtx.cache = NULL;
+		}
+		sCtx->signCtx.init = CK_FALSE;
+		sCtx->signCtx.stream_start = CK_TRUE;
+		return CKR_OK;
+	}
 
 	if (sCtx->signCtx.init == CK_TRUE)
 		return CKR_OPERATION_ACTIVE;
@@ -1124,10 +1163,20 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 	}
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
+	if (hse_get_hash_block_size(pMechanism->mechanism, &blockSize)) 
+		return CKR_ARGUMENTS_BAD;
+
+	sCtx->signCtx.blockSize = blockSize;
+	sCtx->signCtx.cache = malloc(sCtx->signCtx.blockSize);
+	if (!sCtx->signCtx.cache)
+		return CKR_HOST_MEMORY;
+
 	sCtx->signCtx.init = CK_TRUE;
+	sCtx->signCtx.stream_start = CK_TRUE;
 	sCtx->signCtx.mechanism = pMechanism;
 	sCtx->signCtx.keyHandle = hKey;
 	sCtx->signCtx.streamID = INVALID_STREAM_ID;
+	sCtx->signCtx.cache_idx = 0;
 
 	return CKR_OK;
 }
@@ -1343,6 +1392,10 @@ out_free_input:
 	hse_mem_free(input);
 out_uninit:
 	sCtx->signCtx.init = CK_FALSE;
+	if (sCtx->signCtx.cache != NULL) {
+		free(sCtx->signCtx.cache);
+		sCtx->signCtx.cache = NULL;
+	}
 
 	return rc;
 }
@@ -2209,7 +2262,175 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignUpdate)(
 		CK_ULONG ulPartLen
 )
 {
-	return CKR_FUNCTION_NOT_SUPPORTED;
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseSignSrv_t *sign_srv;
+	hseSignScheme_t *sign_scheme;
+	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
+	hseMacSrv_t *mac_srv = NULL;
+	uint8_t *input = NULL;
+	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
+	int err;
+	uint32_t bytes_left, full_blocks;
+	hseAccessMode_t access_mode;
+
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->signCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
+
+	if (ulPartLen == 0)
+		return rc;
+	
+	if ((ulPartLen > 0) && (!pPart)) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto out_uninit;
+	}
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->signCtx.keyHandle);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto out_uninit;
+	}
+
+	/* input process */
+	bytes_left = sCtx->signCtx.cache_idx + ulPartLen;
+	if (bytes_left < sCtx->signCtx.blockSize) {
+		/* cache data for next update and exit */
+		memcpy(sCtx->signCtx.cache + sCtx->signCtx.cache_idx, pPart, ulPartLen);
+		sCtx->signCtx.cache_idx = bytes_left;
+		return CKR_OK;
+	}
+
+	/* round down to nearest multiple of block size */
+	full_blocks = bytes_left - (bytes_left % sCtx->signCtx.blockSize);
+	if (full_blocks > 0) {
+		/* copy full_blocks to dynamic buffer */
+		input = hse_mem_alloc(full_blocks);
+		if (input == NULL) {
+			rc = CKR_HOST_MEMORY;
+			return rc;
+		}
+		hse_memcpy(input, sCtx->signCtx.cache, sCtx->signCtx.cache_idx);
+		hse_memcpy(input + sCtx->signCtx.cache_idx, pPart, full_blocks - sCtx->signCtx.cache_idx);
+		bytes_left -= full_blocks;
+
+		/* copy residue to block-sized cache */
+		if (bytes_left > 0)
+			memcpy(sCtx->signCtx.cache, pPart + (full_blocks - sCtx->signCtx.cache_idx), bytes_left);
+			
+		sCtx->signCtx.cache_idx = bytes_left;
+	}
+
+	if (sCtx->signCtx.stream_start) {
+		access_mode = HSE_ACCESS_MODE_START;
+		sCtx->signCtx.stream_start = CK_FALSE;
+
+		err = hse_stream_acquire(&sCtx->signCtx.streamID);
+		if (err) {
+			rc = CKR_STATE_UNSAVEABLE;
+			goto out_free_input;
+		}
+	} else {
+		access_mode = HSE_ACCESS_MODE_UPDATE;
+	}
+
+	sign_srv = &srv_desc.hseSrv.signReq;
+	sign_scheme = &sign_srv->signScheme;
+
+	switch (sCtx->signCtx.mechanism->mechanism) {
+		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA256_RSA_PKCS:
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
+			sign_scheme->signSch = HSE_SIGN_RSASSA_PKCS1_V15;
+			sign_scheme->sch.rsaPkcs1v15.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+			break;
+		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)sCtx->signCtx.mechanism->pParameter;
+			if (rsa_pss_param == NULL) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto out_free_input;
+			}
+			sign_scheme->signSch = HSE_SIGN_RSASSA_PSS;
+			sign_scheme->sch.rsaPss.hashAlgo = hse_pkcs_hash_alg_translate(rsa_pss_param->hashAlg);
+			sign_scheme->sch.rsaPss.saltLength = rsa_pss_param->sLen;
+			break;
+		case CKM_ECDSA_SHA1:
+		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA256:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
+			sign_scheme->signSch = HSE_SIGN_ECDSA;
+			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+			break;
+		case CKM_AES_CMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
+			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
+			break;
+		case CKM_SHA224_HMAC:
+		case CKM_SHA256_HMAC:
+		case CKM_SHA384_HMAC:
+		case CKM_SHA512_HMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_HMAC;
+			mac_srv->macScheme.sch.hmac.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+			break;
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+			goto out_free_input;
+	}
+
+	if (!mac_srv) {
+		srv_desc.srvId = HSE_SRV_ID_SIGN;
+		sign_srv->accessMode = access_mode;
+		sign_srv->streamId = sCtx->signCtx.streamID;
+		sign_srv->authDir = HSE_AUTH_DIR_GENERATE;
+		sign_srv->bInputIsHashed = 0u;
+		sign_srv->keyHandle = key->key_handle;
+		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		sign_srv->inputLength = full_blocks;
+		sign_srv->pInput = hse_virt_to_dma(input);
+	} else {
+		srv_desc.srvId = HSE_SRV_ID_MAC;
+		mac_srv->accessMode = access_mode;
+		mac_srv->streamId = sCtx->signCtx.streamID;
+		mac_srv->authDir = HSE_AUTH_DIR_GENERATE;
+		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		mac_srv->keyHandle = key->key_handle;
+		mac_srv->inputLength = full_blocks;
+		mac_srv->pInput = hse_virt_to_dma(input);
+	}
+
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	if (err)
+		rc = CKR_FUNCTION_FAILED;
+
+out_free_input:
+	hse_mem_free(input);
+out_uninit:
+	if (rc != CKR_OK) {
+		hse_stream_free(sCtx->signCtx.streamID);
+		sCtx->signCtx.init = CK_FALSE;
+		if (sCtx->signCtx.cache != NULL) {
+			free(sCtx->signCtx.cache);
+			sCtx->signCtx.cache = NULL;
+		}
+	}
+
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_SignFinal)(
@@ -2218,7 +2439,229 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignFinal)(
 		CK_ULONG_PTR pulSignatureLen
 )
 {
-	return CKR_FUNCTION_NOT_SUPPORTED;
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	void *input = NULL;
+	hseSignSrv_t *sign_srv;
+	hseSignScheme_t *sign_scheme;
+	hseMacSrv_t *mac_srv = NULL;
+	void *sign0 = NULL, *sign1 = NULL, *sig_len = NULL;
+	struct hse_keyObject *key = NULL;
+	uint32_t bytes_left;
+	CK_RV rc = CKR_OK;
+	int err;
+
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->signCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
+
+	if (!pSignature || !pulSignatureLen) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto out_uninit;
+	}
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->signCtx.keyHandle);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto out_uninit;
+	}
+
+	/* the stream should be already started */
+	if (sCtx->signCtx.stream_start) {
+		rc = CKR_FUNCTION_FAILED;
+		goto out_free_input;
+	}
+
+	sig_len = hse_mem_alloc(sizeof(uint32_t));
+	if (sig_len == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto out_uninit;
+	}
+
+	/* Get required length of out buffer */
+	*(uint32_t *)sig_len = sig_get_out_length(sCtx->sID, key, sCtx->signCtx.mechanism);
+
+	/* Signature length shouldn't be 0 at this point */
+	if (*(uint32_t *)sig_len == 0) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto out_free_sig_len;
+	}
+
+	/* check output buffer length */
+	if (*pulSignatureLen < *(uint32_t *)sig_len) {
+		rc = CKR_BUFFER_TOO_SMALL;
+		*pulSignatureLen = *(uint32_t *)sig_len;
+		goto out_free_sig_len;
+	}
+
+	/* process the left cache */
+	bytes_left = sCtx->signCtx.cache_idx;
+	if (bytes_left > 0) {
+		input = hse_mem_alloc(bytes_left);
+		if (input == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto out_free_sig_len;
+		}
+		hse_memcpy(input, sCtx->signCtx.cache, sCtx->signCtx.cache_idx);
+		sCtx->signCtx.cache_idx = 0;
+	}
+
+	sign0 = hse_mem_alloc(*(uint32_t *)sig_len);
+	if (sign0 == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto out_free_input;
+	}
+
+	sign_srv = &srv_desc.hseSrv.signReq;
+	sign_scheme = &sign_srv->signScheme;
+
+	switch (sCtx->signCtx.mechanism->mechanism) {
+		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA256_RSA_PKCS:
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(sig_len);
+			sign_srv->pSignatureLength[1] = 0u;
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = 0u;
+			break;
+		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(sig_len);
+			sign_srv->pSignatureLength[1] = 0u;
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = 0u;
+			break;
+		case CKM_ECDSA_SHA1:
+		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA256:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
+			sign_scheme->signSch = HSE_SIGN_ECDSA;
+			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+
+			*(uint32_t *)sig_len = (*(uint32_t *)sig_len) / 2;
+			sign1 = (uint8_t *)sign0 + (*(uint32_t *)sig_len);
+			
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(sig_len);
+			sign_srv->pSignatureLength[1] = hse_virt_to_dma(sig_len);
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = hse_virt_to_dma(sign1);
+			break;
+		case CKM_AES_CMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
+			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
+			break;
+		case CKM_SHA224_HMAC:
+		case CKM_SHA256_HMAC:
+		case CKM_SHA384_HMAC:
+		case CKM_SHA512_HMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_HMAC;
+			mac_srv->macScheme.sch.hmac.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+			break;
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+			goto out_free_sign0;
+	}
+
+	if (!mac_srv) {
+		srv_desc.srvId = HSE_SRV_ID_SIGN;
+		sign_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+		sign_srv->streamId = sCtx->signCtx.streamID;
+		sign_srv->authDir = HSE_AUTH_DIR_GENERATE;
+		sign_srv->keyHandle = key->key_handle;
+		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		sign_srv->inputLength = bytes_left;
+		sign_srv->pInput = hse_virt_to_dma(input);
+	} else {
+		srv_desc.srvId = HSE_SRV_ID_MAC;
+		mac_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+		mac_srv->streamId = sCtx->signCtx.streamID;
+		mac_srv->authDir = HSE_AUTH_DIR_GENERATE;
+		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		mac_srv->keyHandle = key->key_handle;
+		mac_srv->inputLength = bytes_left;
+		mac_srv->pInput = hse_virt_to_dma(input);
+		mac_srv->pTagLength = hse_virt_to_dma(sig_len);
+		mac_srv->pTag = hse_virt_to_dma(sign0);
+	}
+
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	if (err) {
+		rc = CKR_FUNCTION_FAILED;
+
+		if (err == EBADMSG)
+			rc = CKR_SIGNATURE_INVALID;
+
+		goto out_free_sign0;
+	}
+
+	switch (sCtx->signCtx.mechanism->mechanism) {
+		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA256_RSA_PKCS:
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
+		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_AES_CMAC:
+		case CKM_SHA224_HMAC:
+		case CKM_SHA256_HMAC:
+		case CKM_SHA384_HMAC:
+		case CKM_SHA512_HMAC:
+
+			hse_memcpy(pSignature, sign0, *(uint32_t *)sig_len);
+			hse_memcpy(pulSignatureLen, sig_len, sizeof(uint32_t));
+
+			break;
+		case CKM_ECDSA_SHA1:
+		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA256:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
+
+			hse_memcpy(pSignature, sign0, *(uint32_t *)sig_len);
+			hse_memcpy(pSignature + *(uint32_t *)sig_len, sign1, *(uint32_t *)sig_len);
+
+			/* restore actual length */
+			*(uint32_t *)sig_len = *(uint32_t *)sig_len * 2;
+			hse_memcpy(pulSignatureLen, sig_len, sizeof(uint32_t));
+
+			break;
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+	}
+
+out_free_sign0:
+	hse_mem_free(sign0);
+out_free_input:
+	hse_mem_free(input);
+out_free_sig_len:
+	hse_mem_free(sig_len);
+out_uninit:
+	if (rc != CKR_BUFFER_TOO_SMALL) {
+		hse_stream_free(sCtx->signCtx.streamID);
+		sCtx->signCtx.init = CK_FALSE;
+		if (sCtx->signCtx.cache != NULL) {
+			free(sCtx->signCtx.cache);
+			sCtx->signCtx.cache = NULL;
+		}
+	}
+
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_SignRecoverInit)(
@@ -2247,7 +2690,175 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyUpdate)(
 		CK_ULONG ulPartLen
 )
 {
-	return CKR_FUNCTION_NOT_SUPPORTED;
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseSignSrv_t *sign_srv;
+	hseSignScheme_t *sign_scheme;
+	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
+	hseMacSrv_t *mac_srv = NULL;
+	uint8_t *input = NULL;
+	struct hse_keyObject *key;
+	CK_RV rc = CKR_OK;
+	int err;
+	uint32_t bytes_left, full_blocks;
+	hseAccessMode_t access_mode;
+
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->signCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
+
+	if (ulPartLen == 0)
+		return rc;
+	
+	if ((ulPartLen > 0) && (!pPart)) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto out_uninit;
+	}
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->signCtx.keyHandle);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto out_uninit;
+	}
+
+	/* input process */
+	bytes_left = sCtx->signCtx.cache_idx + ulPartLen;
+	if (bytes_left < sCtx->signCtx.blockSize) {
+		/* cache data for next update and exit */
+		memcpy(sCtx->signCtx.cache + sCtx->signCtx.cache_idx, pPart, ulPartLen);
+		sCtx->signCtx.cache_idx = bytes_left;
+		return CKR_OK;
+	}
+
+	/* round down to nearest multiple of block size */
+	full_blocks = bytes_left - (bytes_left % sCtx->signCtx.blockSize);
+	if (full_blocks > 0) {
+		/* copy full_blocks to dynamic buffer */
+		input = hse_mem_alloc(full_blocks);
+		if (input == NULL) {
+			rc = CKR_HOST_MEMORY;
+			return rc;
+		}
+		hse_memcpy(input, sCtx->signCtx.cache, sCtx->signCtx.cache_idx);
+		hse_memcpy(input + sCtx->signCtx.cache_idx, pPart, full_blocks - sCtx->signCtx.cache_idx);
+		bytes_left -= full_blocks;
+
+		/* copy residue to block-sized cache */
+		if (bytes_left > 0)
+			memcpy(sCtx->signCtx.cache, pPart + (full_blocks - sCtx->signCtx.cache_idx), bytes_left);
+			
+		sCtx->signCtx.cache_idx = bytes_left;
+	}
+
+	if (sCtx->signCtx.stream_start) {
+		access_mode = HSE_ACCESS_MODE_START;
+		sCtx->signCtx.stream_start = CK_FALSE;
+
+		err = hse_stream_acquire(&sCtx->signCtx.streamID);
+		if (err) {
+			rc = CKR_STATE_UNSAVEABLE;
+			goto out_free_input;
+		}
+	} else {
+		access_mode = HSE_ACCESS_MODE_UPDATE;
+	}
+
+	sign_srv = &srv_desc.hseSrv.signReq;
+	sign_scheme = &sign_srv->signScheme;
+
+	switch (sCtx->signCtx.mechanism->mechanism) {
+		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA256_RSA_PKCS:
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
+			sign_scheme->signSch = HSE_SIGN_RSASSA_PKCS1_V15;
+			sign_scheme->sch.rsaPkcs1v15.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+			break;
+		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)sCtx->signCtx.mechanism->pParameter;
+			if (rsa_pss_param == NULL) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto out_free_input;
+			}
+			sign_scheme->signSch = HSE_SIGN_RSASSA_PSS;
+			sign_scheme->sch.rsaPss.hashAlgo = hse_pkcs_hash_alg_translate(rsa_pss_param->hashAlg);
+			sign_scheme->sch.rsaPss.saltLength = rsa_pss_param->sLen;
+			break;
+		case CKM_ECDSA_SHA1:
+		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA256:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
+			sign_scheme->signSch = HSE_SIGN_ECDSA;
+			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+			break;
+		case CKM_AES_CMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
+			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
+			break;
+		case CKM_SHA224_HMAC:
+		case CKM_SHA256_HMAC:
+		case CKM_SHA384_HMAC:
+		case CKM_SHA512_HMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_HMAC;
+			mac_srv->macScheme.sch.hmac.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+			break;
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+			goto out_free_input;
+	}
+
+	if (!mac_srv) {
+		srv_desc.srvId = HSE_SRV_ID_SIGN;
+		sign_srv->accessMode = access_mode;
+		sign_srv->streamId = sCtx->signCtx.streamID;
+		sign_srv->authDir = HSE_AUTH_DIR_VERIFY;
+		sign_srv->bInputIsHashed = 0u;
+		sign_srv->keyHandle = key->key_handle;
+		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		sign_srv->inputLength = full_blocks;
+		sign_srv->pInput = hse_virt_to_dma(input);
+	} else {
+		srv_desc.srvId = HSE_SRV_ID_MAC;
+		mac_srv->accessMode = access_mode;
+		mac_srv->streamId = sCtx->signCtx.streamID;
+		mac_srv->authDir = HSE_AUTH_DIR_VERIFY;
+		mac_srv->keyHandle = key->key_handle;
+		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		mac_srv->inputLength = full_blocks;
+		mac_srv->pInput = hse_virt_to_dma(input);
+	}
+
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	if (err)
+		rc = CKR_FUNCTION_FAILED;
+
+out_free_input:
+	hse_mem_free(input);
+out_uninit:
+	if (rc != CKR_OK) {
+		hse_stream_free(sCtx->signCtx.streamID);
+		sCtx->signCtx.init = CK_FALSE;
+		if (sCtx->signCtx.cache != NULL) {
+			free(sCtx->signCtx.cache);
+			sCtx->signCtx.cache = NULL;
+		}
+	}
+
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_VerifyFinal)(
@@ -2256,7 +2867,191 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyFinal)(
 		CK_ULONG ulSignatureLen
 )
 {
-	return CKR_FUNCTION_NOT_SUPPORTED;
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	void *input = NULL;
+	hseSignSrv_t *sign_srv;
+	hseSignScheme_t *sign_scheme;
+	hseMacSrv_t *mac_srv = NULL;
+	void *sign0 = NULL, *sign1 = NULL, *sig_len = NULL;
+	struct hse_keyObject *key = NULL;
+	uint32_t bytes_left;
+	CK_RV rc = CKR_OK;
+	int err;
+
+	if (gCtx->cryptokiInit == CK_FALSE)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (sCtx->signCtx.init == CK_FALSE)
+		return CKR_OPERATION_NOT_INITIALIZED;
+
+	if (!pSignature) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto out_uninit;
+	}
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &sCtx->signCtx.keyHandle);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	if (key == NULL) {
+		rc = CKR_KEY_HANDLE_INVALID;
+		goto out_uninit;
+	}
+
+	/* the stream should be already started */
+	if (sCtx->signCtx.stream_start) {
+		rc = CKR_FUNCTION_FAILED;
+		goto out_uninit;
+	}
+
+	sig_len = hse_mem_alloc(sizeof(uint32_t));
+	if (sig_len == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto out_uninit;
+	}
+
+	/* Get required length of out buffer */
+	*(uint32_t *)sig_len = sig_get_out_length(sCtx->sID, key, sCtx->signCtx.mechanism);
+
+	/* Signature length shouldn't be 0 at this point */
+	if (*(uint32_t *)sig_len == 0) {
+		rc = CKR_ARGUMENTS_BAD;
+		goto out_free_sig_len;
+	}
+
+	/* check output buffer length */
+	if (ulSignatureLen != *(uint32_t *)sig_len) {
+		rc = CKR_SIGNATURE_LEN_RANGE;
+		goto out_free_sig_len;
+	}
+
+	/* process the left cache */
+	bytes_left = sCtx->signCtx.cache_idx;
+	if (bytes_left > 0) {
+		input = hse_mem_alloc(bytes_left);
+		if (input == NULL) {
+			rc = CKR_HOST_MEMORY;
+			goto out_free_sig_len;
+		}
+		hse_memcpy(input, sCtx->signCtx.cache, sCtx->signCtx.cache_idx);
+		sCtx->signCtx.cache_idx = 0;
+	}
+
+	sign0 = hse_mem_alloc(*(uint32_t *)sig_len);
+	if (sign0 == NULL) {
+		rc = CKR_HOST_MEMORY;
+		goto out_free_input;
+	}
+
+	hse_memcpy(sign0, pSignature, *(uint32_t *)sig_len);
+
+	sign_srv = &srv_desc.hseSrv.signReq;
+	sign_scheme = &sign_srv->signScheme;
+
+	switch (sCtx->signCtx.mechanism->mechanism) {
+		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA256_RSA_PKCS:
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(sig_len);
+			sign_srv->pSignatureLength[1] = 0u;
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = 0u;
+			break;
+		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(sig_len);
+			sign_srv->pSignatureLength[1] = 0u;
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = 0u;
+			break;
+		case CKM_ECDSA_SHA1:
+		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA256:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
+			sign_scheme->signSch = HSE_SIGN_ECDSA;
+			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+
+			*(uint32_t *)sig_len = (*(uint32_t *)sig_len) / 2;
+			sign1 = (uint8_t *)sign0 + (*(uint32_t *)sig_len);
+			
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(sig_len);
+			sign_srv->pSignatureLength[1] = hse_virt_to_dma(sig_len);
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0);
+			sign_srv->pSignature[1] = hse_virt_to_dma(sign1);
+			break;
+		case CKM_AES_CMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
+			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
+			break;
+		case CKM_SHA224_HMAC:
+		case CKM_SHA256_HMAC:
+		case CKM_SHA384_HMAC:
+		case CKM_SHA512_HMAC:
+			mac_srv = &srv_desc.hseSrv.macReq;
+			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_HMAC;
+			mac_srv->macScheme.sch.hmac.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
+			break;
+		default:
+			rc = CKR_ARGUMENTS_BAD;
+			goto out_free_sign0;
+	}
+
+	if (!mac_srv) {
+		srv_desc.srvId = HSE_SRV_ID_SIGN;
+		sign_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+		sign_srv->streamId = sCtx->signCtx.streamID;
+		sign_srv->authDir = HSE_AUTH_DIR_VERIFY;
+		sign_srv->keyHandle = key->key_handle;
+		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		sign_srv->inputLength = bytes_left;
+		sign_srv->pInput = hse_virt_to_dma(input);
+	} else {
+		srv_desc.srvId = HSE_SRV_ID_MAC;
+		mac_srv->accessMode = HSE_ACCESS_MODE_FINISH;
+		mac_srv->streamId = sCtx->signCtx.streamID;
+		mac_srv->authDir = HSE_AUTH_DIR_VERIFY;
+		mac_srv->keyHandle = key->key_handle;
+		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
+		mac_srv->inputLength = bytes_left;
+		mac_srv->pInput = hse_virt_to_dma(input);
+		mac_srv->pTagLength = hse_virt_to_dma(sig_len);
+		mac_srv->pTag = hse_virt_to_dma(sign0);
+	}
+
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	if (err) {
+		rc = CKR_FUNCTION_FAILED;
+
+		if (err == EBADMSG)
+			rc = CKR_SIGNATURE_INVALID;
+	}
+
+out_free_sign0:
+	hse_mem_free(sign0);
+out_free_input:
+	hse_mem_free(input);
+out_free_sig_len:
+	hse_mem_free(sig_len);
+out_uninit:
+	if (rc != CKR_BUFFER_TOO_SMALL) {
+		hse_stream_free(sCtx->signCtx.streamID);
+		sCtx->signCtx.init = CK_FALSE;
+		if (sCtx->signCtx.cache != NULL) {
+			free(sCtx->signCtx.cache);
+			sCtx->signCtx.cache = NULL;
+		}
+	}
+
+	return rc;
 }
 
 CK_DEFINE_FUNCTION(CK_RV, C_VerifyRecoverInit)(

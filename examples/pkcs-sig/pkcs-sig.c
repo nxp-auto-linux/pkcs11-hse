@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023 NXP
+ * Copyright 2024 NXP
  */
 
 #include <stdio.h>
@@ -310,9 +310,16 @@ static int util_lib_finalize(CK_FUNCTION_LIST_PTR flist)
 static int util_lib_rsa_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE priv_key, CK_OBJECT_HANDLE pub_key)
 {
 	CK_RV rv;
-	char *tobe_sign = "data to be sign";
+	char *tobe_sign = "Lorem ipsum dolor sit amet, consectetur adipiscing elit."\
+					  "Fusce lacinia mollis porta. In lacus eros, imperdiet eu magna"\
+					  "id, aliquet porta neque. Morbi tincidunt libero diam, accumsan"\
+					  "placerat est commodo eu. Duis lacinia erat quis nisl rutrum laoreet."\
+					  "Cras eget sagittis nisl. Vestibulum odio sapien, efficitur in sollicitudin"\
+					  "eu, posuere accumsan eu.";
 	CK_BYTE sig[256] = {0};
 	CK_ULONG sig_len = ARRAY_SIZE(sig);
+	CK_ULONG update_blk = 0; 
+	CK_ULONG blk_n = 0, i = 0;
 
 	INFO("\tGenerate signature ...\n");
 	rv = flist->C_SignInit(session, mechanism, priv_key);
@@ -337,6 +344,108 @@ static int util_lib_rsa_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE sessio
 	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), sig, sig_len);
 	if (rv != CKR_OK) {
 		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* Verify Stream mode */
+	INFO("\tVerify signature [stream mode] ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, pub_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 15;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_VerifyFinal(session, sig, sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyFinal [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tGenerate signature [stream mode] ...\n");
+	rv = flist->C_SignInit(session, mechanism, priv_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 12;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_SignUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_SignUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_SignUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_SignFinal(session, sig, &sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tVerify signature [len=%ld]...\n", sig_len);
+	rv = flist->C_VerifyInit(session, mechanism, pub_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), sig, sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* Verify Stream mode */
+	INFO("\tVerify signature [stream mode] ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, pub_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 15;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_VerifyFinal(session, sig, sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyFinal [stream mode] returns error 0x%lx\n", rv);
 		return -1;
 	}
 
@@ -409,9 +518,16 @@ static int util_lib_rsa_pre_hash_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HAND
 static int util_lib_ec_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE priv_key, CK_OBJECT_HANDLE pub_key)
 {
 	CK_RV rv;
-	char *tobe_sign = "data to be sign";
+	char *tobe_sign = "Lorem ipsum dolor sit amet, consectetur adipiscing elit."\
+					  "Fusce lacinia mollis porta. In lacus eros, imperdiet eu magna"\
+					  "id, aliquet porta neque. Morbi tincidunt libero diam, accumsan"\
+					  "placerat est commodo eu. Duis lacinia erat quis nisl rutrum laoreet."\
+					  "Cras eget sagittis nisl. Vestibulum odio sapien, efficitur in sollicitudin"\
+					  "eu, posuere accumsan eu.";
 	CK_BYTE sig[64] = {0};
 	CK_ULONG sig_len = ARRAY_SIZE(sig);
+	CK_ULONG update_blk = 0; 
+	CK_ULONG blk_n = 0, i = 0;
 
 	INFO("\tGenerate signature ...\n");
 	rv = flist->C_SignInit(session, mechanism, priv_key);
@@ -436,6 +552,108 @@ static int util_lib_ec_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session
 	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), sig, sig_len);
 	if (rv != CKR_OK) {
 		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* Verify Stream mode */
+	INFO("\tVerify signature [stream mode] ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, pub_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 15;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_VerifyFinal(session, sig, sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyFinal [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tGenerate signature [stream mode] ...\n");
+	rv = flist->C_SignInit(session, mechanism, priv_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 12;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_SignUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_SignUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_SignUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_SignFinal(session, sig, &sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignFinal [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tVerify signature ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, pub_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), sig, sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* Verify Stream mode */
+	INFO("\tVerify signature [stream mode] ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, pub_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 15;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_VerifyFinal(session, sig, sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyFinal [stream mode] returns error 0x%lx\n", rv);
 		return -1;
 	}
 
@@ -604,9 +822,16 @@ static int rsa_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJ
 static int util_lib_hmac_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE key)
 {
 	CK_RV rv;
-	char *tobe_sign = "data to be sign";
+	char *tobe_sign = "Lorem ipsum dolor sit amet, consectetur adipiscing elit."\
+					  "Fusce lacinia mollis porta. In lacus eros, imperdiet eu magna"\
+					  "id, aliquet porta neque. Morbi tincidunt libero diam, accumsan"\
+					  "placerat est commodo eu. Duis lacinia erat quis nisl rutrum laoreet."\
+					  "Cras eget sagittis nisl. Vestibulum odio sapien, efficitur in sollicitudin"\
+					  "eu, posuere accumsan eu.";
 	CK_BYTE hmac[128] = {0};
 	CK_ULONG hmac_len = ARRAY_SIZE(hmac);
+	CK_ULONG update_blk = 0; 
+	CK_ULONG blk_n = 0, i = 0;
 
 	INFO("\tGenerate signature ...\n");
 	rv = flist->C_SignInit(session, mechanism, key);
@@ -631,6 +856,108 @@ static int util_lib_hmac_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE sessi
 	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), hmac, hmac_len);
 	if (rv != CKR_OK) {
 		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* Verify Stream mode */
+	INFO("\tVerify signature [stream mode] ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 15;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_VerifyFinal(session, hmac, hmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyFinal [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tGenerate signature [stream mode] ...\n");
+	rv = flist->C_SignInit(session, mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 12;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_SignUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_SignUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_SignUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_SignFinal(session, hmac, &hmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignFinal [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tVerify signature ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), hmac, hmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* Verify Stream mode */
+	INFO("\tVerify signature [stream mode] ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 15;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_VerifyFinal(session, hmac, hmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyFinal [stream mode] returns error 0x%lx\n", rv);
 		return -1;
 	}
 
@@ -664,9 +991,16 @@ static int cmac_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OB
 {
 	CK_RV rv;
 	CK_MECHANISM mechanism;
-	char *tobe_sign = "data to be sign";
+	char *tobe_sign = "Lorem ipsum dolor sit amet, consectetur adipiscing elit."\
+					  "Fusce lacinia mollis porta. In lacus eros, imperdiet eu magna"\
+					  "id, aliquet porta neque. Morbi tincidunt libero diam, accumsan"\
+					  "placerat est commodo eu. Duis lacinia erat quis nisl rutrum laoreet."\
+					  "Cras eget sagittis nisl. Vestibulum odio sapien, efficitur in sollicitudin"\
+					  "eu, posuere accumsan eu.";
 	CK_BYTE cmac[16] = {0};
 	CK_ULONG cmac_len = ARRAY_SIZE(cmac);
+	CK_ULONG update_blk = 0; 
+	CK_ULONG blk_n = 0, i = 0;
 
 	INFO("CKM_AES_CMAC ...\n");
 	mechanism.mechanism = CKM_AES_CMAC;
@@ -694,6 +1028,108 @@ static int cmac_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OB
 	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), cmac, cmac_len);
 	if (rv != CKR_OK) {
 		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* Verify Stream mode */
+	INFO("\tVerify signature [stream mode] ...\n");
+	rv = flist->C_VerifyInit(session, &mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 15;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_VerifyFinal(session, cmac, cmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyFinal [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tGenerate signature [stream mode] ...\n");
+	rv = flist->C_SignInit(session, &mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 12;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_SignUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_SignUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_SignUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_SignFinal(session, cmac, &cmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignFinal [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tVerify signature ...\n");
+	rv = flist->C_VerifyInit(session, &mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Verify(session, (uint8_t *)tobe_sign, strlen(tobe_sign), cmac, cmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	/* Verify Stream mode */
+	INFO("\tVerify signature [stream mode] ...\n");
+	rv = flist->C_VerifyInit(session, &mechanism, key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	blk_n = 15;
+	update_blk = strlen(tobe_sign) / blk_n;
+	for (i = 0; i < blk_n; i++) {
+		rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), update_blk);
+		if (rv != CKR_OK) {
+			ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+			return -1;
+		}
+	}
+
+	rv = flist->C_VerifyUpdate(session, (uint8_t *)tobe_sign + (i * update_blk), strlen(tobe_sign) % update_blk);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyUpdate [stream mode] returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_VerifyFinal(session, cmac, cmac_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyFinal [stream mode] returns error 0x%lx\n", rv);
 		return -1;
 	}
 

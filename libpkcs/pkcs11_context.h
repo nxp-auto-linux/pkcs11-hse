@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: BSD-3-Claus
+// SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2023 NXP
+ * Copyright 2021-2024 NXP
  */
 
 #ifndef ___PKCS11_CONTEXT_H___
@@ -118,6 +118,10 @@ struct hse_signCtx {
 	CK_BBOOL init;
 	CK_OBJECT_HANDLE keyHandle;
 	CK_MECHANISM *mechanism;
+	CK_BBOOL stream_start;
+	uint8_t *cache;
+	uint8_t cache_idx;
+	uint32_t blockSize;
 };
 
 /*

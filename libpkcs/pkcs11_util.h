@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023 NXP
+ * Copyright 2024 NXP
  */
 
 #ifndef __PKCS11_UTIL_H__
@@ -10,6 +10,8 @@ void *getattr_pval(CK_ATTRIBUTE_PTR template, CK_ATTRIBUTE_TYPE attribute, CK_UL
 CK_ULONG getattr_len(CK_ATTRIBUTE_PTR template, CK_ATTRIBUTE_TYPE attribute, CK_ULONG attrCount);
 
 uint16_t hse_get_key_bit_length(uint8_t channel, struct hse_keyObject *key);
+
+int32_t hse_get_hash_block_size(CK_MECHANISM_TYPE mechanism, uint32_t *block_size);
 
 hseHashAlgo_t hse_pkcs_hash_alg_translate(CK_MECHANISM_TYPE mechanism);
 hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism);

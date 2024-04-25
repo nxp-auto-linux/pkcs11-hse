@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2023 NXP
+ * Copyright 2021-2024 NXP
  */
 
 #include <stdlib.h>
@@ -89,8 +89,12 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_DecryptFinal =                       C_DecryptFinal,
 	.C_SignInit =                           C_SignInit,
 	.C_Sign =                               C_Sign,
+	.C_SignUpdate =                         C_SignUpdate,
+	.C_SignFinal =                          C_SignFinal,
 	.C_VerifyInit =                         C_VerifyInit,
 	.C_Verify =                             C_Verify,
+	.C_VerifyUpdate =                       C_VerifyUpdate,
+	.C_VerifyFinal =                        C_VerifyFinal,
 	.C_SeedRandom =                         C_SeedRandom,
 	.C_GenerateRandom =                     C_GenerateRandom,
 	.C_DigestInit =                         C_DigestInit,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023 NXP
+ * Copyright 2024 NXP
  */
 
 #include <stdlib.h>
@@ -134,6 +134,52 @@ uint16_t hse_get_ec_key_bitlen(hseEccCurveId_t eccCurveId)
 		default:
 			return 0u;
 	}
+}
+
+int hse_get_hash_block_size(CK_MECHANISM_TYPE mechanism, uint32_t *block_size)
+{
+	int ret = 0;
+	uint32_t block_s = 0;
+
+	if (!block_size) {
+		ret = EINVAL;
+		goto err_exit;
+	}
+
+	switch (hse_get_hash_alg(mechanism)) {
+		case HSE_HASH_ALGO_SHA_1:
+		case HSE_HASH_ALGO_SHA2_224:
+		case HSE_HASH_ALGO_SHA2_256:
+			block_s = 64;
+			break;
+		case HSE_HASH_ALGO_SHA3_512:
+			block_s = 72;
+			break;
+		case HSE_HASH_ALGO_SHA3_384:
+			block_s = 104;
+			break;
+		case HSE_HASH_ALGO_SHA2_384:
+		case HSE_HASH_ALGO_NULL:
+		case HSE_HASH_ALGO_SHA2_512:
+		case HSE_HASH_ALGO_SHA2_512_224:
+		case HSE_HASH_ALGO_SHA2_512_256:
+			block_s = 128;
+			break;
+		case HSE_HASH_ALGO_SHA3_256:
+			block_s = 136;
+			break;
+		case HSE_HASH_ALGO_SHA3_224:
+			block_s = 144;
+			break;
+		default:
+			ret = EINVAL;
+			goto err_exit;
+	}
+
+	*block_size = block_s;
+
+err_exit:
+	return ret;
 }
 
 #define MAX_OID_LEN  (16)
@@ -325,6 +371,7 @@ hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism)
 
 	switch (mechanism) {
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA1_RSA_PKCS_PSS:
 		case CKM_ECDSA_SHA1:
 		case CKM_SHA_1_HMAC:
 			hash = HSE_HASH_ALGO_SHA_1;
@@ -365,10 +412,12 @@ uint32_t sig_get_out_length(uint8_t channel, struct hse_keyObject *key, CK_MECHA
 
 	switch (mechanism_type) {
 		case CKM_RSA_PKCS_OAEP:
+		case CKM_SHA1_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
 		case CKM_RSA_PKCS_PSS:
+		case CKM_SHA1_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
@@ -377,6 +426,7 @@ uint32_t sig_get_out_length(uint8_t channel, struct hse_keyObject *key, CK_MECHA
 		case CKM_ECDSA:
 		case CKM_ECDSA_SHA1:
 		case CKM_ECDSA_SHA224:
+		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
 			sig_len = (hse_get_key_bit_length(channel, key) >> 3) * 2;
