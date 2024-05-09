@@ -968,6 +968,10 @@ static int hmac_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OB
 {
 	CK_MECHANISM mechanism;
 
+	INFO("CKM_SHA1_HMAC ...\n");
+	mechanism.mechanism = CKM_SHA_1_HMAC;
+	util_lib_hmac_sig(flist, session, &mechanism, key);
+
 	INFO("CKM_SHA224_HMAC ...\n");
 	mechanism.mechanism = CKM_SHA224_HMAC;
 	util_lib_hmac_sig(flist, session, &mechanism, key);

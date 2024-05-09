@@ -434,6 +434,9 @@ uint32_t sig_get_out_length(uint8_t channel, struct hse_keyObject *key, CK_MECHA
 		case CKM_AES_CMAC:
 			sig_len = 16;
 			break;
+		case CKM_SHA_1_HMAC:
+			sig_len = 20;
+			break;
 		case CKM_SHA224_HMAC:
 			sig_len = 28;
 			break;

@@ -1023,6 +1023,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
 			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
 			break;
+		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
 		case CKM_SHA256_HMAC:
 		case CKM_SHA384_HMAC:
@@ -1076,6 +1077,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
 		case CKM_AES_CMAC:
+		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
 		case CKM_SHA256_HMAC:
 		case CKM_SHA384_HMAC:
@@ -1340,6 +1342,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
 			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
 			break;
+		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
 		case CKM_SHA256_HMAC:
 		case CKM_SHA384_HMAC:
@@ -2378,6 +2381,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignUpdate)(
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
 			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
 			break;
+		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
 		case CKM_SHA256_HMAC:
 		case CKM_SHA384_HMAC:
@@ -2561,6 +2565,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignFinal)(
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
 			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
 			break;
+		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
 		case CKM_SHA256_HMAC:
 		case CKM_SHA384_HMAC:
@@ -2616,6 +2621,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignFinal)(
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
 		case CKM_AES_CMAC:
+		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
 		case CKM_SHA256_HMAC:
 		case CKM_SHA384_HMAC:
@@ -2806,6 +2812,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyUpdate)(
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
 			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
 			break;
+		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
 		case CKM_SHA256_HMAC:
 		case CKM_SHA384_HMAC:
@@ -2990,6 +2997,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyFinal)(
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
 			mac_srv->macScheme.sch.cmac.cipherAlgo = HSE_CIPHER_ALGO_AES;
 			break;
+		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
 		case CKM_SHA256_HMAC:
 		case CKM_SHA384_HMAC:
