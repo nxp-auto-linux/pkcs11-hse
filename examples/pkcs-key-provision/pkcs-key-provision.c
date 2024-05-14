@@ -108,6 +108,15 @@ static CK_SESSION_HANDLE util_lib_open_session(CK_FUNCTION_LIST_PTR flist, CK_SL
 	return session;
 }
 
+static CK_RV util_lib_close_sessions(CK_FUNCTION_LIST_PTR flist, CK_SLOT_ID slot)
+{
+	CK_RV rv;
+
+	rv = flist->C_CloseAllSessions(slot);
+
+	return rv;
+}
+
 static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
 					       int rsa_modulus_bytes, uint8_t *rsa_modulus,
 					       int rsa_pub_exponent_bytes, uint8_t *rsa_pub_exponent)
@@ -281,28 +290,28 @@ int main(int argc, char *argv[])
 	if (!pkey) {
 		ERROR("Failed to read RSA Public Key from file %s\n", keypath);
 		ret = -ENOKEY;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	ret = EVP_PKEY_get_bn_param(pkey, "n", &rsa_bn_modulus);
 	if (!rsa_bn_modulus) {
 		ERROR("Failed to read RSA Public Key Modulus from file %s\n", keypath);
 		ret = -ENOKEY;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	ret = EVP_PKEY_get_bn_param(pkey, "e", &rsa_bn_pub_exponent);
 	if (!rsa_bn_pub_exponent) {
 		ERROR("Failed to read RSA Public Key Exponent from file %s\n", keypath);
 		ret = -ENOKEY;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	rsa_modulus = malloc(BN_num_bytes(rsa_bn_modulus));
 	if (!rsa_modulus) {
 		ERROR("Failed to allocate space for RSA Public Key Modulus\n");
 		ret = -ENOMEM;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	rsa_pub_exponent = malloc(BN_num_bytes(rsa_bn_pub_exponent));
@@ -418,6 +427,8 @@ err_free_rsa_pub_exponent:
 	free(rsa_pub_exponent);
 err_free_rsa_modulus:
 	free(rsa_modulus);
+err_close_session:
+	util_lib_close_sessions(flist, slot);
 err_lib_finalize:
 	if (util_lib_finalize(flist))
 		ERROR("Failed call to C_Finalize\n");
