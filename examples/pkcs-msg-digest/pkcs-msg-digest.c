@@ -128,6 +128,15 @@ static CK_SESSION_HANDLE util_lib_open_session(CK_FUNCTION_LIST_PTR flist, CK_SL
 	return session;
 }
 
+static CK_RV util_lib_close_sessions(CK_FUNCTION_LIST_PTR flist, CK_SLOT_ID slot)
+{
+	CK_RV rv;
+
+	rv = flist->C_CloseAllSessions(slot);
+
+	return rv;
+}
+
 static int util_lib_msg_digest_onepass(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_MECHANISM_PTR mechanism, 
 						unsigned char *msg, CK_ULONG msg_length, unsigned char *digest, CK_ULONG *digest_length)
 {
@@ -422,8 +431,8 @@ int main(int argc, char *argv[])
 
 	INFO("Cleaning up and calling C_Finalize...\n");
 
-
-err_lib_finalize:	
+	util_lib_close_sessions(flist, slot);
+err_lib_finalize:
 	if (util_lib_finalize(flist))
 		ERROR("Failed call to C_Finalize\n");
 err_close_lib:

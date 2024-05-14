@@ -145,6 +145,15 @@ static CK_SESSION_HANDLE util_lib_open_session(CK_FUNCTION_LIST_PTR flist, CK_SL
 	return session;
 }
 
+static CK_RV util_lib_close_sessions(CK_FUNCTION_LIST_PTR flist, CK_SLOT_ID slot)
+{
+	CK_RV rv;
+
+	rv = flist->C_CloseAllSessions(slot);
+
+	return rv;
+}
+
 static CK_OBJECT_HANDLE install_aes_hmac_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
 					       CK_KEY_TYPE key_type, uint8_t *key_id, int key_len, uint8_t *key_value)
 {
@@ -1220,7 +1229,7 @@ int main(int argc, char *argv[])
 	if (!rsa_pub_key) {
 		ERROR("Failed to find key object with Class CKO_PUBLIC_KEY\n");
 		ret = -ENOKEY;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	INFO("Found Key Object with handle %06lx\n", rsa_pub_key);
@@ -1229,7 +1238,7 @@ int main(int argc, char *argv[])
 	if (!rsa_priv_key) {
 		ERROR("Failed to find key object with Class CKO_PRIVATE_KEY\n");
 		ret = -ENOKEY;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	INFO("Found Key Object with handle %06lx\n", rsa_priv_key);
@@ -1262,7 +1271,7 @@ int main(int argc, char *argv[])
 	if (!aes128_key) {
 		ERROR("Failed to create key object\n");
 		ret = -EKEYREJECTED;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	cmac_sig(flist, session, aes128_key);
@@ -1277,7 +1286,7 @@ int main(int argc, char *argv[])
 	if (!hmac_key_1) {
 		ERROR("Failed to create key object\n");
 		ret = -EKEYREJECTED;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	key_id[0] = 1;
@@ -1287,7 +1296,7 @@ int main(int argc, char *argv[])
 	if (!hmac_key_2) {
 		ERROR("Failed to create key object\n");
 		ret = -EKEYREJECTED;
-		goto err_lib_finalize;
+		goto err_close_session;
 	}
 
 	hmac_sig(flist, session, hmac_key_1);
@@ -1299,7 +1308,7 @@ int main(int argc, char *argv[])
 		ret = util_lib_destroy_object(flist, session, ec_priv_key);
 		if (ret) {
 			ERROR("Failed to destroy key object\n");
-			goto err_lib_finalize;
+			goto err_close_session;
 		}
 	}
 
@@ -1307,7 +1316,7 @@ int main(int argc, char *argv[])
 		ret = util_lib_destroy_object(flist, session, ec_pub_key);
 		if (ret) {
 			ERROR("Failed to destroy key object\n");
-			goto err_lib_finalize;
+			goto err_close_session;
 		}
 	}
 
@@ -1317,7 +1326,9 @@ int main(int argc, char *argv[])
 
 	INFO("Cleaning up and calling C_Finalize...\n");
 
-err_lib_finalize:	
+err_close_session:
+	util_lib_close_sessions(flist, slot);
+err_lib_finalize:
 	if (util_lib_finalize(flist))
 		ERROR("Failed call to C_Finalize\n");
 err_close_lib:
