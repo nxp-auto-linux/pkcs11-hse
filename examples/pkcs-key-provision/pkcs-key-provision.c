@@ -13,7 +13,6 @@
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
 
-#include "libhse.h"
 #include "pkcs11.h"
 
 #ifndef ARRAY_SIZE
@@ -352,7 +351,7 @@ int main(int argc, char *argv[])
 	ret = flist->C_GetAttributeValue(session, key_match, template, 2);
 
 	if (ret == CKR_OK) {
-		pModulus = (CK_BYTE_PTR)hse_mem_alloc(template[0].ulValueLen);
+		pModulus = (CK_BYTE_PTR)malloc(template[0].ulValueLen);
 		if (!pModulus) {
 			ERROR("Failed to allocate space for RSA Public Key Modulus\n");
 			ret = -ENOMEM;
@@ -360,7 +359,7 @@ int main(int argc, char *argv[])
 		}
 		template[0].pValue = pModulus;
 		/* template[0].ulValueLen was set by C_GetAttributeValue */
-		pExponent = (CK_BYTE_PTR)hse_mem_alloc(template[1].ulValueLen);
+		pExponent = (CK_BYTE_PTR)malloc(template[1].ulValueLen);
 		if (!pExponent) {
 			ERROR("Failed to allocate space for RSA Public Key Exponent\n");
 			ret = -ENOMEM;
@@ -412,9 +411,9 @@ int main(int argc, char *argv[])
 	INFO("Cleaning up and calling C_Finalize...\n");
 
 err_free_rsa_pub_exp:
-	hse_mem_free(pExponent);
+	free(pExponent);
 err_free_rsa_mod:
-	hse_mem_free(pModulus);
+	free(pModulus);
 err_free_rsa_pub_exponent:
 	free(rsa_pub_exponent);
 err_free_rsa_modulus:
