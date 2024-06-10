@@ -29,16 +29,14 @@
 
 #define APP_CODE_OFFSET 0x40u
 #define IVT_OFFSET_QSPI 0x0
-#define IVT_OFFSET_SD 0x1000u
+#define IVT_OFFSET_SD_MMC 0x1000u
 #define HSE_BOOT_KEY_HANDLE 0x010700u
 #define HSE_SMR_ENTRY_1 BIT(1)
 #define HSE_IVT_BOOTSEQ_BIT BIT(3)
-#define HSE_EXT_FLASH_SD 2u
-#define HSE_EXT_FLASH_QSPI 0u
 // Assuming 64KB QSPI block size
 #define QSPI_BLOCK_SIZE 0x10000u
 #define HSE_EXT_FLASH_PAGE_QSPI	0x1000u
-#define HSE_EXT_FLASH_PAGE_SD 512u
+#define HSE_EXT_FLASH_PAGE_SD_MMC 512u
 #if (HSE_PLATFORM == HSE_S32G2XX) || (HSE_PLATFORM == HSE_S32R45X)
 #define HSE_APP_CORE_A53_0 HSE_APP_CORE3
 #elif (HSE_PLATFORM == HSE_S32G3XX)
@@ -99,6 +97,12 @@ struct fip_toc_entry {
 	uint64_t size;
 	uint64_t flags;
 } __attribute((packed));
+
+enum boot_type {
+	QSPI = 0,
+	SD = 2,
+	MMC = 3,
+};
 
 /* the nvm container used to format the hse key catalogs */
 const hseKeyGroupCfgEntry_t nvm_cat[] = {
@@ -281,7 +285,7 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 	return ret;
 }
 
-int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, bool qspi_boot)
+int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, enum boot_type boot_medium)
 {
 	struct uuid uuid_bl2_sign = UUID_BL2_SIGN;
 	struct fip_toc_entry *toc_bl2_sign;
@@ -348,10 +352,12 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, bool
 	smr_entry.pSmrDest = app_boot->ram_load;
 	smr_entry.smrSize = toc_bl2_sign->offset;
 
-	if (qspi_boot)
+	if (boot_medium == QSPI)
 		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_QSPI_FLASH | HSE_SMR_CFG_FLAG_INSTALL_AUTH);
-	else
+	else if (boot_medium == SD)
 		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_SD_FLASH | HSE_SMR_CFG_FLAG_INSTALL_AUTH);
+	else if (boot_medium == MMC)
+		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_MMC_FLASH | HSE_SMR_CFG_FLAG_INSTALL_AUTH);
 
 	smr_entry.checkPeriod = 0;
 	smr_entry.authKeyHandle = HSE_BOOT_KEY_HANDLE;
@@ -469,7 +475,7 @@ int hse_sysimg_publish(void *sysimg, uint32_t *sysimg_size)
 	return ret;
 }
 
-int hse_sysimg_write_sdcard(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_size, bool secure)
+int hse_sysimg_write_sd_mmc(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_size, enum boot_type boot_medium, bool secure)
 {
 	off_t seek_off;
 	int bytes;
@@ -484,17 +490,17 @@ int hse_sysimg_write_sdcard(int fd, struct ivt *ivt, void *sysimg, uint32_t *sys
 		ERROR("Failed to write SYSIMG\n");
 		return errno;
 	}
-	ivt->sysimg_ext_flash_type = HSE_EXT_FLASH_SD;
+	ivt->sysimg_ext_flash_type = boot_medium;
 
 	/* external flash type, flash page size */
-	ivt->sysimg_flash_page_size = HSE_EXT_FLASH_PAGE_SD;
+	ivt->sysimg_flash_page_size = HSE_EXT_FLASH_PAGE_SD_MMC;
 
 	/* set BOOT_SEQ bit, if using secure boot */
 	if (secure)
 		ivt->boot_cfg |= HSE_IVT_BOOTSEQ_BIT;
 
-	seek_off = lseek(fd, IVT_OFFSET_SD, SEEK_SET);
-	if (seek_off < 0 || seek_off != IVT_OFFSET_SD) {
+	seek_off = lseek(fd, IVT_OFFSET_SD_MMC, SEEK_SET);
+	if (seek_off < 0 || seek_off != IVT_OFFSET_SD_MMC) {
 		ERROR("Failed to find original IVT location\n");
 		return errno;
 	}
@@ -537,7 +543,7 @@ int hse_sysimg_write_qspi(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysim
 		ERROR("Failed to write SYSIMG\n");
 		return errno;
 	}
-	ivt->sysimg_ext_flash_type = HSE_EXT_FLASH_QSPI;
+	ivt->sysimg_ext_flash_type = QSPI;
 
 	/* external flash type, flash page size */
 	ivt->sysimg_flash_page_size = HSE_EXT_FLASH_PAGE_QSPI;
@@ -567,7 +573,7 @@ int hse_sysimg_write_qspi(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysim
 	return 0;
 }
 
-int hse_secboot_enable(const char *device, const char *keypath, bool qspi_boot)
+int hse_secboot_enable(const char *device, const char *keypath, enum boot_type boot_medium)
 {
 	struct ivt ivt;
 	struct app_boot_hdr app_boot;
@@ -603,10 +609,10 @@ int hse_secboot_enable(const char *device, const char *keypath, bool qspi_boot)
 		goto err_close_hse;
 	}
 
-	if (qspi_boot)
+	if (boot_medium == QSPI)
 		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_QSPI, sizeof(ivt));
 	else
-		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_SD, sizeof(ivt));
+		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_SD_MMC, sizeof(ivt));
 
 	if (ret)
 		goto err_close_fd;
@@ -694,7 +700,7 @@ int hse_secboot_enable(const char *device, const char *keypath, bool qspi_boot)
 
 	INFO("Generating Secure Memory Region entry\n");
 
-	ret = hse_smr_install(fd, &ivt, &app_boot, qspi_boot);
+	ret = hse_smr_install(fd, &ivt, &app_boot, boot_medium);
 	if (ret)
 		goto err_free_rsa_pub_exponent;
 
@@ -732,10 +738,10 @@ int hse_secboot_enable(const char *device, const char *keypath, bool qspi_boot)
 
 	INFO("Writing SYSIMG to %s\n", device);
 
-	if (qspi_boot)
+	if (boot_medium == QSPI)
 		ret = hse_sysimg_write_qspi(fd, &ivt, sysimg, sysimg_size, 1);
 	else
-		ret = hse_sysimg_write_sdcard(fd, &ivt, sysimg, sysimg_size, 1);
+		ret = hse_sysimg_write_sd_mmc(fd, &ivt, sysimg, sysimg_size, boot_medium, 1);
 
 err_free_sysimg:
 	hse_mem_free(sysimg);
@@ -754,7 +760,7 @@ err_close_hse:
 	return ret;
 }
 
-int hse_keycatalog_format(const char* device, bool overwrite, bool qspi_boot)
+int hse_keycatalog_format(const char* device, bool overwrite, enum boot_type boot_medium)
 {
 	struct ivt ivt;
 	void *sysimg;
@@ -791,10 +797,10 @@ int hse_keycatalog_format(const char* device, bool overwrite, bool qspi_boot)
 		goto err_close_hse;
 	}
 
-	if (qspi_boot)
+	if (boot_medium == QSPI)
 		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_QSPI, sizeof(ivt));
 	else
-		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_SD, sizeof(ivt));
+		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_SD_MMC, sizeof(ivt));
 
 	if (ret)
 		goto err_close_fd;
@@ -838,10 +844,10 @@ int hse_keycatalog_format(const char* device, bool overwrite, bool qspi_boot)
 
 	INFO("Writing SYSIMG to %s\n", device);
 
-	if (qspi_boot)
+	if (boot_medium == QSPI)
 		ret = hse_sysimg_write_qspi(fd, &ivt, sysimg, sysimg_size, 0);
 	else
-		ret = hse_sysimg_write_sdcard(fd, &ivt, sysimg, sysimg_size, 0);
+		ret = hse_sysimg_write_sd_mmc(fd, &ivt, sysimg, sysimg_size, boot_medium, 0);
 
 err_free_sysimg:
 	hse_mem_free(sysimg);
@@ -860,7 +866,7 @@ void usage(char *progname)
 	printf("\n");
 	printf("Usage:\n");
 	printf("\n");
-	printf("%s [-h] [-q] [-f|s] [-k keypath] [-d devpath]\n", progname);
+	printf("%s [-h] [-b bootmedium] [-f|s] [-k keypath] [-d devpath]\n", progname);
 	printf("\n");
 	printf("\t-h:\tdisplay this help string\n");
 	printf("\t-f:\tformat key catalogs\n");
@@ -870,17 +876,21 @@ void usage(char *progname)
 	printf("\t-s:\tset up advanced secure boot\n");
 	printf("\t\trequires -d and -k\n");
 	printf("\t\tmutually exclusive with -f\n");
-	printf("\t-q:\tuse implementation for QSPI secure boot instead of default SD secure boot\n");
+	printf("\t-b:\tspecify boot medium type, possible values:\n");
+	printf("\t\t\t    sd - SD card boot (default)\n");
+	printf("\t\t\t  qspi - QSPI Flash boot\n");
+	printf("\t\t\t   mmc - MMC or eMMC boot\n");
 	printf("\t-k:\tspecify full path to PEM format key file\n");
-	printf("\t-d:\tspecify full path to SD/MTD device (e.g. /dev/sdb or /dev/mtd0)\n");
+	printf("\t-d:\tspecify full path to SD/MMC/MTD device (e.g. /dev/sdb or /dev/mtd0)\n");
 }
 
 int main(int argc, char *argv[])
 {
-	char *keypath = NULL, *devpath = NULL;
-	int c, fflag = 0, sflag = 0, oflag = 0, qspiflag = 0, ret = 0;
+	char *keypath = NULL, *devpath = NULL, *bootmedium = "sd";
+	int c, fflag = 0, sflag = 0, oflag = 0, ret = 0;
+	enum boot_type type = SD;
 
-	while ((c = getopt(argc, argv, "hfosqk:d:")) != -1) {
+	while ((c = getopt(argc, argv, "hfosb:k:d:")) != -1) {
 		switch (c) {
 			case 'h':
 				usage(argv[0]);
@@ -900,12 +910,11 @@ int main(int argc, char *argv[])
 			case 'd':
 				devpath = optarg;
 				break;
-			case 'q':
-				printf("You will use QSPI flash as boot medium. Make sure the target device is correct! (e.g. /dev/mtd0)\n");
-				qspiflag = 1;
+			case 'b':
+				bootmedium = optarg;
 				break;
 			case '?':
-				if (optopt == 'k' || optopt == 'd')
+				if (optopt == 'k' || optopt == 'd' || optopt == 'b')
 					ERROR("Option -%c requires an argument\n", optopt);
 				else
 					ERROR("Unrecognized option: -%c\n", optopt);
@@ -936,15 +945,26 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	if (!strcmp(bootmedium, "qspi")) {
+		type = QSPI;
+	} else if (!strcmp(bootmedium, "mmc")) {
+		type = MMC;
+	} else if (strcmp(bootmedium, "sd")) {
+		ERROR("Unrecognized boot medium type \"%s\"\n", bootmedium);
+		usage(argv[0]);
+		return -1;
+	}
+	INFO("Chosen boot medium: %s\n", bootmedium);
+
 	if (fflag && devpath) {
 		INFO("Formatting HSE key catalog\n");
-		ret = hse_keycatalog_format(devpath, oflag, qspiflag);
+		ret = hse_keycatalog_format(devpath, oflag, type);
 		return ret;
 	}
 
 	if (sflag && devpath && keypath) {
 		INFO("Setting up secure boot\n");
-		ret = hse_secboot_enable(devpath, keypath, qspiflag);
+		ret = hse_secboot_enable(devpath, keypath, type);
 		return ret;
 	}
 
