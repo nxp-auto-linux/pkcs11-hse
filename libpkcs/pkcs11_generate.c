@@ -240,6 +240,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateKey)(
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseKeyGenerateSrv_t *keyGenReq = &srv_desc.hseSrv.keyGenReq;;
 	struct hse_keyObject *key = NULL;
+	uint8_t keyType;
 	CK_OBJECT_HANDLE obj;
 	CK_BBOOL obj_found = CK_FALSE;
 	CK_BBOOL *keyFlag_val = NULL;
@@ -259,8 +260,22 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateKey)(
 	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	if (pMechanism->mechanism != CKM_AES_KEY_GEN)
-		return CKR_ARGUMENTS_BAD;
+	switch (pMechanism->mechanism) {
+		case CKM_AES_KEY_GEN:
+			keyType = HSE_KEY_TYPE_AES;
+			break;
+		case CKM_SHA_1_KEY_GEN:
+		case CKM_SHA224_KEY_GEN:
+		case CKM_SHA256_KEY_GEN:
+		case CKM_SHA384_KEY_GEN:
+		case CKM_SHA512_KEY_GEN:
+		case CKM_SHA512_224_KEY_GEN:
+		case CKM_SHA512_256_KEY_GEN:
+			keyType = HSE_KEY_TYPE_HMAC;
+			break;
+		default:
+			return CKR_ARGUMENTS_BAD;
+	}
 
 	if (getattr_pval(pTemplate, CKA_UNIQUE_ID, ulCount))
 		return CKR_ATTRIBUTE_READ_ONLY;
@@ -324,7 +339,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateKey)(
 		hse_memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
 	}
 
-	if (!(keyBitsLen = (uint16_t *)getattr_pval(pTemplate, CKA_VALUE_BITS, ulCount))) {
+	if (!(keyBitsLen = (uint16_t *)getattr_pval(pTemplate, CKA_VALUE_LEN, ulCount))) {
 		rc = CKR_ARGUMENTS_BAD;
 		goto err_free_key_intl;
 	}
@@ -334,19 +349,29 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateKey)(
 	keyGenReq->keyInfo.keyCounter = 0u;
 	keyGenReq->keyInfo.smrFlags = 0u;
 
-	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_ENCRYPT, ulCount)) && (*keyFlag_val))
-		keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_ENCRYPT;
-	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_DECRYPT, ulCount)) && (*keyFlag_val))
-		keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_DECRYPT;
+	/* only AES slot keys can be used for encrypt/decrypt ops */
+	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_ENCRYPT, ulCount)) && (*keyFlag_val)) {
+		if (keyType == HSE_KEY_TYPE_AES)
+			keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_ENCRYPT;
+		else
+			printf("WARNING: HSE HMAC key type does not support encrypt operations.\n");
+	}
+	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_DECRYPT, ulCount)) && (*keyFlag_val)) {
+		if (keyType == HSE_KEY_TYPE_AES)
+			keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_DECRYPT;
+		else
+			printf("WARNING: HSE HMAC key type does not support decrypt operations.\n");
+	}
 	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_SIGN, ulCount)) && (*keyFlag_val))
 		keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_SIGN;
 	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_VERIFY, ulCount)) && (*keyFlag_val))
 		keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_VERIFY;
 
-	keyGenReq->keyInfo.keyType = HSE_KEY_TYPE_AES;
+	keyGenReq->keyInfo.keyType = keyType;
 	keyGenReq->keyInfo.keyBitLen = *keyBitsLen;
 #if (HSE_PLATFORM == HSE_S32G3XX)
-	keyGenReq->keyInfo.specific.aesBlockModeMask = 0u;
+	if (keyType == HSE_KEY_TYPE_AES)
+		keyGenReq->keyInfo.specific.aesBlockModeMask = 0u;
 #endif
 	keyGenReq->sch.symKey = 0u;
 	keyGenReq->keyGenScheme = HSE_KEY_GEN_SYM_RANDOM_KEY;

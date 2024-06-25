@@ -52,6 +52,36 @@
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif
 
+/* add missing AES key gen mechanisms for HMAC from pkcs11.h */
+
+#ifndef CKM_SHA_1_KEY_GEN
+#define CKM_SHA_1_KEY_GEN              0x00004003UL
+#endif
+
+#ifndef CKM_SHA224_KEY_GEN
+#define CKM_SHA224_KEY_GEN             0x00004004UL
+#endif
+
+#ifndef CKM_SHA256_KEY_GEN
+#define CKM_SHA256_KEY_GEN             0x00004005UL
+#endif
+
+#ifndef CKM_SHA384_KEY_GEN
+#define CKM_SHA384_KEY_GEN             0x00004006UL
+#endif
+
+#ifndef CKM_SHA512_KEY_GEN
+#define CKM_SHA512_KEY_GEN             0x00004007UL
+#endif
+
+#ifndef CKM_SHA512_224_KEY_GEN
+#define CKM_SHA512_224_KEY_GEN         0x00004008UL
+#endif
+
+#ifndef CKM_SHA512_256_KEY_GEN
+#define CKM_SHA512_256_KEY_GEN         0x00004009UL
+#endif
+
 #ifndef CKM_SHA512_224
 #define CKM_SHA512_224	0x00000048UL
 #endif
