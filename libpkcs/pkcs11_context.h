@@ -30,6 +30,7 @@
 #endif
 
 #define INVALID_STREAM_ID	0xFFU
+#define AAD_MAX_LEN (uint32_t)~0
 
 #define BITS_PER_BYTE 8
 #define HSE_MIN_AES_KEY_BITS_LEN 128

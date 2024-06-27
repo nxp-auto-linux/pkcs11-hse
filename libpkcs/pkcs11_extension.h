@@ -68,4 +68,13 @@
 #define CKM_SHA512_256	0x0000004CUL
 #endif
 
+typedef struct CK_CCM_PARAMS {
+	unsigned long ulDataLen;
+	unsigned char *pNonce;
+	unsigned long ulNonceLen;
+	unsigned char *pAAD;
+	unsigned long ulAADLen;
+	unsigned long ulMACLen;
+} CK_CCM_PARAMS;
+
 #endif /* ___PKCS11_EXTENSION_H___ */

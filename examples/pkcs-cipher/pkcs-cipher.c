@@ -210,7 +210,7 @@ static int block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session
 	unsigned char plain_text[16] = {
 		0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf
 	};
-	unsigned char* cipher_text;
+	unsigned char *cipher_text;
 	unsigned char decrypted_text[16] = {0};
 
 	CK_ULONG cipher_text_len = sizeof(plain_text);
@@ -218,6 +218,12 @@ static int block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session
 
 	if (p_mech->mechanism == CKM_AES_CBC_PAD) {
 		cipher_text_len = 16 * (sizeof(plain_text) / 16 + 1);
+	} else if(p_mech->mechanism == CKM_AES_CCM) {
+		CK_CCM_PARAMS *params = (CK_CCM_PARAMS *)p_mech->pParameter;
+		cipher_text_len += params->ulMACLen;
+	} else if(p_mech->mechanism == CKM_AES_GCM) {
+		CK_GCM_PARAMS *params = (CK_GCM_PARAMS *)p_mech->pParameter;
+		cipher_text_len += params->ulTagBits / 8;
 	}
 	cipher_text = calloc(cipher_text_len, sizeof(unsigned char));
 
@@ -488,6 +494,8 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 {
 	int ret;
 	CK_MECHANISM mechanism;
+	CK_CCM_PARAMS ccm_params;
+	CK_GCM_PARAMS gcm_params;
 	unsigned char ccm_iv[8];
 
 	mechanism.mechanism = CKM_AES_ECB;
@@ -505,7 +513,7 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 		INFO("Stream CKM_AES_ECB Fail!\n");
 
 	mechanism.mechanism = CKM_AES_CBC;
-	mechanism.ulParameterLen = 16;
+	mechanism.ulParameterLen = sizeof(iv);
 	mechanism.pParameter = iv;
 	ret = block_ciphering(flist, session, key, &mechanism);
 	if (ret == 0)
@@ -520,7 +528,7 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 		INFO("Stream CKM_AES_CBC Fail!\n");
 
 	mechanism.mechanism = CKM_AES_CBC_PAD;
-	mechanism.ulParameterLen = 16;
+	mechanism.ulParameterLen = sizeof(iv);
 	mechanism.pParameter = iv;
 	ret = block_ciphering(flist, session, key, &mechanism);
 	if (ret == 0)
@@ -535,7 +543,7 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 		INFO("Stream CKM_AES_CBC_PAD Fail!\n");
 
 	mechanism.mechanism = CKM_AES_CTR;
-	mechanism.ulParameterLen = 16;
+	mechanism.ulParameterLen = sizeof(iv);
 	mechanism.pParameter = iv;
 	ret = block_ciphering(flist, session, key, &mechanism);
 	if (ret == 0)
@@ -549,19 +557,33 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 	else 
 		INFO("Stream CKM_AES_CTR Fail!\n");
 
+	gcm_params.ulAADLen = sizeof(iv);
+	gcm_params.pAAD = iv;
+	gcm_params.ulIvLen = sizeof(iv);
+	gcm_params.ulIvBits = sizeof(iv) * 8;
+	gcm_params.pIv = iv;
+	gcm_params.ulTagBits = 128;
+
 	mechanism.mechanism = CKM_AES_GCM;
-	mechanism.ulParameterLen = 16;
-	mechanism.pParameter = iv;
+	mechanism.pParameter = &gcm_params;
+	mechanism.ulParameterLen = sizeof(gcm_params);
 	ret = block_ciphering(flist, session, key, &mechanism);
 	if (ret == 0)
 		INFO("CKM_AES_GCM Done!\n");
 	else 
 		INFO("CKM_AES_GCM Fail!\n");
 
+	memcpy(ccm_iv, iv, sizeof(ccm_iv));
+	ccm_params.ulAADLen = sizeof(iv);
+	ccm_params.pAAD = iv;
+	ccm_params.ulMACLen = 16;
+	ccm_params.pNonce = ccm_iv;
+	ccm_params.ulNonceLen = sizeof(ccm_iv);
+	ccm_params.ulDataLen = 16;
+
 	mechanism.mechanism = CKM_AES_CCM;
-	mechanism.ulParameterLen = 8;
-	memcpy(ccm_iv, iv, 8);
-	mechanism.pParameter = ccm_iv; 
+	mechanism.pParameter = &ccm_params;
+	mechanism.ulParameterLen = sizeof(ccm_params);
 	ret = block_ciphering(flist, session, key, &mechanism);
 	if (ret == 0)
 		INFO("CKM_AES_CCM Done!\n");

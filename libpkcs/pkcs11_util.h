@@ -20,6 +20,7 @@ uint32_t rsa_ciphering_get_max_input_length(uint16_t rsa_key_length_bit, CK_MECH
 uint32_t rsa_ciphering_get_out_length(uint16_t rsa_key_length_bit);
 
 uint32_t sig_get_out_length(uint8_t channel, struct hse_keyObject *key, CK_MECHANISM_PTR mechanism);
+uint16_t hse_get_tag_length(unsigned long tagBits);
 
 int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *pkey0, uint8_t *pkey1, CK_ULONG *pkey0_len, CK_ULONG *pkey1_len);
 

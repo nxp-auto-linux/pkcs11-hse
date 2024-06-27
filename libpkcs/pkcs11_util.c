@@ -456,6 +456,21 @@ uint32_t sig_get_out_length(uint8_t channel, struct hse_keyObject *key, CK_MECHA
 	return sig_len;
 }
 
+uint16_t hse_get_tag_length(unsigned long tagBits)
+{
+	uint16_t tagLen;
+
+	if (tagBits < 32 || tagBits > 128)
+		return 0;
+
+	if (tagBits < 104)
+		tagLen = ((tagBits / 8) / 4) * 4;
+	else
+		tagLen = tagBits / 8;
+
+	return tagLen;
+}
+
 /* Public key value export 
  * Note on ECC key:
  *  For Weierstrass curves, export public key in uncompressed format: 0x04 || X || Y;
