@@ -2,7 +2,7 @@
 /*
  * HSE advanced secure boot preparatory command demo
  *
- * Copyright 2022-2023 NXP
+ * Copyright 2022-2024 NXP
  */
 
 #include <stdio.h>
@@ -45,6 +45,9 @@
 
 #define UUID_BL2_SIGN \
 	{{0xd6, 0xe2, 0x69, 0xea}, {0x5d, 0x63}, {0xe4, 0x11}, 0x8d, 0x8c, {0x9f, 0xba, 0xbe, 0x99, 0x56, 0xa5} }
+
+#define UUID_TRUSTED_BOOT_FIRMWARE_BL2 \
+	{{0x5f, 0xf9, 0xec, 0x0b}, {0x4d, 0x22}, {0x3e, 0x4d}, 0xa5, 0x44, {0xc3, 0x9d, 0x81, 0xc7, 0x3f, 0x0a} }
 
 struct ivt {
 	uint32_t ivt_header;
@@ -288,13 +291,16 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, enum boot_type boot_medium)
 {
 	struct uuid uuid_bl2_sign = UUID_BL2_SIGN;
-	struct fip_toc_entry *toc_bl2_sign;
+	struct uuid uuid_bl2 = UUID_TRUSTED_BOOT_FIRMWARE_BL2;
+	uint64_t fip_hdr_size;
+	struct fip_toc_entry *toc_bl2_sign, *toc_bl2;
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSmrEntry_t smr_entry, *smr_entry_hse;
-	uint8_t *fip_header, *bl2_sign, *fip_bin = NULL;
+	uint8_t *fip_header, *bl2_sign, *bl2_bin = NULL;
 	int ret = 0;
 
-	fip_header = malloc(get_fip_header_size(fd, ivt));
+	fip_hdr_size = get_fip_header_size(fd, ivt);
+	fip_header = malloc(fip_hdr_size);
 	if (!fip_header) {
 		ERROR("Failed to allocate space for FIP header\n");
 		return -ENOMEM;
@@ -313,6 +319,13 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, enum
 		goto err_free_fip_header;
 	}
 
+	toc_bl2 = get_fip_toc_entry(fip_header, &uuid_bl2);
+	if (!toc_bl2) {
+		ERROR("Failed to retrieve BL2 TOC entry\n");
+		ret = -ENODATA;
+		goto err_free_fip_header;
+	}
+
 	bl2_sign = hse_mem_alloc(toc_bl2_sign->size);
 	if (!bl2_sign) {
 		ERROR("Failed to allocate space for BL2 signature\n");
@@ -326,31 +339,31 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, enum
 		goto err_free_bl2_sign;
 	}
 
-	fip_bin = hse_mem_alloc(toc_bl2_sign->offset);
-	if (!fip_bin) {
-		ERROR("Failed to allocate space for FIP binary\n");
+	bl2_bin = hse_mem_alloc(toc_bl2->size);
+	if (!bl2_bin) {
+		ERROR("Failed to allocate space for BL2\n");
 		ret = -ENOMEM;
 		goto err_free_bl2_sign;
 	}
 
-	/* entire fip with header, except for signature */
-	ret = get_dev_offset(fd, fip_bin, get_fip_start(ivt), toc_bl2_sign->offset);
+	/* Extract BL2 with DTB from the FIP */
+	ret = get_dev_offset(fd, bl2_bin,  get_fip_start(ivt) + toc_bl2->offset, toc_bl2->size);
 	if (ret) {
 		ERROR("Failed to retrieve BL2\n");
-		goto err_free_fip_bin;
+		goto err_free_bl2_bin;
 	}
 
 	smr_entry_hse = hse_mem_alloc(sizeof(*smr_entry_hse));
 	if (!smr_entry_hse) {
 		ERROR("Failed to allocate space for SMR Entry\n");
 		ret = -ENOMEM;
-		goto err_free_fip_bin;
+		goto err_free_bl2_bin;
 	}
 	hse_memset(smr_entry_hse, 0, sizeof(*smr_entry_hse));
 
-	smr_entry.pSmrSrc = get_fip_start(ivt);
-	smr_entry.pSmrDest = app_boot->ram_load;
-	smr_entry.smrSize = toc_bl2_sign->offset;
+	smr_entry.pSmrSrc = get_fip_start(ivt) + toc_bl2->offset;
+	smr_entry.pSmrDest = app_boot->ram_load + fip_hdr_size;
+	smr_entry.smrSize = toc_bl2->size;
 
 	if (boot_medium == QSPI)
 		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_QSPI_FLASH | HSE_SMR_CFG_FLAG_INSTALL_AUTH);
@@ -375,8 +388,8 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, enum
 	srv_desc.hseSrv.smrEntryInstallReq.accessMode = HSE_ACCESS_MODE_ONE_PASS;
 	srv_desc.hseSrv.smrEntryInstallReq.entryIndex = 1u;
 	srv_desc.hseSrv.smrEntryInstallReq.pSmrEntry = hse_virt_to_dma(smr_entry_hse);
-	srv_desc.hseSrv.smrEntryInstallReq.pSmrData = hse_virt_to_dma(fip_bin);
-	srv_desc.hseSrv.smrEntryInstallReq.smrDataLength = toc_bl2_sign->offset;
+	srv_desc.hseSrv.smrEntryInstallReq.pSmrData = hse_virt_to_dma(bl2_bin);
+	srv_desc.hseSrv.smrEntryInstallReq.smrDataLength = toc_bl2->size;
 	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[0] = hse_virt_to_dma(bl2_sign);
 	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[1] = 0u;
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[0] = toc_bl2_sign->size;
@@ -389,8 +402,8 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, enum
 	hse_mem_free(smr_entry_hse);
 err_free_bl2_sign:
 	hse_mem_free(bl2_sign);
-err_free_fip_bin:
-	hse_mem_free(fip_bin);
+err_free_bl2_bin:
+	hse_mem_free(bl2_bin);
 err_free_fip_header:
 	free(fip_header);
 	return ret;
