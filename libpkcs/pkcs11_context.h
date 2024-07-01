@@ -62,6 +62,10 @@
 
 #define INVALID_STREAM_ID	0xFFU
 
+#define BITS_PER_BYTE 8
+#define HSE_MIN_AES_KEY_BITS_LEN 128
+#define HSE_MAX_AES_KEY_BITS_LEN 256
+
 /*
  * struct hse_cryptCtx - crypto ops context
  *

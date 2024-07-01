@@ -26,30 +26,50 @@ static struct globalCtx globalContext = {
 static struct sessionCtx globalSessions[HSE_NUM_CHANNELS];
 
 static const CK_MECHANISM_TYPE mechanismList[] = {
+	/* AES mechanisms */
 	CKM_AES_ECB,
-	CKM_AES_GCM,
 	CKM_AES_CBC,
+	CKM_AES_CBC_PAD,
 	CKM_AES_CTR,
+	CKM_AES_CCM,
+	CKM_AES_GCM,
+	CKM_AES_CMAC,
+	CKM_AES_KEY_GEN,
+	/* RSA mechanisms */
 	CKM_RSA_PKCS,
 	CKM_RSA_PKCS_OAEP,
 	CKM_SHA1_RSA_PKCS,
 	CKM_SHA256_RSA_PKCS,
 	CKM_SHA384_RSA_PKCS,
 	CKM_SHA512_RSA_PKCS,
+	CKM_RSA_PKCS_KEY_PAIR_GEN,
+	/* RSA_PSS mechanisms */
 	CKM_RSA_PKCS_PSS,
 	CKM_SHA1_RSA_PKCS_PSS,
 	CKM_SHA256_RSA_PKCS_PSS,
 	CKM_SHA384_RSA_PKCS_PSS,
 	CKM_SHA512_RSA_PKCS_PSS,
+	/* ECC mechanisms */
 	CKM_ECDSA,
 	CKM_ECDSA_SHA1,
 	CKM_ECDSA_SHA224,
 	CKM_ECDSA_SHA256,
 	CKM_ECDSA_SHA384,
 	CKM_ECDSA_SHA512,
-	CKM_SHA_1, CKM_SHA224, CKM_SHA256, CKM_SHA512, CKM_SHA512_224, CKM_SHA512_256,
-	CKM_AES_CMAC,
-	CKM_SHA224_HMAC, CKM_SHA256_HMAC, CKM_SHA384_HMAC, CKM_SHA512_HMAC,
+	CKM_ECDSA_KEY_PAIR_GEN,
+	/* SHA digest mechanisms */
+	CKM_SHA_1,
+	CKM_SHA224,
+	CKM_SHA256,
+	CKM_SHA512,
+	CKM_SHA512_224,
+	CKM_SHA512_256,
+	/* HMAC mechanisms */
+	CKM_SHA_1_HMAC,
+	CKM_SHA224_HMAC,
+	CKM_SHA256_HMAC,
+	CKM_SHA384_HMAC,
+	CKM_SHA512_HMAC,
 };
 
 static CK_FUNCTION_LIST gFunctionList = {
@@ -576,24 +596,85 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismInfo)(
 		return CKR_SLOT_ID_INVALID;
 
 	switch (type) {
-		case CKM_AES_ECB:
-			pInfo->ulMinKeySize = 0;
-			pInfo->ulMaxKeySize = 256;
+		case CKM_RSA_PKCS:
+			pInfo->ulMinKeySize = HSE_MIN_RSA_KEY_BITS_LEN;
+			pInfo->ulMaxKeySize = HSE_MAX_RSA_KEY_BITS_LEN;
+			pInfo->flags = CKF_HW | CKF_ENCRYPT | CKF_DECRYPT | CKF_SIGN | CKF_VERIFY;
+			break;
+		case CKM_RSA_PKCS_OAEP:
+			pInfo->ulMinKeySize = HSE_MIN_RSA_KEY_BITS_LEN;
+			pInfo->ulMaxKeySize = HSE_MAX_RSA_KEY_BITS_LEN;
 			pInfo->flags = CKF_HW | CKF_ENCRYPT | CKF_DECRYPT;
 			break;
-		case CKM_AES_GCM:
-			pInfo->ulMinKeySize = 0;
-			pInfo->ulMaxKeySize = 256;
-			pInfo->flags = CKF_HW | CKF_ENCRYPT | CKF_DECRYPT;
-			break;
+		case CKM_RSA_PKCS_PSS:
+		case CKM_SHA1_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
-			pInfo->ulMinKeySize = 0;
-			pInfo->ulMaxKeySize = 2048;
+		case CKM_SHA384_RSA_PKCS:
+		case CKM_SHA512_RSA_PKCS:
+		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA256_RSA_PKCS_PSS:
+		case CKM_SHA384_RSA_PKCS_PSS:
+		case CKM_SHA512_RSA_PKCS_PSS:
+			pInfo->ulMinKeySize = HSE_MIN_RSA_KEY_BITS_LEN;
+			pInfo->ulMaxKeySize = HSE_MAX_RSA_KEY_BITS_LEN;
 			pInfo->flags = CKF_HW | CKF_SIGN | CKF_VERIFY;
 			break;
+		case CKM_RSA_PKCS_KEY_PAIR_GEN:
+			pInfo->ulMinKeySize = HSE_MIN_RSA_KEY_BITS_LEN;
+			pInfo->ulMaxKeySize = HSE_MAX_RSA_KEY_BITS_LEN;
+			pInfo->flags = CKF_HW | CKF_GENERATE_KEY_PAIR;
+			break;
+		case CKM_ECDSA:
 		case CKM_ECDSA_SHA1:
-			pInfo->ulMinKeySize = 0;
-			pInfo->ulMaxKeySize = 256;
+		case CKM_ECDSA_SHA224: 
+		case CKM_ECDSA_SHA256:
+		case CKM_ECDSA_SHA384:
+		case CKM_ECDSA_SHA512:
+			pInfo->ulMinKeySize = HSE_MIN_ECC_KEY_BITS_LEN;
+			pInfo->ulMaxKeySize = HSE_MAX_ECC_KEY_BITS_LEN;
+			pInfo->flags = CKF_HW | CKF_SIGN | CKF_VERIFY;
+			break;
+		case CKM_ECDSA_KEY_PAIR_GEN:
+			pInfo->ulMinKeySize = HSE_MIN_ECC_KEY_BITS_LEN;
+			pInfo->ulMaxKeySize = HSE_MAX_ECC_KEY_BITS_LEN;
+			pInfo->flags = CKF_HW | CKF_GENERATE_KEY_PAIR;
+			break;
+		case CKM_AES_ECB:
+		case CKM_AES_CBC:
+		case CKM_AES_CBC_PAD:
+		case CKM_AES_CTR:
+		case CKM_AES_CCM:
+		case CKM_AES_GCM:
+			pInfo->ulMinKeySize = HSE_MIN_AES_KEY_BITS_LEN / BITS_PER_BYTE;
+			pInfo->ulMaxKeySize = HSE_MAX_AES_KEY_BITS_LEN / BITS_PER_BYTE;
+			pInfo->flags = CKF_HW | CKF_ENCRYPT | CKF_DECRYPT;
+			break;
+		case CKM_AES_CMAC:
+			pInfo->ulMinKeySize = HSE_MIN_AES_KEY_BITS_LEN / BITS_PER_BYTE;
+			pInfo->ulMaxKeySize = HSE_MAX_AES_KEY_BITS_LEN / BITS_PER_BYTE;
+			pInfo->flags = CKF_HW | CKF_SIGN | CKF_VERIFY;
+			break;
+		case CKM_AES_KEY_GEN:
+			pInfo->ulMinKeySize = HSE_MIN_AES_KEY_BITS_LEN / BITS_PER_BYTE;
+			pInfo->ulMaxKeySize = HSE_MAX_AES_KEY_BITS_LEN / BITS_PER_BYTE;
+			pInfo->flags = CKF_HW | CKF_GENERATE;
+			break;
+		case CKM_SHA_1:
+		case CKM_SHA224:
+		case CKM_SHA256:
+		case CKM_SHA384:
+		case CKM_SHA512:
+		case CKM_SHA512_224:
+		case CKM_SHA512_256:
+			pInfo->flags = CKF_HW | CKF_DIGEST;
+			break;
+		case CKM_SHA_1_HMAC:
+		case CKM_SHA224_HMAC:
+		case CKM_SHA256_HMAC:
+		case CKM_SHA384_HMAC:
+		case CKM_SHA512_HMAC:
+			pInfo->ulMinKeySize = HSE_MIN_HMAC_KEY_BITS_LEN / BITS_PER_BYTE;
+			pInfo->ulMaxKeySize = HSE_MAX_HMAC_KEY_BITS_LEN / BITS_PER_BYTE;
 			pInfo->flags = CKF_HW | CKF_SIGN | CKF_VERIFY;
 			break;
 		default:
