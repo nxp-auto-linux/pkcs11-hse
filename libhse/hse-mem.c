@@ -2,7 +2,7 @@
 /*
  * NXP HSE Userspace Driver - Memory Management
  *
- * Copyright 2021-2023 NXP
+ * Copyright 2021-2024 NXP
  */
 
 #include <stdio.h>
@@ -97,19 +97,16 @@ int hse_mem_init(const void *intl_base_addr, const void *rmem_base_addr)
 
 int hse_mem_setup(const void *base_addr, const uint64_t mem_size, bool intl)
 {
+	volatile struct node_data **mem = intl ? &priv.intl_mem_start : &priv.mem_start;
+
 	if (!base_addr)
 		return EINVAL;
 
-	if (intl) {
-		priv.intl_mem_start = (struct node_data *)base_addr;
-		priv.intl_mem_start->size = mem_size - HSE_NODE_SIZE;
-		priv.intl_mem_start->intl = 1;
-		priv.intl_mem_start->next_offset = 0;
-	} else {
-		priv.mem_start = (struct node_data *)base_addr;
-		priv.mem_start->size = mem_size - HSE_NODE_SIZE;
-		priv.mem_start->next_offset = 0;
-	}
+	*mem = (struct node_data *)base_addr;
+	(*mem)->size = mem_size - HSE_NODE_SIZE;
+	(*mem)->intl = intl;
+	(*mem)->next_offset = 0;
+	(*mem)->used = false;
 
 	priv.mem_lock = get_mem_lock();
 
