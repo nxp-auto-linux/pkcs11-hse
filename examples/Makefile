@@ -1,9 +1,9 @@
 #
-# Copyright 2021, 2023 NXP
+# Copyright 2021,2023-2024 NXP
 #
 
-examples := pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot trustzone-key-provision pkcs-cipher pkcs-msg-digest pkcs-sig
-default_examples := pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot pkcs-cipher pkcs-msg-digest pkcs-sig
+examples := pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot trustzone-key-provision pkcs-cipher pkcs-msg-digest pkcs-sig pkcs-key-generate
+default_examples := pkcs-keyop pkcs-key-provision hse-encrypt hse-sysimg hse-secboot pkcs-cipher pkcs-msg-digest pkcs-sig pkcs-key-generate
 clean_examples = $(addprefix clean_,$(default_examples))
 install_examples = $(addprefix install_,$(default_examples))
 
