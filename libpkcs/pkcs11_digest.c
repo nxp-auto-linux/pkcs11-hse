@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "pkcs11_context.h"
+#include "pkcs11_extension.h"
 
 #define SHA1_DIGEST_SIZE 20
 #define SHA1_BLOCK_SIZE  64

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023 NXP
+ * Copyright 2023-2024 NXP
  */
 
 #include <stdio.h>
@@ -13,6 +13,7 @@
 #include "simclist.h"
 #include "pkcs11.h"
 #include "pkcs11_context.h"
+#include "pkcs11_extension.h"
 #include "pkcs11_util.h"
 #include "hse-internal.h"
 

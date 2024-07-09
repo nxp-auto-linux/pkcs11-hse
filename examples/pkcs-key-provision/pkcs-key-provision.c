@@ -14,6 +14,7 @@
 #include <openssl/pem.h>
 
 #include "pkcs11.h"
+#include "pkcs11_extension.h"
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023 NXP
+ * Copyright 2023-2024 NXP
  */
 
 #include <stdio.h>
@@ -9,7 +9,9 @@
 #include <string.h>
 #include <dlfcn.h>
 #include <errno.h>
+
 #include "pkcs11.h"
+#include "pkcs11_extension.h"
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))

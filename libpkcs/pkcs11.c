@@ -13,6 +13,7 @@
 
 #include "libhse.h"
 #include "pkcs11_context.h"
+#include "pkcs11_extension.h"
 #include "hse-internal.h"
 #include "simclist.h"
 #include "pkcs11_util.h"

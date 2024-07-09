@@ -11,28 +11,7 @@
 #include <errno.h>
 #include <openssl/sha.h>
 #include "pkcs11.h"
-
-/* add missing HMAC key type from pkcs11.h */
-#ifndef CKK_SHA256_HMAC
-#define CKK_SHA256_HMAC         0x0000002BUL
-#endif
-
-#ifndef CKK_SHA384_HMAC
-#define CKK_SHA384_HMAC         0x0000002CUL
-#endif
-
-#ifndef CKK_SHA512_HMAC
-#define CKK_SHA512_HMAC         0x0000002DUL
-#endif
-
-#ifndef CKK_SHA224_HMAC
-#define CKK_SHA224_HMAC         0x0000002EUL
-#endif
-
-
-#ifndef ARRAY_SIZE
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-#endif
+#include "pkcs11_extension.h"
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
