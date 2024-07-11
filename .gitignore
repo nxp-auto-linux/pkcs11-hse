@@ -1,11 +1,8 @@
-examples/pkcs-keyop/pkcs-keyop
-examples/pkcs-key-provision/pkcs-key-provision
-examples/hse-sysimg/hse-sysimg
-examples/hse-encrypt/hse-encrypt
-examples/hse-secboot/hse-secboot
-examples/trustzone-key-provision/target/hse-kek-provision
-examples/trustzone-key-provision/target/hse-symkey-provision
-examples/trustzone-key-provision/host/aes-gcm-key-encryption
+examples/*
+!examples/*/*.c
+!examples/*/*.h
+!examples/*/*.md
+!examples/*/Makefile
 *.so*
 libhse/obj
 libpkcs/obj
