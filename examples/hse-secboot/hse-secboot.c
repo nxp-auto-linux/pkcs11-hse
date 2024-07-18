@@ -15,6 +15,7 @@
 #include <openssl/bn.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
+#include <getopt.h>
 
 #include <sys/ioctl.h>
 #include <mtd/mtd-user.h>
@@ -30,9 +31,14 @@
 #define APP_CODE_OFFSET 0x40u
 #define IVT_OFFSET_QSPI 0x0
 #define IVT_OFFSET_SD_MMC 0x1000u
-#define HSE_BOOT_KEY_HANDLE 0x010700u
 #define HSE_SMR_ENTRY_1 BIT(1)
 #define HSE_IVT_BOOTSEQ_BIT BIT(3)
+
+#define BL2_DEFAULT_KEY_HANDLE 0x010700
+#define BL31_DEFAULT_KEY_HANDLE 0x010700
+#define BL32_DEFAULT_KEY_HANDLE 0x010700
+#define BL33_DEFAULT_KEY_HANDLE 0x010700
+
 // Assuming 64KB QSPI block size
 #define QSPI_BLOCK_SIZE 0x10000u
 #define HSE_EXT_FLASH_PAGE_QSPI	0x1000u
@@ -48,6 +54,20 @@
 
 #define UUID_TRUSTED_BOOT_FIRMWARE_BL2 \
 	{{0x5f, 0xf9, 0xec, 0x0b}, {0x4d, 0x22}, {0x3e, 0x4d}, 0xa5, 0x44, {0xc3, 0x9d, 0x81, 0xc7, 0x3f, 0x0a} }
+
+enum boot_type {
+	QSPI = 0,
+	SD = 2,
+	MMC = 3,
+};
+
+enum image_key_type {
+	INVALID_KEY = -1,
+	BL2_KEY,
+	BL31_KEY,
+	BL32_KEY,
+	BL33_KEY,
+};
 
 struct ivt {
 	uint32_t ivt_header;
@@ -101,10 +121,29 @@ struct fip_toc_entry {
 	uint64_t flags;
 } __attribute((packed));
 
-enum boot_type {
-	QSPI = 0,
-	SD = 2,
-	MMC = 3,
+struct bl_key {
+	enum image_key_type type;
+	bool req;
+	uint32_t handle;
+	char *name;
+	char *input_arg;
+	char *keypath;
+};
+
+struct bl_key bl_keys[] = {
+	{ BL2_KEY, true, BL2_DEFAULT_KEY_HANDLE, "BL2 Public key", NULL, NULL },
+	{ BL31_KEY, true, BL31_DEFAULT_KEY_HANDLE, "BL31 Public key", NULL, NULL },
+	{ BL32_KEY, false, BL32_DEFAULT_KEY_HANDLE, "BL32 Public key", NULL, NULL },
+	{ BL33_KEY, true, BL33_DEFAULT_KEY_HANDLE, "BL33 Public key", NULL, NULL },
+	{ INVALID_KEY, false, HSE_INVALID_KEY_HANDLE, NULL, NULL } /* end of key list - required */
+};
+
+const struct option key_options[] = {
+	{ "bl2_key",  required_argument, NULL, BL2_KEY },
+	{ "bl31_key", required_argument, NULL, BL31_KEY },
+	{ "bl32_key", required_argument, NULL, BL32_KEY },
+	{ "bl33_key", required_argument, NULL, BL33_KEY },
+	{ NULL, 0, NULL, 0}
 };
 
 /* the nvm container used to format the hse key catalogs */
@@ -179,6 +218,76 @@ static struct fip_toc_entry *get_fip_toc_entry(uint8_t *fip_header, struct uuid 
 	return NULL;
 }
 
+int hse_set_key_input(char *input, enum image_key_type type)
+{
+	for (int i = 0; bl_keys[i].type != INVALID_KEY; i++) {
+		if (bl_keys[i].type != type)
+			continue;
+
+		bl_keys[i].input_arg = input;
+		return 0;
+	}
+
+	ERROR("Internal error: image key type unrecognized\n");
+	return -EINVAL;
+}
+
+int hse_check_req_keys(void)
+{
+	for (int i = 0; bl_keys[i].type != INVALID_KEY; i++) {
+		if (bl_keys[i].req && !bl_keys[i].input_arg) {
+			ERROR("The %s is required\n", bl_keys[i].name);
+			return -EINVAL;
+		} else if (!bl_keys[i].req && bl_keys[i].input_arg) {
+			INFO("The %s is not required, but will be imported\n", bl_keys[i].name);
+		}
+	}
+	return 0;
+}
+
+int hse_parse_keys(void)
+{
+	char *handle_string = NULL;
+
+	for (int i = 0; bl_keys[i].type != INVALID_KEY; i++) {
+		if (!bl_keys[i].input_arg)
+			continue;
+
+		if (!strchr(bl_keys[i].input_arg, ':')) {
+			bl_keys[i].keypath = bl_keys[i].input_arg;
+			INFO("Successfully parsed %s input\n", bl_keys[i].name);
+			continue;
+		}
+
+		bl_keys[i].keypath = strtok(strdup(bl_keys[i].input_arg), ":");
+
+		if (!bl_keys[i].keypath)
+			return -EINVAL;
+
+		handle_string = strtok(NULL, ":");
+		if (!handle_string || strlen(handle_string) != 8)
+			return -EINVAL;
+
+		bl_keys[i].handle = (uint32_t)strtol(handle_string, NULL, 16);
+		if (!bl_keys[i].handle)
+			return -EINVAL;
+		INFO("Successfully parsed %s input\n", bl_keys[i].name);
+	}
+	return 0;
+}
+
+int hse_check_prev_import(int key_idx)
+{
+	for (int i = 0; i < key_idx; i++) {
+		if (bl_keys[i].handle == bl_keys[key_idx].handle) {
+			INFO("Key slot already occupied, %s already imported for a previous BL.\n",
+				 bl_keys[key_idx].name);
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int hse_mus_enable()
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
@@ -248,7 +357,8 @@ err_free_nvm:
 	return ret;
 }
 
-int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_exponent, int rsa_pub_exponent_size)
+int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size,
+                   uint8_t *rsa_pub_exponent, int rsa_pub_exponent_size, uint32_t handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	volatile hseKeyInfo_t *key_info;
@@ -269,7 +379,7 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 	key_info->specific.pubExponentSize = rsa_pub_exponent_size;
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
-	srv_desc.hseSrv.importKeyReq.targetKeyHandle = HSE_BOOT_KEY_HANDLE;
+	srv_desc.hseSrv.importKeyReq.targetKeyHandle = handle;
 	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma((void *)key_info);
 	srv_desc.hseSrv.importKeyReq.pKey[0] = hse_virt_to_dma(rsa_modulus);
 	srv_desc.hseSrv.importKeyReq.pKey[1] = hse_virt_to_dma(rsa_pub_exponent);
@@ -288,7 +398,83 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size, uint8_t *rsa_pub_
 	return ret;
 }
 
-int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, enum boot_type boot_medium)
+int hse_extract_and_import_key(const char *keypath, uint32_t handle)
+{
+	FILE *f;
+	int bytes, ret = 0;
+	EVP_PKEY *pkey;
+	uint8_t *rsa_modulus, *rsa_pub_exponent;
+	BIGNUM *rsa_bn_modulus = NULL, *rsa_bn_pub_exponent = NULL;
+
+	f = fopen(keypath, "rb");
+	if (!f) {
+		ERROR("Could not find RSA Key file %s\n", keypath);
+		return -ENOENT;
+	}
+
+	pkey = PEM_read_PUBKEY(f, NULL, NULL, NULL);
+	if (!pkey) {
+		ERROR("Failed to read RSA Public Key from file %s\n", keypath);
+		ret = -ENOKEY;
+		goto err_close_keyfile;
+	}
+
+	ret = EVP_PKEY_get_bn_param(pkey, "n", &rsa_bn_modulus);
+	if (!rsa_bn_modulus) {
+		ERROR("Failed to read RSA Public Key Modulus from file %s\n", keypath);
+		ret = -ENOKEY;
+		goto err_close_keyfile;
+	}
+
+	ret = EVP_PKEY_get_bn_param(pkey, "e", &rsa_bn_pub_exponent);
+	if (!rsa_bn_pub_exponent) {
+		ERROR("Failed to read RSA Public Key Exponent from file %s\n", keypath);
+		ret = -ENOKEY;
+		goto err_close_keyfile;
+	}
+
+	rsa_modulus = hse_mem_alloc(BN_num_bytes(rsa_bn_modulus));
+	if (!rsa_modulus) {
+		ERROR("Failed to allocate space for RSA Public Key Modulus\n");
+		ret = -ENOMEM;
+		goto err_close_keyfile;
+	}
+
+	rsa_pub_exponent = hse_mem_alloc(BN_num_bytes(rsa_bn_pub_exponent));
+	if (!rsa_pub_exponent) {
+		ERROR("Failed to allocate space for RSA Public Key Exponent\n");
+		ret = -ENOMEM;
+		goto err_free_rsa_modulus;
+	}
+
+	bytes = BN_bn2bin(rsa_bn_modulus, rsa_modulus);
+	if (bytes != BN_num_bytes(rsa_bn_modulus)) {
+		ERROR("Failed to copy RSA Public Key Modulus\n");
+		ret = -ENOKEY;
+		goto err_free_rsa_pub_exponent;
+	}
+
+	bytes = BN_bn2bin(rsa_bn_pub_exponent, rsa_pub_exponent);
+	if (bytes != BN_num_bytes(rsa_bn_pub_exponent)) {
+		ERROR("Failed to copy RSA Public Exponent\n");
+		ret = -ENOKEY;
+		goto err_free_rsa_pub_exponent;
+	}
+
+	ret = hse_key_import(rsa_modulus, BN_num_bytes(rsa_bn_modulus), rsa_pub_exponent,
+						 BN_num_bytes(rsa_bn_pub_exponent), handle);
+
+err_free_rsa_pub_exponent:
+	hse_mem_free(rsa_pub_exponent);
+err_free_rsa_modulus:
+	hse_mem_free(rsa_modulus);
+err_close_keyfile:
+	fclose(f);
+	return ret;
+}
+
+int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
+                    uint32_t auth_handle, enum boot_type boot_medium)
 {
 	struct uuid uuid_bl2_sign = UUID_BL2_SIGN;
 	struct uuid uuid_bl2 = UUID_TRUSTED_BOOT_FIRMWARE_BL2;
@@ -373,7 +559,7 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot, enum
 		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_MMC_FLASH | HSE_SMR_CFG_FLAG_INSTALL_AUTH);
 
 	smr_entry.checkPeriod = 0;
-	smr_entry.authKeyHandle = HSE_BOOT_KEY_HANDLE;
+	smr_entry.authKeyHandle = auth_handle;
 	smr_entry.authScheme.sigScheme.signSch = HSE_SIGN_RSASSA_PKCS1_V15;
 	smr_entry.authScheme.sigScheme.sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA_1;
 	smr_entry.pInstAuthTag[0] = get_fip_start(ivt) + toc_bl2_sign->offset;
@@ -488,7 +674,8 @@ int hse_sysimg_publish(void *sysimg, uint32_t *sysimg_size)
 	return ret;
 }
 
-int hse_sysimg_write_sd_mmc(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_size, enum boot_type boot_medium, bool secure)
+int hse_sysimg_write_sd_mmc(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_size,
+                            enum boot_type boot_medium, bool secure)
 {
 	off_t seek_off;
 	int bytes;
@@ -586,18 +773,14 @@ int hse_sysimg_write_qspi(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysim
 	return 0;
 }
 
-int hse_secboot_enable(const char *device, const char *keypath, enum boot_type boot_medium)
+int hse_secboot_enable(const char *device, enum boot_type boot_medium)
 {
 	struct ivt ivt;
 	struct app_boot_hdr app_boot;
-	uint32_t *sysimg_size;
-	uint8_t *rsa_modulus, *rsa_pub_exponent;
-	void *sysimg;
 	uint16_t hse_status;
-	int fd, bytes, ret = 0;
-	FILE *f;
-	EVP_PKEY *pkey;
-	BIGNUM *rsa_bn_modulus = NULL, *rsa_bn_pub_exponent = NULL;
+	uint32_t *sysimg_size;
+	void *sysimg;
+	int fd, ret = 0;
 
 	ret = hse_dev_open();
 	if (ret) {
@@ -649,79 +832,29 @@ int hse_secboot_enable(const char *device, const char *keypath, enum boot_type b
 			goto err_close_fd;
 	}
 
-	f = fopen(keypath, "rb");
-	if (!f) {
-		ERROR("Could not find RSA Key file %s\n", keypath);
-		ret = -ENOENT;
-		goto err_close_fd;
+	for (int i = 0; bl_keys[i].type != INVALID_KEY; i++) {
+		if (!bl_keys[i].keypath || hse_check_prev_import(i))
+			continue;
+
+		INFO("Importing %s\n", bl_keys[i].name);
+		ret = hse_extract_and_import_key(bl_keys[i].keypath, bl_keys[i].handle);
+		if (ret) {
+			ERROR("Failed to import %s\n", bl_keys[i].name);
+			goto err_close_fd;
+		}
 	}
-
-	pkey = PEM_read_PUBKEY(f, NULL, NULL, NULL);
-	if (!pkey) {
-		ERROR("Failed to read RSA Public Key from file %s\n", keypath);
-		ret = -ENOKEY;
-		goto err_close_keyfile;
-	}
-
-	ret = EVP_PKEY_get_bn_param(pkey, "n", &rsa_bn_modulus);
-	if (!rsa_bn_modulus) {
-		ERROR("Failed to read RSA Public Key Modulus from file %s\n", keypath);
-		ret = -ENOKEY;
-		goto err_close_keyfile;
-	}
-
-	ret = EVP_PKEY_get_bn_param(pkey, "e", &rsa_bn_pub_exponent);
-	if (!rsa_bn_pub_exponent) {
-		ERROR("Failed to read RSA Public Key Exponent from file %s\n", keypath);
-		ret = -ENOKEY;
-		goto err_close_keyfile;
-	}
-
-	rsa_modulus = hse_mem_alloc(BN_num_bytes(rsa_bn_modulus));
-	if (!rsa_modulus) {
-		ERROR("Failed to allocate space for RSA Public Key Modulus\n");
-		ret = -ENOMEM;
-		goto err_close_keyfile;
-	}
-
-	rsa_pub_exponent = hse_mem_alloc(BN_num_bytes(rsa_bn_pub_exponent));
-	if (!rsa_pub_exponent) {
-		ERROR("Failed to allocate space for RSA Public Key Exponent\n");
-		ret = -ENOMEM;
-		goto err_free_rsa_modulus;
-	}
-
-	bytes = BN_bn2bin(rsa_bn_modulus, rsa_modulus);
-	if (bytes != BN_num_bytes(rsa_bn_modulus)) {
-		ERROR("Failed to copy RSA Public Key Modulus\n");
-		ret = -ENOKEY;
-		goto err_free_rsa_pub_exponent;
-	}
-
-	bytes = BN_bn2bin(rsa_bn_pub_exponent, rsa_pub_exponent);
-	if (bytes != BN_num_bytes(rsa_bn_pub_exponent)) {
-		ERROR("Failed to copy RSA Public Exponent\n");
-		ret = -ENOKEY;
-		goto err_free_rsa_pub_exponent;
-	}
-
-	INFO("Importing RSA public key into NVM key catalog\n");
-
-	ret = hse_key_import(rsa_modulus, BN_num_bytes(rsa_bn_modulus), rsa_pub_exponent, BN_num_bytes(rsa_bn_pub_exponent));
-	if (ret)
-		goto err_free_rsa_pub_exponent;
 
 	INFO("Generating Secure Memory Region entry\n");
 
-	ret = hse_smr_install(fd, &ivt, &app_boot, boot_medium);
+	ret = hse_smr_install(fd, &ivt, &app_boot, bl_keys[BL2_KEY].handle, boot_medium);
 	if (ret)
-		goto err_free_rsa_pub_exponent;
+		goto err_close_fd;
 
 	INFO("Generating Core Reset Entry\n");
 
 	ret = hse_cr_install(&app_boot);
 	if (ret)
-		goto err_free_rsa_pub_exponent;
+		goto err_close_fd;
 
 	INFO("Retrieving SYSIMG size\n");
 
@@ -729,7 +862,7 @@ int hse_secboot_enable(const char *device, const char *keypath, enum boot_type b
 	if (!sysimg_size) {
 		ERROR("Failed to allocate space for SYSIMG size\n");
 		ret = -ENOMEM;
-		goto err_free_rsa_pub_exponent;
+		goto err_close_fd;
 	}
 
 	ret = hse_sysimg_getsize(sysimg_size);
@@ -760,12 +893,6 @@ err_free_sysimg:
 	hse_mem_free(sysimg);
 err_free_sysimg_size:
 	hse_mem_free(sysimg_size);
-err_free_rsa_pub_exponent:
-	hse_mem_free(rsa_pub_exponent);
-err_free_rsa_modulus:
-	hse_mem_free(rsa_modulus);
-err_close_keyfile:
-	fclose(f);
 err_close_fd:
 	close(fd);
 err_close_hse:
@@ -875,39 +1002,57 @@ err_close_hse:
 
 void usage(char *progname)
 {
-	printf("\nformat HSE key catalogs or set up HSE-based advanced secure boot\n");
+	printf("\nformat HSE key catalogs or set up HSE-based advanced secure boot\n\n");
+	printf("Example: hse-secboot -s -d /dev/mmcblk0 --bl2_key /etc/keys/secboot/bl2_rsa2048_public.pem ");
+	printf("--bl31_key -:0x010700 --bl33_key -:0x010700");
 	printf("\n");
 	printf("Usage:\n");
 	printf("\n");
-	printf("%s [-h] [-b bootmedium] [-f|s] [-k keypath] [-d devpath]\n", progname);
+	printf("%s [-h] [-o] [-b bootmedium] [-f|s] [-d devpath]\n", progname);
+	printf("%*c", (int)(strlen(progname) + 2), ' ');
+	printf("[--bl2_key] [--bl31_key] [--bl32_key] [--bl33_key]\n");
 	printf("\n");
 	printf("\t-h:\tdisplay this help string\n");
 	printf("\t-f:\tformat key catalogs\n");
 	printf("\t\trequires -d\n");
 	printf("\t\tmutually exclusive with -s\n");
-	printf("\t-o:\tforce overwrite of HSE key catalog\n");
 	printf("\t-s:\tset up advanced secure boot\n");
-	printf("\t\trequires -d and -k\n");
+	printf("\t\trequires -d and --bl2_key, --bl31_key, --bl33_key\n");
 	printf("\t\tmutually exclusive with -f\n");
+	printf("\t-o:\tforce overwrite of HSE key catalog\n");
 	printf("\t-b:\tspecify boot medium type, possible values:\n");
 	printf("\t\t\t    sd - SD card boot (default)\n");
 	printf("\t\t\t  qspi - QSPI Flash boot\n");
 	printf("\t\t\t   mmc - MMC or eMMC boot\n");
-	printf("\t-k:\tspecify full path to PEM format key file\n");
 	printf("\t-d:\tspecify full path to SD/MMC/MTD device (e.g. /dev/sdb or /dev/mtd0)\n");
+	printf("\t--bl2_key: specify full path to PEM format key file for BL2 and HSE key slot (required)\n");
+	printf("\t--bl31_key: specify full path to PEM format key file for BL31 and HSE key slot\n");
+	printf("\t--bl32_key: specify full path to PEM format key file for BL32 and HSE key slot (should be used if OP-TEE is present)\n");
+	printf("\t--bl33_key: specify full path to PEM format key file for BL33 and HSE key slot\n");
+	printf("\t\tkey slot is optional, default values will be used if it is not set\n");
+	printf("\n");
+	printf("\t\tkey input for `--bl*_key` arguments: <key_file>:0x<key_slot>\n");
+	printf("\t\t(key_file will be ignored if key_slot is equal to a previous key)\n");
 }
 
 int main(int argc, char *argv[])
 {
-	char *keypath = NULL, *devpath = NULL, *bootmedium = "sd";
+	char *devpath = NULL, *bootmedium = "sd";
 	int c, fflag = 0, sflag = 0, oflag = 0, ret = 0;
 	enum boot_type type = SD;
 
-	while ((c = getopt(argc, argv, "hfosb:k:d:")) != -1) {
+	while ((c = getopt_long(argc, argv, "hfosb:d:", key_options, NULL)) != -1) {
 		switch (c) {
 			case 'h':
 				usage(argv[0]);
 				return 0;
+			case BL2_KEY:
+			case BL31_KEY:
+			case BL32_KEY:
+			case BL33_KEY:
+				if (hse_set_key_input(optarg, c))
+					return -1;
+				break;
 			case 'f':
 				fflag = 1;
 				break;
@@ -917,9 +1062,6 @@ int main(int argc, char *argv[])
 			case 's':
 				sflag = 1;
 				break;
-			case 'k':
-				keypath = optarg;
-				break;
 			case 'd':
 				devpath = optarg;
 				break;
@@ -927,10 +1069,6 @@ int main(int argc, char *argv[])
 				bootmedium = optarg;
 				break;
 			case '?':
-				if (optopt == 'k' || optopt == 'd' || optopt == 'b')
-					ERROR("Option -%c requires an argument\n", optopt);
-				else
-					ERROR("Unrecognized option: -%c\n", optopt);
 				usage(argv[0]);
 				return -1;
 			default:
@@ -938,6 +1076,12 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return -1;
 		}
+	}
+
+	if (!fflag && !sflag) {
+		ERROR("-s or -f should be used\n");
+		usage(argv[0]);
+		return -1;
 	}
 
 	if (fflag && sflag) {
@@ -952,8 +1096,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	if (sflag && !keypath) {
-		ERROR("Option -s requires -k\n");
+	if (sflag && hse_check_req_keys()) {
 		usage(argv[0]);
 		return -1;
 	}
@@ -969,15 +1112,19 @@ int main(int argc, char *argv[])
 	}
 	INFO("Chosen boot medium: %s\n", bootmedium);
 
-	if (fflag && devpath) {
+	if (fflag) {
 		INFO("Formatting HSE key catalog\n");
 		ret = hse_keycatalog_format(devpath, oflag, type);
 		return ret;
 	}
-
-	if (sflag && devpath && keypath) {
+	
+	if (sflag) {
 		INFO("Setting up secure boot\n");
-		ret = hse_secboot_enable(devpath, keypath, type);
+		ret = hse_parse_keys();
+		if (ret)
+			return ret; 
+		
+		ret = hse_secboot_enable(devpath, type);
 		return ret;
 	}
 
