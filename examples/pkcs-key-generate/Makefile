@@ -1,5 +1,5 @@
 #
-# Copyright 2024 NXP
+# Copyright 2023-2024 NXP
 #
 
 include ../../common.mk
