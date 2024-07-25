@@ -641,8 +641,8 @@ int hse_secboot_enable(const char *device, const char *keypath, enum boot_type b
 		goto err_close_fd;
 
 	/* check if sysimg already exists */
-	if (!(hse_status & HSE_STATUS_PRIMARY_SYS_IMAGE)) {
-		INFO("Did not find previous SYSIMG, formatting NVM and RAM key catalogs\n");
+	if (!(hse_status & HSE_STATUS_INSTALL_OK)) {
+		INFO("HSE key catalogs not found, formatting NVM and RAM key catalogs\n");
 
 		ret = hse_key_format();
 		if (ret)
@@ -795,8 +795,8 @@ int hse_keycatalog_format(const char* device, bool overwrite, enum boot_type boo
 		goto err_close_hse;
 	}
 
-	if (hse_status & HSE_STATUS_PRIMARY_SYS_IMAGE && !overwrite) {
-		ERROR("SYS_IMG already loaded\n");
+	if (hse_status & HSE_STATUS_INSTALL_OK && !overwrite) {
+		ERROR("HSE key catalogs already formatted\n");
 		ret = -ECANCELED;
 		goto err_close_hse;
 	}
