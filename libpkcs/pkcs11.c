@@ -316,7 +316,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 			gCtx->mtxFns.lock = initArgs->LockMutex;
 			gCtx->mtxFns.unlock = initArgs->UnlockMutex;
 
-			rv = gCtx->mtxFns.create(gCtx->keyMtx);
+			rv = gCtx->mtxFns.create(&gCtx->keyMtx);
 			if (rv)
 				return rv;
 		} else if (!initArgs->CreateMutex && !initArgs->DestroyMutex &&
@@ -335,6 +335,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 				gCtx->mtxFns.destroy = NULL;
 				gCtx->mtxFns.lock = NULL;
 				gCtx->mtxFns.unlock = NULL;
+				gCtx->keyMtx = NULL;
 			}
 		} else {
 			return CKR_ARGUMENTS_BAD;
