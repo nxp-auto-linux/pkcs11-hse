@@ -134,12 +134,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
 	int err;
 
 	rc = check_init(hSession, CK_FALSE);
-	if (rc != CKR_OK) {
-		if (rc == CKR_OPERATION_NOT_INITIALIZED)
-			return rc;
-		else
-			goto out_uninit;
-	}
+	if (rc != CKR_OK)
+		return rc;
 
 	if (ulDataLen == 0) {
 		rc = CKR_DATA_LEN_RANGE;
@@ -240,12 +236,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestUpdate)(
 	int err;
 
 	rc = check_init(hSession, CK_FALSE);
-	if (rc != CKR_OK) {
-		if (rc == CKR_OPERATION_NOT_INITIALIZED)
-			return rc;
-		else
-			goto out_uninit;
-	}
+	if (rc != CKR_OK)
+		return rc;
 
 	if (pPart == NULL) {
 		rc = CKR_DATA_INVALID;
@@ -340,12 +332,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
 	int err;
 
 	rc = check_init(hSession, CK_FALSE);
-	if (rc != CKR_OK) {
-		if (rc == CKR_OPERATION_NOT_INITIALIZED)
-			return rc;
-		else
-			goto out_uninit;
-	}
+	if (rc != CKR_OK)
+		return rc;
 
 	if (pulDigestLen == NULL) {
 		rc = CKR_ENCRYPTED_DATA_LEN_RANGE;
