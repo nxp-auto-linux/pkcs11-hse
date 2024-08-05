@@ -137,6 +137,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
 	if (rc != CKR_OK)
 		return rc;
 
+	if (sCtx->digestCtx.stream_start == CK_FALSE)
+		return CKR_FUNCTION_FAILED;
+
 	if (ulDataLen == 0) {
 		rc = CKR_DATA_LEN_RANGE;
 		goto out_uninit;

@@ -103,6 +103,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
 	if (sCtx->cryptCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
+	if (sCtx->cryptCtx.stream_start == CK_FALSE)
+		return CKR_FUNCTION_FAILED;
+
 	if (pData == NULL || pEncryptedData == NULL || pulEncryptedDataLen == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
 		goto out_uninit;
@@ -557,6 +560,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
 	if (sCtx->cryptCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
+	if (sCtx->cryptCtx.stream_start == CK_FALSE)
+		return CKR_FUNCTION_FAILED;
+
 	if (pData == NULL || pEncryptedData == NULL || pulDataLen == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
 		goto out_uninit;
@@ -993,6 +999,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
 	if (sCtx->signCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
 
+	if (sCtx->signCtx.stream_start == CK_FALSE)
+		return CKR_FUNCTION_FAILED;
+
 	if (pData == NULL) {
 		rc = CKR_DATA_INVALID;
 		goto out_uninit;
@@ -1316,6 +1325,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
 
 	if (sCtx->signCtx.init == CK_FALSE)
 		return CKR_OPERATION_NOT_INITIALIZED;
+
+	if (sCtx->signCtx.stream_start == CK_FALSE)
+		return CKR_FUNCTION_FAILED;
 
 	if (pData == NULL) {
 		rc = CKR_DATA_INVALID;
