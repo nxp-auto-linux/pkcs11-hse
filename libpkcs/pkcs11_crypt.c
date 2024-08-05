@@ -2584,7 +2584,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignFinal)(
 	/* the stream should be already started */
 	if (sCtx->signCtx.stream_start) {
 		rc = CKR_FUNCTION_FAILED;
-		goto out_free_input;
+		goto out_uninit;
 	}
 
 	sig_len = hse_mem_alloc(sizeof(uint32_t));
