@@ -61,6 +61,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestInit)(
 			sCtx->digestCtx.init = CK_FALSE;
 			free(sCtx->digestCtx.cache);
 			sCtx->digestCtx.cache = NULL;
+			hse_stream_free(sCtx->digestCtx.streamID);
+			sCtx->digestCtx.stream_start = CK_TRUE;
 			return CKR_OK;
 		}
 

@@ -33,6 +33,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 			sCtx->cryptCtx.cache = NULL;
 		}
 		sCtx->cryptCtx.init = CK_FALSE;
+		hse_stream_free(sCtx->cryptCtx.streamID);
 		sCtx->cryptCtx.stream_start = CK_TRUE;
 		return CKR_OK;
 	}
@@ -490,6 +491,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 			sCtx->cryptCtx.cache = NULL;
 		}
 		sCtx->cryptCtx.init = CK_FALSE;
+		hse_stream_free(sCtx->cryptCtx.streamID);
 		sCtx->cryptCtx.stream_start = CK_TRUE;
 		return CKR_OK;
 	}
@@ -935,6 +937,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 			sCtx->signCtx.cache = NULL;
 		}
 		sCtx->signCtx.init = CK_FALSE;
+		hse_stream_free(sCtx->signCtx.streamID);
 		sCtx->signCtx.stream_start = CK_TRUE;
 		return CKR_OK;
 	}
@@ -1262,6 +1265,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 			sCtx->signCtx.cache = NULL;
 		}
 		sCtx->signCtx.init = CK_FALSE;
+		hse_stream_free(sCtx->signCtx.streamID);
 		sCtx->signCtx.stream_start = CK_TRUE;
 		return CKR_OK;
 	}
