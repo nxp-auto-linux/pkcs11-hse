@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023 NXP
+ * Copyright 2023-2024 NXP
  */
 
 #include <stdio.h>
@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
 
 	key_info_ptr = (hseKeyInfo_t *)key_info;
 	key_info_ptr->keyFlags = HSE_KF_ACCESS_WRITE_PROT | HSE_KF_USAGE_DECRYPT |
-				 HSE_KF_USAGE_KEY_PROVISION;
+				 HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_KEY_PROVISION;
 	key_info_ptr->keyBitLen = HSE_KEK_SIZE * 8;
 	key_info_ptr->keyType = HSE_KEY_TYPE_AES;
 	key_info_ptr->smrFlags = 0;
