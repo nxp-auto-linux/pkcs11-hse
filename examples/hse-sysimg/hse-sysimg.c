@@ -2,7 +2,7 @@
 /*
  * hse-sysimg - example application using libhse to publish SYS_IMG to SD Card
  *
- * Copyright 2019-2022 NXP
+ * Copyright 2019-2022, 2024 NXP
  */
 
 #include <stdio.h>
@@ -124,14 +124,16 @@ int main(int argc, char *argv[])
 	status = hse_check_status();
 	if (!(status & HSE_STATUS_INSTALL_OK)) {
 		printf("ERROR: key catalogs not formatted\n");
-		return ENODEV;
+		err = ENODEV;
+		goto err_hse_dev_close;
 	}
 
 	/* unused, but required by HSE */
 	publish_off = hse_mem_alloc(sizeof(*publish_off));
 	if (!publish_off) {
 		printf("ERROR: 'publish_off' allocation failed\n");
-		return ENOMEM;
+		err = ENOMEM;
+		goto err_hse_dev_close;
 	}
 
 	sysimg_size = hse_mem_alloc(sizeof(*sysimg_size));
@@ -176,5 +178,7 @@ err_free_sysimg_size:
 	hse_mem_free(sysimg_size);
 err_free_publish_off:
 	hse_mem_free(publish_off);
+err_hse_dev_close:
+	hse_dev_close();
 	return err;
 }
