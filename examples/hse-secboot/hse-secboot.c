@@ -35,6 +35,7 @@
 #define HSE_IVT_BOOTSEQ_BIT BIT(3)
 
 #define BL2_SIGN_ARG_ID 0
+#define BL2_BIN_ARG_ID 1
 #define BL2_DEFAULT_KEY_HANDLE 0x010700
 #define BL31_DEFAULT_KEY_HANDLE 0x010700
 #define BL32_DEFAULT_KEY_HANDLE 0x010700
@@ -50,12 +51,6 @@
 #define HSE_APP_CORE_A53_0 HSE_APP_CORE4
 #endif
 
-#define UUID_BL2_SIGN \
-	{{0xd6, 0xe2, 0x69, 0xea}, {0x5d, 0x63}, {0xe4, 0x11}, 0x8d, 0x8c, {0x9f, 0xba, 0xbe, 0x99, 0x56, 0xa5} }
-
-#define UUID_TRUSTED_BOOT_FIRMWARE_BL2 \
-	{{0x5f, 0xf9, 0xec, 0x0b}, {0x4d, 0x22}, {0x3e, 0x4d}, 0xa5, 0x44, {0xc3, 0x9d, 0x81, 0xc7, 0x3f, 0x0a} }
-
 enum boot_type {
 	QSPI = 0,
 	SD = 2,
@@ -64,7 +59,7 @@ enum boot_type {
 
 enum image_key_type {
 	INVALID_KEY = -1,
-	BL2_KEY = 1,
+	BL2_KEY = 2,
 	BL31_KEY,
 	BL32_KEY,
 	BL33_KEY,
@@ -100,28 +95,6 @@ struct app_boot_hdr {
 	uint32_t code_len;
 } __attribute((packed));
 
-struct uuid {
-	uint8_t time_low[4];
-	uint8_t time_mid[2];
-	uint8_t time_hi_and_version[2];
-	uint8_t clock_seq_hi_and_reserved;
-	uint8_t clock_seq_low;
-	uint8_t node[6];
-} __attribute((packed));
-
-struct fip_toc_header {
-	uint32_t name;
-	uint32_t serial_number;
-	uint64_t flags;
-} __attribute((packed));
-
-struct fip_toc_entry {
-	struct uuid uuid;
-	uint64_t offset;
-	uint64_t size;
-	uint64_t flags;
-} __attribute((packed));
-
 struct bl_key {
 	enum image_key_type type;
 	bool req;
@@ -141,6 +114,7 @@ struct bl_key bl_keys[] = {
 
 const struct option secboot_options[] = {
 	{ "bl2_sign", required_argument, NULL, BL2_SIGN_ARG_ID },
+	{ "bl2_bin", required_argument, NULL, BL2_BIN_ARG_ID },
 	{ "bl2_key",  required_argument, NULL, BL2_KEY },
 	{ "bl31_key", required_argument, NULL, BL31_KEY },
 	{ "bl32_key", required_argument, NULL, BL32_KEY },
@@ -158,13 +132,7 @@ const hseKeyGroupCfgEntry_t ram_cat[] = {
 	HSE_RAM_KEY_CATALOG_CFG
 };
 
-/* return 0 for equal uuids */
-static inline int compare_uuids(const struct uuid *uuid1, const struct uuid *uuid2)
-{
-	return memcmp(uuid1, uuid2, sizeof(struct uuid));
-}
-
-static inline uint32_t get_fip_start(struct ivt *ivt)
+static inline uint32_t get_app_boot_start(struct ivt *ivt)
 {
 	return ivt->app_boot + APP_CODE_OFFSET;
 }
@@ -183,41 +151,6 @@ static int get_dev_offset(int fd, void *dest, off_t offset, size_t bytes)
 		return -errno;
 
 	return 0;
-}
-
-static uint64_t get_fip_header_size(int fd, struct ivt *ivt)
-{
-	struct fip_toc_entry toc_entry;
-	off_t seek;
-
-	seek = get_fip_start(ivt) + sizeof(struct fip_toc_header);
-
-	if (get_dev_offset(fd, &toc_entry, seek, sizeof(toc_entry)))
-		return 0;
-
-	/* the offset of the first entry in the FIP is equal to the size of the FIP header */
-	return toc_entry.offset;
-}
-
-static struct fip_toc_entry *get_fip_toc_entry(uint8_t *fip_header, struct uuid *search)
-{
-	struct fip_toc_header *toc_header;
-	struct fip_toc_entry *toc_entry;
-	uintptr_t fip_hdr_end;
-
-	toc_header = (struct fip_toc_header *)fip_header;
-	toc_entry = (struct fip_toc_entry *)(toc_header + 1);
-
-	/* fip_hdr_end is at the start of the first entry */
-	fip_hdr_end = (uintptr_t)fip_header + (uintptr_t)toc_entry->offset;
-
-	while ((uintptr_t)toc_entry < fip_hdr_end) {
-		if (!compare_uuids(&toc_entry->uuid, search))
-			return toc_entry;
-		toc_entry++;
-	}
-
-	return NULL;
 }
 
 size_t get_file_size(const char *file)
@@ -494,120 +427,102 @@ err_close_keyfile:
 	return ret;
 }
 
-int hse_extract_bl2_sign(const char *bl2_sign_file, uint8_t *bl2_sign, size_t bl2_sign_size)
+int hse_extract_bin(const char *bin_file, uint8_t *bin, size_t bin_size)
 {
 	FILE *fd = NULL;
 	int ret = 0, err = 0;
-	uint8_t *bl2_sign_tmp = NULL;
+	uint8_t *bin_tmp = NULL;
 
-	if (!bl2_sign)
+	if (!bin)
 		return -ENODATA;
 
-	fd = fopen(bl2_sign_file, "rb");
+	fd = fopen(bin_file, "rb");
 	if (!fd) {
-		ERROR("Could not find BL2 signature file %s\n", bl2_sign_file);
+		ERROR("Could not find binary file %s\n", bin_file);
 		return -errno;
 	}
 
-	bl2_sign_tmp = malloc(bl2_sign_size);
-	if (!bl2_sign_tmp) {
+	bin_tmp = malloc(bin_size);
+	if (!bin_tmp) {
 		ERROR("Could not allocate space for temporary buffer\n");
 		goto out_close_fd;
 	}
 
-	err = fread((void *)bl2_sign_tmp, 1, bl2_sign_size, fd);
-	if (err < 0 || err != bl2_sign_size) {
+	err = fread((void *)bin_tmp, 1, bin_size, fd);
+	if (err < 0 || err != bin_size) {
 		ret = -err;
 		goto out_free_tmp_buf;
 	}
 
-	hse_memcpy(bl2_sign, bl2_sign_tmp, bl2_sign_size);
+	hse_memcpy(bin, bin_tmp, bin_size);
 
 out_free_tmp_buf:
-	free(bl2_sign_tmp);
+	free(bin_tmp);
 out_close_fd:
 	fclose(fd);
 	return ret;
 }
 
 int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
-					const char *bl2_sign_file, uint32_t auth_handle,
-					enum boot_type boot_medium)
+		    const char *bl2_sign_file, const char *bl2_bin_file,
+		    uint32_t auth_handle, enum boot_type boot_medium)
 {
-	struct uuid uuid_bl2 = UUID_TRUSTED_BOOT_FIRMWARE_BL2;
-	uint64_t fip_hdr_size;
+	uint32_t bl2_bin_size;
 	uint16_t bl2_sign_size;
-	struct fip_toc_entry *toc_bl2;
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSmrEntry_t smr_entry, *smr_entry_hse;
-	uint8_t *fip_header, *bl2_sign = NULL, *bl2_bin = NULL;
+	uint8_t *bl2_sign = NULL, *bl2_bin = NULL;
 	int ret = 0;
 
-	fip_hdr_size = get_fip_header_size(fd, ivt);
-	fip_header = malloc(fip_hdr_size);
-	if (!fip_header) {
-		ERROR("Failed to allocate space for FIP header\n");
+	bl2_bin_size = get_file_size(bl2_bin_file);
+	if (!bl2_bin_size) {
+		ERROR("Invalid BL2 size\n");
+		return -ENODATA;
+	}
+
+	bl2_bin = hse_mem_alloc(bl2_bin_size);
+	if (!bl2_bin) {
+		ERROR("Failed to allocate space for BL2\n");
 		return -ENOMEM;
 	}
 
-	ret = get_dev_offset(fd, fip_header, get_fip_start(ivt), get_fip_header_size(fd, ivt));
+	ret = hse_extract_bin(bl2_bin_file, bl2_bin, bl2_bin_size);
 	if (ret) {
-		ERROR("Failed to retrieve FIP header\n");
-		goto err_free_fip_header;
-	}
-
-	toc_bl2 = get_fip_toc_entry(fip_header, &uuid_bl2);
-	if (!toc_bl2) {
-		ERROR("Failed to retrieve BL2 TOC entry\n");
-		ret = -ENODATA;
-		goto err_free_fip_header;
+		ERROR("Failed to read BL2 binary from file\n");
+		goto err_free_bl2_bin;
 	}
 
 	bl2_sign_size = get_file_size(bl2_sign_file);
 	if (bl2_sign_size <= 0) {
 		ERROR("Failed to retrieve BL2 signature size\n");
 		ret = -ENODATA;
-		goto err_free_fip_header;
+		goto err_free_bl2_bin;
 	}
 
 	bl2_sign = hse_mem_alloc(bl2_sign_size);
 	if (!bl2_sign) {
 		ERROR("Failed to allocate space for BL2 signature\n");
 		ret = -ENOMEM;
-		goto err_free_fip_header;
+		goto err_free_bl2_bin;
 	}
 
-	ret = hse_extract_bl2_sign(bl2_sign_file, bl2_sign, bl2_sign_size);
+	ret = hse_extract_bin(bl2_sign_file, bl2_sign, bl2_sign_size);
 	if (ret) {
 		ERROR("Failed to read BL2 signature from file\n");
 		goto err_free_bl2_sign;
-	}
-
-	bl2_bin = hse_mem_alloc(toc_bl2->size);
-	if (!bl2_bin) {
-		ERROR("Failed to allocate space for BL2\n");
-		ret = -ENOMEM;
-		goto err_free_bl2_sign;
-	}
-
-	/* Extract BL2 with DTB from the FIP */
-	ret = get_dev_offset(fd, bl2_bin,  get_fip_start(ivt) + toc_bl2->offset, toc_bl2->size);
-	if (ret) {
-		ERROR("Failed to retrieve BL2\n");
-		goto err_free_bl2_bin;
 	}
 
 	smr_entry_hse = hse_mem_alloc(sizeof(*smr_entry_hse));
 	if (!smr_entry_hse) {
 		ERROR("Failed to allocate space for SMR Entry\n");
 		ret = -ENOMEM;
-		goto err_free_bl2_bin;
+		goto err_free_bl2_sign;
 	}
 	hse_memset(smr_entry_hse, 0, sizeof(*smr_entry_hse));
 
-	smr_entry.pSmrSrc = get_fip_start(ivt) + toc_bl2->offset;
-	smr_entry.pSmrDest = app_boot->ram_load + fip_hdr_size;
-	smr_entry.smrSize = toc_bl2->size;
+	smr_entry.pSmrSrc = get_app_boot_start(ivt);
+	smr_entry.pSmrDest = app_boot->ram_load;
+	smr_entry.smrSize = bl2_bin_size;
 
 	if (boot_medium == QSPI)
 		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_QSPI_FLASH);
@@ -631,7 +546,7 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	srv_desc.hseSrv.smrEntryInstallReq.entryIndex = 1u;
 	srv_desc.hseSrv.smrEntryInstallReq.pSmrEntry = hse_virt_to_dma(smr_entry_hse);
 	srv_desc.hseSrv.smrEntryInstallReq.pSmrData = hse_virt_to_dma(bl2_bin);
-	srv_desc.hseSrv.smrEntryInstallReq.smrDataLength = toc_bl2->size;
+	srv_desc.hseSrv.smrEntryInstallReq.smrDataLength = bl2_bin_size;
 	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[0] = hse_virt_to_dma(bl2_sign);
 	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[1] = 0u;
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[0] = bl2_sign_size;
@@ -642,12 +557,11 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 		ERROR("Failed to install SMR Entry\n");
 
 	hse_mem_free(smr_entry_hse);
-err_free_bl2_bin:
-	hse_mem_free(bl2_bin);
+
 err_free_bl2_sign:
 	hse_mem_free(bl2_sign);
-err_free_fip_header:
-	free(fip_header);
+err_free_bl2_bin:
+	hse_mem_free(bl2_bin);
 	return ret;
 }
 
@@ -830,7 +744,7 @@ int hse_sysimg_write_qspi(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysim
 }
 
 int hse_secboot_enable(const char *device, const char *bl2_sign_file,
-					   enum boot_type boot_medium)
+		       const char *bl2_bin_file, enum boot_type boot_medium)
 {
 	struct ivt ivt;
 	struct app_boot_hdr app_boot;
@@ -904,7 +818,8 @@ int hse_secboot_enable(const char *device, const char *bl2_sign_file,
 	INFO("Generating Secure Memory Region entry\n");
 
 	ret = hse_smr_install(fd, &ivt, &app_boot, bl2_sign_file,
-                          bl_keys[BL2_KEY].handle, boot_medium);
+			      bl2_bin_file, bl_keys[BL2_KEY].handle,
+			      boot_medium);
 	if (ret)
 		goto err_close_fd;
 
@@ -1062,7 +977,9 @@ void usage(char *progname)
 {
 	printf("\nformat HSE key catalogs or set up HSE-based advanced secure boot\n\n");
 	printf("Example: hse-secboot -s -d /dev/mmcblk0 --bl2_key /etc/keys/secboot/bl2_rsa2048_public.pem ");
-	printf("--bl31_key -:0x010700 --bl33_key -:0x010700 --bl2_sign /etc/keys/secboot/bl2-signature.bin-sdcard");
+	printf("--bl31_key -:0x010700 --bl33_key -:0x010700 ");
+	printf("--bl2_sign /etc/keys/secboot/bl2-signature.bin-sdcard ");
+	printf("--bl2_bin /etc/keys/secboot/bl2_w_dtb.bin-sdcard");
 	printf("\n");
 	printf("Usage:\n");
 	printf("\n");
@@ -1084,6 +1001,7 @@ void usage(char *progname)
 	printf("\t\t\t   mmc - MMC or eMMC boot\n");
 	printf("\t-d:\tspecify full path to SD/MMC/MTD device (e.g. /dev/sdb or /dev/mtd0)\n");
 	printf("\t--bl2_sign: specify full path to the binary signature file of BL2 (required)\n");
+	printf("\t--bl2_bin: specify full path to the BL2 binary file (required)\n");
 	printf("\t--bl2_key: specify full path to PEM format key file for BL2 and HSE key slot (required)\n");
 	printf("\t--bl31_key: specify full path to PEM format key file for BL31 and HSE key slot\n");
 	printf("\t--bl32_key: specify full path to PEM format key file for BL32 and HSE key slot (should be used if OP-TEE is present)\n");
@@ -1096,7 +1014,8 @@ void usage(char *progname)
 
 int main(int argc, char *argv[])
 {
-	char *devpath = NULL, *bl2_sign_path = NULL, *bootmedium = "sd";
+	char *devpath = NULL, *bl2_sign_path = NULL, *bl2_bin_path = NULL;
+	char *bootmedium = "sd";
 	int c, fflag = 0, sflag = 0, oflag = 0, ret = 0;
 	enum boot_type type = SD;
 
@@ -1107,6 +1026,9 @@ int main(int argc, char *argv[])
 				return 0;
 			case BL2_SIGN_ARG_ID:
 				bl2_sign_path = optarg;
+				break;
+			case BL2_BIN_ARG_ID:
+				bl2_bin_path = optarg;
 				break;
 			case BL2_KEY:
 			case BL31_KEY:
@@ -1158,7 +1080,8 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	if (sflag && (hse_check_req_keys() || !bl2_sign_path)) {
+	if (sflag && (hse_check_req_keys() || !bl2_sign_path ||
+	    !bl2_bin_path)) {
 		usage(argv[0]);
 		return -1;
 	}
@@ -1186,7 +1109,8 @@ int main(int argc, char *argv[])
 		if (ret)
 			return ret; 
 		
-		ret = hse_secboot_enable(devpath, bl2_sign_path, type);
+		ret = hse_secboot_enable(devpath, bl2_sign_path, bl2_bin_path,
+					 type);
 		return ret;
 	}
 
