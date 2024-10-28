@@ -20,8 +20,7 @@
 struct node_data {
 	uint32_t size;
 	uint8_t used;
-	uint8_t intl;
-	uint8_t reserved[2];
+	uint8_t reserved[3];
 	uint64_t next_offset;
 } __attribute__((packed));
 
@@ -39,12 +38,12 @@ static struct hse_mem_priv {
 	volatile pthread_spinlock_t *mem_lock;
 } priv;
 
-static volatile struct node_data *next_node(volatile struct node_data *block)
+static volatile struct node_data *next_node(volatile struct node_data *block, bool intl)
 {
 	if (!block || !block->next_offset)
 		return NULL;
 
-	if (block->intl)
+	if (intl)
 		return (struct node_data *)((uint8_t *)priv.intl_mem_start + block->next_offset);
 
 	return (struct node_data *)((uint8_t *)priv.mem_start + block->next_offset);
@@ -58,11 +57,11 @@ void hse_intl_iterstart()
 bool hse_intl_hasnext()
 {
 	pthread_spin_lock(priv.mem_lock);
-	while ((next_node(priv.iter) != NULL) && (!next_node(priv.iter)->used))
-		priv.iter = next_node(priv.iter);
+	while ((next_node(priv.iter, true) != NULL) && (!next_node(priv.iter, true)->used))
+		priv.iter = next_node(priv.iter, true);
 	pthread_spin_unlock(priv.mem_lock);
 
-	return (next_node(priv.iter) != NULL) ? true : false;
+	return (next_node(priv.iter, true) != NULL) ? true : false;
 }
 
 uint8_t *hse_intl_next()
@@ -70,8 +69,8 @@ uint8_t *hse_intl_next()
 	volatile struct node_data *to_ret;
 
 	pthread_spin_lock(priv.mem_lock);
-	to_ret = next_node(priv.iter);
-	priv.iter = next_node(priv.iter);
+	to_ret = next_node(priv.iter, true);
+	priv.iter = next_node(priv.iter, true);
 	pthread_spin_unlock(priv.mem_lock);
 
 	return (uint8_t *)to_ret + HSE_NODE_SIZE;
@@ -104,7 +103,6 @@ int hse_mem_setup(const void *base_addr, const uint64_t mem_size, bool intl)
 
 	*mem = (struct node_data *)base_addr;
 	(*mem)->size = mem_size - HSE_NODE_SIZE;
-	(*mem)->intl = intl;
 	(*mem)->next_offset = 0;
 	(*mem)->used = false;
 
@@ -149,7 +147,7 @@ static void *_hse_mem_alloc(size_t size, bool intl)
 			best_block_size = crt_block->size;
 		}
 
-		crt_block = next_node(crt_block);
+		crt_block = next_node(crt_block, intl);
 	}
 
 	if (!best_block) {
@@ -164,7 +162,6 @@ static void *_hse_mem_alloc(size_t size, bool intl)
 					   HSE_NODE_SIZE + best_block->size);
 	alloc_block->size = size;
 	alloc_block->used = true;
-	alloc_block->intl = best_block->intl;
 
 	if (intl)
 		mem_start = (uint64_t)priv.intl_mem_start;
@@ -218,16 +215,16 @@ static void _hse_mem_free(void *addr, bool intl)
 	prev_block = NULL;
 	while ((next_block != NULL) && (next_block < free_block)) {
 		prev_block = next_block;
-		next_block = next_node(next_block);
+		next_block = next_node(next_block, intl);
 	}
 
-	if (next_node(free_block) != NULL) {
-		if (!next_node(free_block)->used) {
-			free_block->size += next_node(free_block)->size;
+	if (next_node(free_block, intl) != NULL) {
+		if (!next_node(free_block, intl)->used) {
+			free_block->size += next_node(free_block, intl)->size;
 			free_block->size += HSE_NODE_SIZE;
 
 			/* remove next_block from list */
-			free_block->next_offset = next_node(free_block)->next_offset;
+			free_block->next_offset = next_node(free_block, intl)->next_offset;
 		}
 	}
 
