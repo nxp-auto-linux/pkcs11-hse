@@ -8,7 +8,6 @@
 #include <string.h>
 
 #include "pkcs11_context.h"
-#include "pkcs11_extension.h"
 
 #define SHA1_DIGEST_SIZE 20
 #define SHA1_BLOCK_SIZE  64
@@ -46,7 +45,7 @@ CK_RV check_init(CK_SESSION_HANDLE hSession, CK_BBOOL digestInit)
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_DigestInit)(
+CK_DECLARE_FUNCTION(CK_RV, C_DigestInit)(
 		CK_SESSION_HANDLE hSession,
 		CK_MECHANISM_PTR pMechanism
 )
@@ -120,7 +119,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestInit)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_Digest)(
+CK_DECLARE_FUNCTION(CK_RV, C_Digest)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pData,
 		CK_ULONG ulDataLen,
@@ -226,7 +225,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_DigestUpdate)(
+CK_DECLARE_FUNCTION(CK_RV, C_DigestUpdate)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pPart,
 		CK_ULONG ulPartLen
@@ -323,7 +322,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_DigestFinal)(
+CK_DECLARE_FUNCTION(CK_RV, C_DigestFinal)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pDigest,
 		CK_ULONG_PTR pulDigestLen
@@ -427,7 +426,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_DigestKey)(
+CK_DECLARE_FUNCTION(CK_RV, C_DigestKey)(
 		CK_SESSION_HANDLE hSession,
 		CK_OBJECT_HANDLE hKey
 )

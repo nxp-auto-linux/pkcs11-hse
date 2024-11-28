@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2023 NXP
+ * Copyright 2021-2024 NXP
  */
 
 #include <stdio.h>
@@ -9,7 +9,7 @@
 
 #include "pkcs11_context.h"
 
-CK_DEFINE_FUNCTION(CK_RV, C_SeedRandom)(
+CK_DECLARE_FUNCTION(CK_RV, C_SeedRandom)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pSeed,
 		CK_ULONG ulSeedLen
@@ -19,7 +19,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SeedRandom)(
 	return CKR_RANDOM_SEED_NOT_SUPPORTED;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GenerateRandom)(
+CK_DECLARE_FUNCTION(CK_RV, C_GenerateRandom)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pRandomData,
 		CK_ULONG ulRandomLen

@@ -9,15 +9,13 @@
 #include <string.h>
 #include <libhse.h>
 
+#include "pkcs11_context.h"
 #include "hse_interface.h"
 #include "simclist.h"
-#include "pkcs11.h"
-#include "pkcs11_context.h"
-#include "pkcs11_extension.h"
 #include "pkcs11_util.h"
 #include "hse-internal.h"
 
-CK_DEFINE_FUNCTION(CK_RV, C_GenerateKeyPair)(
+CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 		CK_SESSION_HANDLE hSession,
 		CK_MECHANISM_PTR pMechanism,
 		CK_ATTRIBUTE_PTR pPublicKeyTemplate,
@@ -228,7 +226,7 @@ err_free_key_intl:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GenerateKey)(
+CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	CK_SESSION_HANDLE hSession,
 	CK_MECHANISM_PTR pMechanism,
 	CK_ATTRIBUTE_PTR pTemplate,

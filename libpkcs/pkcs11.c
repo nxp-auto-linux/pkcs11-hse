@@ -13,7 +13,6 @@
 
 #include "libhse.h"
 #include "pkcs11_context.h"
-#include "pkcs11_extension.h"
 #include "hse-internal.h"
 #include "simclist.h"
 #include "pkcs11_util.h"
@@ -294,7 +293,7 @@ CK_RV unlockMutex(CK_VOID_PTR pMutex)
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
+CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 	CK_VOID_PTR pInitArgs
 )
 {
@@ -421,7 +420,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Initialize) (
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_Finalize)(
+CK_DECLARE_FUNCTION(CK_RV, C_Finalize)(
 	CK_VOID_PTR pReserved
 )
 {
@@ -450,7 +449,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Finalize)(
 	return rv;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GetInfo)(
+CK_DECLARE_FUNCTION(CK_RV, C_GetInfo)(
 	CK_INFO_PTR pInfo
 )
 {
@@ -468,7 +467,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetInfo)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GetFunctionList) (
+CK_DECLARE_FUNCTION(CK_RV, C_GetFunctionList) (
 	CK_FUNCTION_LIST_PTR_PTR ppFunctionList
 )
 {
@@ -480,7 +479,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetFunctionList) (
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GetSlotList)(
+CK_DECLARE_FUNCTION(CK_RV, C_GetSlotList)(
 	CK_BBOOL tokenPresent,
 	CK_SLOT_ID_PTR pSlotList,
 	CK_ULONG_PTR pulCount
@@ -510,7 +509,7 @@ ret_count:
 	return ret;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GetSlotInfo)(
+CK_DECLARE_FUNCTION(CK_RV, C_GetSlotInfo)(
 	CK_SLOT_ID slotID,
 	CK_SLOT_INFO_PTR pInfo
 )
@@ -531,7 +530,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetSlotInfo)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GetTokenInfo)(
+CK_DECLARE_FUNCTION(CK_RV, C_GetTokenInfo)(
 	CK_SLOT_ID slotID,
 	CK_TOKEN_INFO_PTR pInfo
 )
@@ -552,7 +551,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetTokenInfo)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismList)(
+CK_DECLARE_FUNCTION(CK_RV, C_GetMechanismList)(
 	CK_SLOT_ID slotID,
 	CK_MECHANISM_TYPE_PTR pMechanismList,
 	CK_ULONG_PTR pulCount
@@ -587,7 +586,7 @@ ret_count:
 	return rv;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismInfo)(
+CK_DECLARE_FUNCTION(CK_RV, C_GetMechanismInfo)(
 	CK_SLOT_ID slotID,
 	CK_MECHANISM_TYPE type,
 	CK_MECHANISM_INFO_PTR pInfo
@@ -704,7 +703,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismInfo)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)(
+CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	CK_SESSION_HANDLE hSession,
 	CK_OBJECT_HANDLE hObject,
 	CK_ATTRIBUTE_PTR pTemplate,
@@ -833,7 +832,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	return err;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_InitToken)(
+CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
 	CK_SLOT_ID slotID,
 	CK_UTF8CHAR_PTR pPin,
 	CK_ULONG ulPinLen,
@@ -843,7 +842,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_InitToken)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_InitPIN)(
+CK_DECLARE_FUNCTION(CK_RV, C_InitPIN)(
 	CK_SESSION_HANDLE hSession,
 	CK_UTF8CHAR_PTR pPin,
 	CK_ULONG ulPinLen
@@ -852,7 +851,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_InitPIN)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_SetPIN)(
+CK_DECLARE_FUNCTION(CK_RV, C_SetPIN)(
 	CK_SESSION_HANDLE hSession,
 	CK_UTF8CHAR_PTR pOldPin,
 	CK_ULONG ulOldLen,
@@ -863,7 +862,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SetPIN)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)(
+CK_DECLARE_FUNCTION(CK_RV, C_OpenSession)(
 	CK_SLOT_ID slotID,
 	CK_FLAGS flags,
 	CK_VOID_PTR pApplication,
@@ -921,7 +920,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_CloseSession)(
+CK_DECLARE_FUNCTION(CK_RV, C_CloseSession)(
 	CK_SESSION_HANDLE hSession
 )
 {
@@ -956,7 +955,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CloseSession)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_CloseAllSessions)(
+CK_DECLARE_FUNCTION(CK_RV, C_CloseAllSessions)(
 	CK_SLOT_ID slotID
 )
 {
@@ -983,7 +982,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CloseAllSessions)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_GetSessionInfo)(
+CK_DECLARE_FUNCTION(CK_RV, C_GetSessionInfo)(
 	CK_SESSION_HANDLE hSession,
 	CK_SESSION_INFO_PTR pInfo
 )
@@ -1005,7 +1004,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetSessionInfo)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_Login)(
+CK_DECLARE_FUNCTION(CK_RV, C_Login)(
 	CK_SESSION_HANDLE hSession,
 	CK_USER_TYPE userType,
 	CK_UTF8CHAR_PTR pPin,
@@ -1015,7 +1014,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Login)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_Logout)(
+CK_DECLARE_FUNCTION(CK_RV, C_Logout)(
 	CK_SESSION_HANDLE hSession
 )
 {

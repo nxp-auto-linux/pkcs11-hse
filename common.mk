@@ -69,7 +69,9 @@ INCLUDE_LIBHSE := -I$(LIBHSE_SRCDIR) \
 		  -I$(HSE_FWDIR)/interface/inc_services
 
 INCLUDE_LIBPKCS := -I$(OPENSSL_DIR)/include \
-		   -I$(LIBPKCS_SRCDIR)
+		   -I$(LIBPKCS_SRCDIR) \
+		   -I$(LIBPKCS_SRCDIR)/include \
+		   -I$(LIBPKCS_SRCDIR)/redist
 
 LD_OPENSSL := -L$(OPENSSL_DIR)/lib -lcrypto
 LD_LIBP11 := -L$(LIBP11_DIR)/lib -lp11

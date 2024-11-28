@@ -8,10 +8,9 @@
 #include <string.h>
 
 #include "pkcs11_context.h"
-#include "pkcs11_extension.h"
 #include "pkcs11_util.h"
 
-CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
+CK_DECLARE_FUNCTION(CK_RV, C_EncryptInit)(
 		CK_SESSION_HANDLE hSession,
 		CK_MECHANISM_PTR pMechanism,
 		CK_OBJECT_HANDLE hKey
@@ -72,7 +71,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptInit)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)(
+CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pData,
 		CK_ULONG ulDataLen,
@@ -469,7 +468,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
+CK_DECLARE_FUNCTION(CK_RV, C_DecryptInit)(
 		CK_SESSION_HANDLE hSession,
 		CK_MECHANISM_PTR pMechanism,
 		CK_OBJECT_HANDLE hKey
@@ -530,7 +529,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptInit)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)(
+CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pEncryptedData,
 		CK_ULONG ulEncryptedDataLen,
@@ -914,7 +913,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
+CK_DECLARE_FUNCTION(CK_RV, C_SignInit)(
 		CK_SESSION_HANDLE hSession,
 		CK_MECHANISM_PTR pMechanism,
 		CK_OBJECT_HANDLE hKey
@@ -973,7 +972,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_Sign)(
+CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pData,
 		CK_ULONG ulDataLen,
@@ -1242,7 +1241,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
+CK_DECLARE_FUNCTION(CK_RV, C_VerifyInit)(
 		CK_SESSION_HANDLE hSession,
 		CK_MECHANISM_PTR pMechanism,
 		CK_OBJECT_HANDLE hKey
@@ -1301,7 +1300,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyInit)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_Verify)(
+CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pData,
 		CK_ULONG ulDataLen,
@@ -1524,7 +1523,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)(
+CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pPart,
 		CK_ULONG ulPartLen,
@@ -1756,7 +1755,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)(
+CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pLastEncryptedPart,
 		CK_ULONG_PTR pulLastEncryptedPartLen
@@ -1962,7 +1961,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)(
+CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pEncryptedPart,
 		CK_ULONG ulEncryptedPartLen,
@@ -2192,7 +2191,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)(
+CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pLastPart,
 		CK_ULONG_PTR pulLastPartLen
@@ -2378,7 +2377,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_SignUpdate)(
+CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pPart,
 		CK_ULONG ulPartLen
@@ -2556,7 +2555,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_SignFinal)(
+CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pSignature,
 		CK_ULONG_PTR pulSignatureLen
@@ -2789,7 +2788,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_SignRecoverInit)(
+CK_DECLARE_FUNCTION(CK_RV, C_SignRecoverInit)(
 		CK_SESSION_HANDLE hSession,
 		CK_MECHANISM_PTR pMechanism,
 		CK_OBJECT_HANDLE hKey
@@ -2798,7 +2797,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignRecoverInit)(
 	return CKR_FUNCTION_NOT_SUPPORTED;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_SignRecover)(
+CK_DECLARE_FUNCTION(CK_RV, C_SignRecover)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pData,
 		CK_ULONG ulDataLen,
@@ -2809,7 +2808,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignRecover)(
 	return CKR_FUNCTION_NOT_SUPPORTED;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_VerifyUpdate)(
+CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pPart,
 		CK_ULONG ulPartLen
@@ -2987,7 +2986,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_VerifyFinal)(
+CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pSignature,
 		CK_ULONG ulSignatureLen
@@ -3181,7 +3180,7 @@ out_uninit:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_VerifyRecoverInit)(
+CK_DECLARE_FUNCTION(CK_RV, C_VerifyRecoverInit)(
 		CK_SESSION_HANDLE hSession,
 		CK_MECHANISM_PTR pMechanism,
 		CK_OBJECT_HANDLE hKey
@@ -3190,7 +3189,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyRecoverInit)(
 	return CKR_FUNCTION_NOT_SUPPORTED;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_VerifyRecover)(
+CK_DECLARE_FUNCTION(CK_RV, C_VerifyRecover)(
 		CK_SESSION_HANDLE hSession,
 		CK_BYTE_PTR pSignature,
 		CK_ULONG ulSignatureLen,

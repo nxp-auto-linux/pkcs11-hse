@@ -38,6 +38,8 @@ INCL = -I$(HSE_FWDIR)/interface                                                \
        -I$(HSE_FWDIR)/interface/inc_services                                   \
        -I$(HSE_FWDIR)/interface/config                                         \
        -I$(HSE_SDIR)
+INCL_PKCS = -I$(PKCS_SDIR)/redist \
+            -I$(PKCS_SDIR)/include
 
 DEFS := -DUIO_DEV=$(UIO_DEV) -DHSE_LIBVER_MAJOR=$(HSE_LIBVER_MAJOR)
 
@@ -48,7 +50,7 @@ $(PKCS_LIB).$(PKCS_LIBVER): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
 	$(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
 
 $(PKCS_ODIR)/%.o: $(PKCS_SDIR)/%.c $(PKCS_ODIR)
-	$(CC) -c $(CFLAGS) $(INCL) $(LDFLAGS) $< -o $@
+	$(CC) -c $(CFLAGS) $(INCL_PKCS) $(INCL) $(LDFLAGS) $< -o $@
 
 $(PKCS_ODIR):
 	mkdir -p $@

@@ -8,9 +8,10 @@
 
 #include <stdint.h>
 #include <libhse.h>
-#include "pkcs11.h"
+
 #include "simclist.h"
 #include "hse_interface.h"
+#include "pkcs11-unix.h"
 
 #define LIBRARY_VERSION_MAJOR 0u
 #define LIBRARY_VERSION_MINOR 1u

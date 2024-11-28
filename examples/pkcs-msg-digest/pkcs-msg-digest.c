@@ -13,8 +13,7 @@
 #include <openssl/sha.h>
 #include <openssl/rand.h>
 
-#include "pkcs11.h"
-#include "pkcs11_extension.h"
+#include "pkcs11-unix.h"
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))

@@ -8,13 +8,11 @@
 #include <string.h>
 
 #include "pkcs11_context.h"
-#include "pkcs11_extension.h"
-
 #include "simclist.h"
 #include "hse-internal.h"
 #include "pkcs11_util.h"
 
-CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)(
+CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 		CK_SESSION_HANDLE hSession,
 		CK_ATTRIBUTE_PTR pTemplate,
 		CK_ULONG ulCount,
@@ -333,7 +331,7 @@ err_free_key_info:
 	return rc;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
+CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 		CK_SESSION_HANDLE hSession,
 		CK_OBJECT_HANDLE hObject
 )
@@ -378,7 +376,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)(
+CK_DECLARE_FUNCTION(CK_RV, C_FindObjectsInit)(
 	CK_SESSION_HANDLE hSession,
 	CK_ATTRIBUTE_PTR pTemplate,
 	CK_ULONG ulCount
@@ -420,7 +418,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
+CK_DECLARE_FUNCTION(CK_RV, C_FindObjects)(
 	CK_SESSION_HANDLE hSession,
 	CK_OBJECT_HANDLE_PTR phObject,
 	CK_ULONG ulMaxObjectCount,
@@ -484,7 +482,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)(
 	return CKR_OK;
 }
 
-CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsFinal)(
+CK_DECLARE_FUNCTION(CK_RV, C_FindObjectsFinal)(
 	CK_SESSION_HANDLE hSession
 )
 {
