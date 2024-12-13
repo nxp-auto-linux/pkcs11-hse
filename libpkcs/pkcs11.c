@@ -425,7 +425,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_Finalize)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	int i;
 	CK_RV rv = CKR_OK;
 
 	if (!gCtx->cryptokiInit)
@@ -436,9 +435,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Finalize)(
 
 	hse_dev_close();
 
-	for (i = 0; i < list_size(&gCtx->object_list); i++) {
-		list_delete_at(&gCtx->object_list, i);
-	}
+	list_delete_range(&gCtx->object_list, 0, list_size(&gCtx->object_list) - 1);
 	list_destroy(&gCtx->object_list);
 
 	gCtx->cryptokiInit = CK_FALSE;
