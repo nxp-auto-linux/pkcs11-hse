@@ -2,7 +2,7 @@
 /*
  * NXP HSE User Space Driver - Core
  *
- * Copyright 2019-2023 NXP
+ * Copyright 2019-2024 NXP
  */
 
 #include <stdio.h>
@@ -737,7 +737,7 @@ int hse_dev_open(void)
 	/* set up shared resources */
 	err = hse_dev_setup();
 	if (err)
-		goto err_unmap_intl;
+		goto err_unmap_rmem;
 	priv.init = true;
 
 	/* check firmware status */
@@ -746,7 +746,7 @@ int hse_dev_open(void)
 		printf("libhse: firmware not found or MU interface inactive\n");
 		err = ENODEV;
 		priv.init = false;
-		goto err_unmap_intl;
+		goto err_unmap_rmem;
 	}
 	printf("libhse: initialized, firmware status 0x%04x\n", status);
 
@@ -754,6 +754,8 @@ int hse_dev_open(void)
 	priv.locked = false;
 
 	return 0;
+err_unmap_rmem:
+	munmap(priv.rmem, priv.rmem_size);
 err_unmap_intl:
 	munmap(priv.intl, priv.intl_size);
 err_unmap_desc:
