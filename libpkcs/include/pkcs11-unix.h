@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2024 NXP
+ * Copyright 2024-2025 NXP
  */
 
 #ifndef ___PKCS11_DEFINES_H___
@@ -16,10 +16,6 @@
 #define NULL_PTR 0
 #endif
 
-#pragma pack(push, cryptoki, 1)
-
 #include "pkcs11.h"
-
-#pragma pack(pop, cryptoki)
 
 #endif /* ___PKCS11_DEFINES_H___ */
