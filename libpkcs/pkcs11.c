@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2024 NXP
+ * Copyright 2021-2025 NXP
  */
 
 #include <stdlib.h>
@@ -80,8 +80,7 @@ static const CK_MECHANISM_TYPE mechanismList[] = {
 };
 
 static CK_FUNCTION_LIST gFunctionList = {
-	.version =                              {CRYPTOKI_VERSION_MAJOR,
-	                                         CRYPTOKI_VERSION_MINOR},
+	.version =                              {2, 40},
 	.C_Initialize =                         C_Initialize,
 	.C_Finalize  =                          C_Finalize,
 	.C_GetInfo  =                           C_GetInfo,
@@ -131,6 +130,67 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_DigestKey =                          C_DigestKey,
 	.C_GenerateKeyPair =                    C_GenerateKeyPair,
 	.C_GenerateKey =                        C_GenerateKey,
+};
+
+static CK_FUNCTION_LIST_3_0 gFunctionList_3_0 = {
+	.version =                              {CRYPTOKI_VERSION_MAJOR,
+	                                         CRYPTOKI_VERSION_MINOR},
+	.C_Initialize =                         C_Initialize,
+	.C_Finalize  =                          C_Finalize,
+	.C_GetInfo  =                           C_GetInfo,
+	.C_GetInterfaceList =                   C_GetInterfaceList,
+	.C_GetInterface =                       C_GetInterface,
+	.C_GetFunctionList  =                   C_GetFunctionList,
+	.C_GetSlotList  =                       C_GetSlotList,
+	.C_GetSlotInfo  =                       C_GetSlotInfo,
+	.C_GetTokenInfo  =                      C_GetTokenInfo,
+	.C_GetMechanismList  =                  C_GetMechanismList,
+	.C_GetMechanismInfo  =                  C_GetMechanismInfo,
+	.C_GetAttributeValue  =                 C_GetAttributeValue,
+	.C_InitToken  =                         C_InitToken,
+	.C_InitPIN  =                           C_InitPIN,
+	.C_SetPIN  =                            C_SetPIN,
+	.C_OpenSession  =                       C_OpenSession,
+	.C_CloseSession  =                      C_CloseSession,
+	.C_CloseAllSessions  =                  C_CloseAllSessions,
+	.C_GetSessionInfo  =                    C_GetSessionInfo,
+	.C_Login  =                             C_Login,
+	.C_Logout  =                            C_Logout,
+	.C_CreateObject =                       C_CreateObject,
+	.C_DestroyObject =                      C_DestroyObject,
+	.C_FindObjectsInit =                    C_FindObjectsInit,
+	.C_FindObjects =                        C_FindObjects,
+	.C_FindObjectsFinal =                   C_FindObjectsFinal,
+	.C_EncryptInit =                        C_EncryptInit,
+	.C_Encrypt =                            C_Encrypt,
+	.C_EncryptUpdate =                      C_EncryptUpdate,
+	.C_EncryptFinal =                       C_EncryptFinal,
+	.C_DecryptInit =                        C_DecryptInit,
+	.C_Decrypt =                            C_Decrypt,
+	.C_DecryptUpdate =                      C_DecryptUpdate,
+	.C_DecryptFinal =                       C_DecryptFinal,
+	.C_SignInit =                           C_SignInit,
+	.C_Sign =                               C_Sign,
+	.C_SignUpdate =                         C_SignUpdate,
+	.C_SignFinal =                          C_SignFinal,
+	.C_VerifyInit =                         C_VerifyInit,
+	.C_Verify =                             C_Verify,
+	.C_VerifyUpdate =                       C_VerifyUpdate,
+	.C_VerifyFinal =                        C_VerifyFinal,
+	.C_SeedRandom =                         C_SeedRandom,
+	.C_GenerateRandom =                     C_GenerateRandom,
+	.C_DigestInit =                         C_DigestInit,
+	.C_Digest =                             C_Digest,
+	.C_DigestUpdate =                       C_DigestUpdate,
+	.C_DigestFinal =                        C_DigestFinal,
+	.C_DigestKey =                          C_DigestKey,
+	.C_GenerateKeyPair =                    C_GenerateKeyPair,
+	.C_GenerateKey =                        C_GenerateKey,
+};
+
+CK_INTERFACE pkcs_interfaces[NUM_INTERFACES] = {
+	{(unsigned char *)"PKCS 11", (void *)&gFunctionList_3_0, 0},
+	{(unsigned char *)"PKCS 11", (void *)&gFunctionList, 0},
 };
 
 /*
@@ -462,6 +522,65 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetInfo)(
 	pInfo->libraryVersion.minor = LIBRARY_VERSION_MINOR;
 
 	return CKR_OK;
+}
+
+CK_DECLARE_FUNCTION(CK_RV, C_GetInterfaceList) (
+	CK_INTERFACE_PTR pInterfacesList,
+	CK_ULONG_PTR pulCount
+)
+{
+	if (pulCount == NULL_PTR)
+		return CKR_ARGUMENTS_BAD;
+
+	if (pInterfacesList == NULL_PTR) {
+		*pulCount = NUM_INTERFACES;
+		return CKR_OK;
+	}
+
+	if (*pulCount < NUM_INTERFACES) {
+		*pulCount = NUM_INTERFACES;
+		return CKR_BUFFER_TOO_SMALL;
+	}
+
+	memcpy(pInterfacesList, pkcs_interfaces, NUM_INTERFACES * sizeof(CK_INTERFACE));
+	*pulCount = NUM_INTERFACES;
+
+	return CKR_OK;
+}
+
+CK_DECLARE_FUNCTION(CK_RV, C_GetInterface) (
+	CK_UTF8CHAR_PTR pInterfaceName,
+	CK_VERSION_PTR pVersion,
+	CK_INTERFACE_PTR_PTR ppInterface,
+	CK_FLAGS flags
+)
+{
+	if (!ppInterface)
+		return CKR_ARGUMENTS_BAD;
+
+	if (!pInterfaceName) {
+		*ppInterface = &pkcs_interfaces[DEFAULT_INTERFACE];
+		return CKR_OK;
+	}
+
+	for (int i = 0; i < NUM_INTERFACES; i++) {
+		CK_VERSION_PTR interface_version = (CK_VERSION_PTR)pkcs_interfaces[i].pFunctionList;
+
+		if (strcmp((char *)pInterfaceName, (char *)pkcs_interfaces[i].pInterfaceName) != 0)
+			continue;
+
+		if (!pVersion && (pVersion->major != interface_version->major ||
+		    pVersion->minor != interface_version->minor))
+			continue;
+
+		if ((flags & pkcs_interfaces[i].flags) != flags)
+			continue;
+
+		*ppInterface = &pkcs_interfaces[i];
+		return CKR_OK;
+	}
+
+	return CKR_ARGUMENTS_BAD;
 }
 
 CK_DECLARE_FUNCTION(CK_RV, C_GetFunctionList) (

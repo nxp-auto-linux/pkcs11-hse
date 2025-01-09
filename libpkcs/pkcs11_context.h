@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2024 NXP
+ * Copyright 2021-2025 NXP
  */
 
 #ifndef ___PKCS11_CONTEXT_H___
@@ -15,6 +15,9 @@
 
 #define LIBRARY_VERSION_MAJOR 0u
 #define LIBRARY_VERSION_MINOR 1u
+
+#define NUM_INTERFACES 2
+#define DEFAULT_INTERFACE 0
 
 #define LIBRARY_DESC    "NXP-HSE-PKCS11-Module"
 #define MANUFACTURER    "NXP-Semiconductors"
