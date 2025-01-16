@@ -2,7 +2,7 @@
 /*
  * HSE advanced secure boot preparatory command demo
  *
- * Copyright 2022-2024 NXP
+ * Copyright 2022-2025 NXP
  */
 
 #include <stdio.h>
@@ -34,12 +34,15 @@
 #define HSE_SMR_ENTRY_1 BIT(1)
 #define HSE_IVT_BOOTSEQ_BIT BIT(3)
 
-#define BL2_SIGN_ARG_ID 0
-#define BL2_BIN_ARG_ID 1
+#define BL2_SIGN_ARG_ID 0x100
+#define BL2_BIN_ARG_ID 0x101
+#define RPMB_DEFAULT_KEY_HANDLE 0x010200
 #define BL2_DEFAULT_KEY_HANDLE 0x010700
 #define BL31_DEFAULT_KEY_HANDLE 0x010700
 #define BL32_DEFAULT_KEY_HANDLE 0x010700
 #define BL33_DEFAULT_KEY_HANDLE 0x010700
+
+#define HSE_MONOTONIC_CNT_TABLE_PATH "/etc/keys/secboot/hse_cnt_table.bin"
 
 // Assuming 64KB QSPI block size
 #define QSPI_BLOCK_SIZE 0x10000u
@@ -57,9 +60,10 @@ enum boot_type {
 	MMC = 3,
 };
 
-enum image_key_type {
+enum key_type {
 	INVALID_KEY = -1,
-	BL2_KEY = 2,
+	RPMB_KEY = 0,
+	BL2_KEY,
 	BL31_KEY,
 	BL32_KEY,
 	BL33_KEY,
@@ -95,8 +99,8 @@ struct app_boot_hdr {
 	uint32_t code_len;
 } __attribute((packed));
 
-struct bl_key {
-	enum image_key_type type;
+struct secboot_key {
+	enum key_type type;
 	bool req;
 	uint32_t handle;
 	char *name;
@@ -104,7 +108,8 @@ struct bl_key {
 	char *keypath;
 };
 
-struct bl_key bl_keys[] = {
+struct secboot_key secboot_keys[] = {
+	{ RPMB_KEY, false, RPMB_DEFAULT_KEY_HANDLE, "RPMB Symmetric key", NULL, NULL },
 	{ BL2_KEY, true, BL2_DEFAULT_KEY_HANDLE, "BL2 Public key", NULL, NULL },
 	{ BL31_KEY, true, BL31_DEFAULT_KEY_HANDLE, "BL31 Public key", NULL, NULL },
 	{ BL32_KEY, false, BL32_DEFAULT_KEY_HANDLE, "BL32 Public key", NULL, NULL },
@@ -115,6 +120,7 @@ struct bl_key bl_keys[] = {
 const struct option secboot_options[] = {
 	{ "bl2_sign", required_argument, NULL, BL2_SIGN_ARG_ID },
 	{ "bl2_bin", required_argument, NULL, BL2_BIN_ARG_ID },
+	{ "rpmb_key", required_argument, NULL, RPMB_KEY },
 	{ "bl2_key",  required_argument, NULL, BL2_KEY },
 	{ "bl31_key", required_argument, NULL, BL31_KEY },
 	{ "bl32_key", required_argument, NULL, BL32_KEY },
@@ -172,13 +178,13 @@ size_t get_file_size(const char *file)
 	return size;
 }
 
-int hse_set_key_input(char *input, enum image_key_type type)
+int hse_set_key_input(char *input, enum key_type type)
 {
-	for (int i = 0; bl_keys[i].type != INVALID_KEY; i++) {
-		if (bl_keys[i].type != type)
+	for (int i = 0; secboot_keys[i].type != INVALID_KEY; i++) {
+		if (secboot_keys[i].type != type)
 			continue;
 
-		bl_keys[i].input_arg = input;
+		secboot_keys[i].input_arg = input;
 		return 0;
 	}
 
@@ -188,12 +194,12 @@ int hse_set_key_input(char *input, enum image_key_type type)
 
 int hse_check_req_keys(void)
 {
-	for (int i = 0; bl_keys[i].type != INVALID_KEY; i++) {
-		if (bl_keys[i].req && !bl_keys[i].input_arg) {
-			ERROR("The %s is required\n", bl_keys[i].name);
+	for (int i = 0; secboot_keys[i].type != INVALID_KEY; i++) {
+		if (secboot_keys[i].req && !secboot_keys[i].input_arg) {
+			ERROR("The %s is required\n", secboot_keys[i].name);
 			return -EINVAL;
-		} else if (!bl_keys[i].req && bl_keys[i].input_arg) {
-			INFO("The %s is not required, but will be imported\n", bl_keys[i].name);
+		} else if (!secboot_keys[i].req && secboot_keys[i].input_arg) {
+			INFO("The %s is not required, but will be imported\n", secboot_keys[i].name);
 		}
 	}
 	return 0;
@@ -203,29 +209,29 @@ int hse_parse_keys(void)
 {
 	char *handle_string = NULL;
 
-	for (int i = 0; bl_keys[i].type != INVALID_KEY; i++) {
-		if (!bl_keys[i].input_arg)
+	for (int i = 0; secboot_keys[i].type != INVALID_KEY; i++) {
+		if (!secboot_keys[i].input_arg)
 			continue;
 
-		if (!strchr(bl_keys[i].input_arg, ':')) {
-			bl_keys[i].keypath = bl_keys[i].input_arg;
-			INFO("Successfully parsed %s input\n", bl_keys[i].name);
+		if (!strchr(secboot_keys[i].input_arg, ':')) {
+			secboot_keys[i].keypath = secboot_keys[i].input_arg;
+			INFO("Successfully parsed %s input\n", secboot_keys[i].name);
 			continue;
 		}
 
-		bl_keys[i].keypath = strtok(strdup(bl_keys[i].input_arg), ":");
+		secboot_keys[i].keypath = strtok(strdup(secboot_keys[i].input_arg), ":");
 
-		if (!bl_keys[i].keypath)
+		if (!secboot_keys[i].keypath)
 			return -EINVAL;
 
 		handle_string = strtok(NULL, ":");
 		if (!handle_string || strlen(handle_string) != 8)
 			return -EINVAL;
 
-		bl_keys[i].handle = (uint32_t)strtol(handle_string, NULL, 16);
-		if (!bl_keys[i].handle)
+		secboot_keys[i].handle = (uint32_t)strtol(handle_string, NULL, 16);
+		if (!secboot_keys[i].handle)
 			return -EINVAL;
-		INFO("Successfully parsed %s input\n", bl_keys[i].name);
+		INFO("Successfully parsed %s input\n", secboot_keys[i].name);
 	}
 	return 0;
 }
@@ -233,9 +239,9 @@ int hse_parse_keys(void)
 int hse_check_prev_import(int key_idx)
 {
 	for (int i = 0; i < key_idx; i++) {
-		if (bl_keys[i].handle == bl_keys[key_idx].handle) {
+		if (secboot_keys[i].handle == secboot_keys[key_idx].handle) {
 			INFO("Key slot already occupied, %s already imported for a previous BL.\n",
-				 bl_keys[key_idx].name);
+				 secboot_keys[key_idx].name);
 			return 1;
 		}
 	}
@@ -311,7 +317,75 @@ err_free_nvm:
 	return ret;
 }
 
-int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size,
+int hse_set_and_publish_cnt_table(void)
+{
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	FILE *f;
+	void *cnt_table;
+	void *hse_cnt_table; 
+	int ret = 0, err = 0;
+
+	cnt_table = malloc(HSE_NVM_CONTAINER_CNT_TBL_SIZE);
+	if (!cnt_table) {
+		ERROR("Failed to alloc memory for monotonic counter table\n");
+		return -ENOMEM;
+	}
+
+	hse_cnt_table = hse_mem_alloc(HSE_NVM_CONTAINER_CNT_TBL_SIZE);
+	if (!hse_cnt_table) {
+		ERROR("Failed to alloc reserved memory for counter table\n");
+		ret = -ENOMEM;
+		goto err_free_cnt_table;
+	}
+
+	srv_desc.srvId = HSE_SRV_ID_CONFIG_COUNTER;
+	srv_desc.hseSrv.configSecCounter.counterIndex = 3;
+	srv_desc.hseSrv.configSecCounter.RPBitSize = 32;
+
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	if (ret) {
+		ERROR("Failed to configure monotonic counter table\n");
+		goto err_free_hse_cnt_table;
+	}
+
+	memset(&srv_desc, 0, sizeof(srv_desc));
+
+	srv_desc.srvId = HSE_SRV_ID_PUBLISH_LOAD_CNT_TBL;
+	srv_desc.hseSrv.publishLoadCntTblReq.action = HSE_NVM_CNT_TBL_ACTION_PUBLISH;
+	srv_desc.hseSrv.publishLoadCntTblReq.pNvmContainerCntTbl = hse_virt_to_dma(hse_cnt_table);
+
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	if (ret) {
+		ERROR("Failed to publish monotonic counter table\n");
+		goto err_free_hse_cnt_table;
+	}
+	hse_memcpy(cnt_table, hse_cnt_table, HSE_NVM_CONTAINER_CNT_TBL_SIZE);
+
+	f = fopen(HSE_MONOTONIC_CNT_TABLE_PATH, "wb");
+	if (!f) {
+		ERROR("Could not create monotonic counter table binary file %s\n",
+		      HSE_MONOTONIC_CNT_TABLE_PATH);
+		ret = -ENOENT;
+		goto err_free_hse_cnt_table;
+	}
+
+	err = fwrite(cnt_table, 1, HSE_NVM_CONTAINER_CNT_TBL_SIZE, f);
+	if (err < 0 || err != HSE_NVM_CONTAINER_CNT_TBL_SIZE) {
+		ERROR("Failed to write monotonic counter table to file %s\n",
+		      HSE_MONOTONIC_CNT_TABLE_PATH);
+		ret = -err;
+	}
+	
+	fclose(f);
+err_free_hse_cnt_table:
+	hse_mem_free(hse_cnt_table);
+err_free_cnt_table:
+	free(cnt_table);
+
+	return ret;
+}
+
+int hse_rsa_key_import(uint8_t *rsa_modulus, int rsa_modulus_size,
                    uint8_t *rsa_pub_exponent, int rsa_pub_exponent_size, uint32_t handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
@@ -352,7 +426,82 @@ int hse_key_import(uint8_t *rsa_modulus, int rsa_modulus_size,
 	return ret;
 }
 
-int hse_extract_and_import_key(const char *keypath, uint32_t handle)
+int hse_extract_and_import_sym_key(const char *keypath, uint32_t handle)
+{
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	volatile hseKeyInfo_t *key_info;
+	uint8_t key[32] = {0};
+	int ret = 0, err = 0;
+	uint32_t key_len;
+	void *hse_key;
+	FILE *f;
+
+	key_len = get_file_size(keypath);
+	if (!key_len || key_len != 32) {
+		ERROR("Invalid  Key size. RPMB key must be 32 bytes long.\n");
+		return -ENODATA;
+	}
+
+	f = fopen(keypath, "rb");
+	if (!f) {
+		ERROR("Could not find Symmetric Key file %s\n", keypath);
+		return -ENOENT;
+	}
+
+	err = fread((void *)key, 1, key_len, f);
+	if (err < 0 || err != key_len) {
+		ERROR("Failed to read Symmetric Key from file\n");
+		ret = -err;
+		goto err_close_keyfile;
+	}
+
+	key_info = hse_mem_alloc(sizeof(*key_info));
+	if (!key_info) {
+		ERROR("Failed to allocate space for key info\n");
+		ret = -ENOMEM;
+		goto err_close_keyfile;
+	}
+	hse_memset((void *)key_info, 0, sizeof(*key_info));
+
+	hse_key = hse_mem_alloc(key_len);
+	if (!hse_key) {
+		ERROR("Failed to allocate space for Symmetric Key\n");
+		ret = -ENOMEM;
+		goto err_free_key_info;
+	}
+	hse_memcpy(hse_key, key, key_len);
+
+	key_info->keyFlags = HSE_KF_USAGE_SIGN;
+	key_info->keyBitLen = HSE_BYTES_TO_BITS(key_len);
+	key_info->keyCounter = 0ul;
+	key_info->smrFlags = 0ul;
+	key_info->keyType = HSE_KEY_TYPE_HMAC;
+
+	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
+	srv_desc.hseSrv.importKeyReq.targetKeyHandle = handle;
+	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma((void *)key_info);
+	srv_desc.hseSrv.importKeyReq.pKey[0] = 0u;
+	srv_desc.hseSrv.importKeyReq.pKey[1] = 0u;
+	srv_desc.hseSrv.importKeyReq.pKey[2] = hse_virt_to_dma(hse_key);
+	srv_desc.hseSrv.importKeyReq.keyLen[0] = 0u;
+	srv_desc.hseSrv.importKeyReq.keyLen[1] = 0u;
+	srv_desc.hseSrv.importKeyReq.keyLen[2] = key_len;
+	srv_desc.hseSrv.importKeyReq.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
+	srv_desc.hseSrv.importKeyReq.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
+
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	if (ret)
+		ERROR("Failed to import Symmetric Key\n");
+
+	hse_mem_free(hse_key);
+err_free_key_info:
+	hse_mem_free((void *)key_info);
+err_close_keyfile:
+	fclose(f);
+	return ret;
+}
+
+int hse_extract_and_import_rsa_key(const char *keypath, uint32_t handle)
 {
 	FILE *f;
 	int bytes, ret = 0;
@@ -415,7 +564,7 @@ int hse_extract_and_import_key(const char *keypath, uint32_t handle)
 		goto err_free_rsa_pub_exponent;
 	}
 
-	ret = hse_key_import(rsa_modulus, BN_num_bytes(rsa_bn_modulus), rsa_pub_exponent,
+	ret = hse_rsa_key_import(rsa_modulus, BN_num_bytes(rsa_bn_modulus), rsa_pub_exponent,
 						 BN_num_bytes(rsa_bn_pub_exponent), handle);
 
 err_free_rsa_pub_exponent:
@@ -747,6 +896,7 @@ int hse_secboot_enable(const char *device, const char *bl2_sign_file,
 		       const char *bl2_bin_file, enum boot_type boot_medium)
 {
 	struct ivt ivt;
+	bool gen_cnt_table = false;
 	struct app_boot_hdr app_boot;
 	uint16_t hse_status;
 	uint32_t *sysimg_size;
@@ -803,14 +953,29 @@ int hse_secboot_enable(const char *device, const char *bl2_sign_file,
 			goto err_close_fd;
 	}
 
-	for (int i = 0; bl_keys[i].type != INVALID_KEY; i++) {
-		if (!bl_keys[i].keypath || hse_check_prev_import(i))
+	for (int i = 0; secboot_keys[i].type != INVALID_KEY; i++) {
+		if (!secboot_keys[i].keypath || hse_check_prev_import(i))
 			continue;
 
-		INFO("Importing %s\n", bl_keys[i].name);
-		ret = hse_extract_and_import_key(bl_keys[i].keypath, bl_keys[i].handle);
+		INFO("Importing %s\n", secboot_keys[i].name);
+		if (secboot_keys[i].type == RPMB_KEY) {
+			ret = hse_extract_and_import_sym_key(secboot_keys[i].keypath, secboot_keys[i].handle);
+			INFO("DO NOT LOSE THE Symmetric KEY, IT IS NOT EXPORTABLE/RETRIEVABLE\n");
+			gen_cnt_table = true;
+		} else {
+			ret = hse_extract_and_import_rsa_key(secboot_keys[i].keypath, secboot_keys[i].handle);
+		} 
 		if (ret) {
-			ERROR("Failed to import %s\n", bl_keys[i].name);
+			ERROR("Failed to import %s\n", secboot_keys[i].name);
+			goto err_close_fd;
+		}
+	}
+
+	if (gen_cnt_table) {
+		INFO("Publishing Monotonic Counter Table\n");
+		ret = hse_set_and_publish_cnt_table();
+		if (ret) {
+			ERROR("Failed to setup monotonic counter table\n");
 			goto err_close_fd;
 		}
 	}
@@ -818,7 +983,7 @@ int hse_secboot_enable(const char *device, const char *bl2_sign_file,
 	INFO("Generating Secure Memory Region entry\n");
 
 	ret = hse_smr_install(fd, &ivt, &app_boot, bl2_sign_file,
-			      bl2_bin_file, bl_keys[BL2_KEY].handle,
+			      bl2_bin_file, secboot_keys[BL2_KEY].handle,
 			      boot_medium);
 	if (ret)
 		goto err_close_fd;
@@ -1000,6 +1165,8 @@ void usage(char *progname)
 	printf("\t\t\t  qspi - QSPI Flash boot\n");
 	printf("\t\t\t   mmc - MMC or eMMC boot\n");
 	printf("\t-d:\tspecify full path to SD/MMC/MTD device (e.g. /dev/sdb or /dev/mtd0)\n");
+	printf("\t--rpmb_key: specify full path to symmetric key file for Rollback Protection and HSE key slot,\n");
+	printf("\t            if this option is present, the HSE Monotonic Counter Table will be generated\n");
 	printf("\t--bl2_sign: specify full path to the binary signature file of BL2 (required)\n");
 	printf("\t--bl2_bin: specify full path to the BL2 binary file (required)\n");
 	printf("\t--bl2_key: specify full path to PEM format key file for BL2 and HSE key slot (required)\n");
@@ -1030,6 +1197,7 @@ int main(int argc, char *argv[])
 			case BL2_BIN_ARG_ID:
 				bl2_bin_path = optarg;
 				break;
+			case RPMB_KEY:
 			case BL2_KEY:
 			case BL31_KEY:
 			case BL32_KEY:
