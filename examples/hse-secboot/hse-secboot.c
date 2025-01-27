@@ -283,6 +283,222 @@ int hse_mus_enable()
 	return ret;
 }
 
+int hse_get_fw_size(uint32_t *fw_size)
+{
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseAttrHseFwSize_t *hse_fw_size;
+	int ret = 0;
+
+	hse_fw_size = hse_mem_alloc(sizeof(*hse_fw_size));
+	if (!hse_fw_size) {
+		ERROR("Failed to allocate space for HSE Firmware Size Attribute\n");
+		return -ENOMEM;
+	}
+
+	srv_desc.srvId = HSE_SRV_ID_GET_ATTR;
+	srv_desc.hseSrv.getAttrReq.attrId = HSE_FW_SIZE_ATTR_ID;
+	srv_desc.hseSrv.getAttrReq.attrLen = sizeof(*hse_fw_size);
+	srv_desc.hseSrv.getAttrReq.pAttr = hse_virt_to_dma(hse_fw_size);
+
+	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc));
+	if (ret) {
+		ERROR("Failed to get HSE Firmware Size\n");
+		goto err_free_fw_size;
+	}
+	hse_memcpy(fw_size, hse_fw_size, sizeof(*hse_fw_size));
+
+err_free_fw_size:
+	hse_mem_free(hse_fw_size);
+
+	return ret;
+}
+
+int hse_update_fw(void *new_fw, uint32_t size)
+{
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	uint8_t *hse_new_fw, *hse_size;
+	int ret = 0;
+
+	if (!new_fw)
+		return -EINVAL;
+
+	hse_size = hse_mem_alloc(sizeof(*hse_size));
+	if (!hse_size) {
+		ERROR("Failed to allocate space for HSE Firmware Size\n");
+		return -ENOMEM;
+	}
+	hse_memcpy(hse_size, &size, sizeof(size));
+
+	hse_new_fw = hse_mem_alloc(size);
+	if (!hse_new_fw) {
+		ERROR("Failed to allocate space for HSE Firmware\n");
+		ret = -ENOMEM;
+		goto err_free_hse_size;
+	}
+
+	srv_desc.srvId = HSE_SRV_ID_FIRMWARE_UPDATE;
+	srv_desc.hseSrv.firmwareUpdateReq.inFwFileLength = 0;
+	srv_desc.hseSrv.firmwareUpdateReq.pInFwFile = 0;
+	srv_desc.hseSrv.firmwareUpdateReq.pFwBufferLength = hse_virt_to_dma(hse_size);
+	srv_desc.hseSrv.firmwareUpdateReq.pOutFwBuffer = hse_virt_to_dma(hse_new_fw);
+
+	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc));
+	if (ret) {
+		ERROR("Failed to update HSE Firmware\n");
+		goto err_free_hse_new_fw;
+	}
+	hse_memcpy(new_fw, hse_new_fw, size);
+
+err_free_hse_new_fw:
+	hse_mem_free(hse_new_fw);
+err_free_hse_size:
+	hse_mem_free(hse_size);
+
+	return ret;
+}
+
+int hse_fw_write_sd_mmc(int fd, struct ivt *ivt, void *fw, uint32_t fw_size)
+{
+	off_t seek_off;
+	int bytes;
+
+	seek_off = lseek(fd, ivt->hse_fw, SEEK_SET);
+	if (seek_off < 0 || seek_off != ivt->hse_fw) {
+		ERROR("Failed to find HSE Firmware location\n");
+		return errno;
+	}
+	bytes = write(fd, fw, fw_size);
+	if (bytes < 0 || bytes != fw_size) {
+		ERROR("Failed to write HSE Firmware\n");
+		return errno;
+	}
+
+	return 0;
+}
+
+int hse_fw_write_qspi(int fd, struct ivt *ivt, void *fw, uint32_t fw_size)
+{
+	off_t seek_off;
+	erase_info_t ei;
+	uint8_t *hse_fw;
+	uint32_t blk_cnt;
+	uint32_t rem, div;
+	int bytes, ret = 0;
+
+	blk_cnt = fw_size / QSPI_BLOCK_SIZE + 1;
+
+	hse_fw = malloc(blk_cnt * QSPI_BLOCK_SIZE);
+	if (!hse_fw) {
+		ERROR("Failed to allocate memory for HSE Firmware\n");
+		return -ENOMEM;
+	}
+
+	div = ivt->hse_fw / QSPI_BLOCK_SIZE;
+	rem = ivt->hse_fw % QSPI_BLOCK_SIZE;
+	ret = get_dev_offset(fd, hse_fw, (div * QSPI_BLOCK_SIZE), (blk_cnt * QSPI_BLOCK_SIZE));
+	if (ret) {
+		ERROR("Failed to retrieve HSE Firmware from device\n");
+		goto err_free_hse_fw;
+	}
+	memcpy(hse_fw + rem, fw, fw_size);
+
+	ei.length = (blk_cnt * QSPI_BLOCK_SIZE);
+	ei.start = (div * QSPI_BLOCK_SIZE);
+	ioctl(fd, MEMUNLOCK, &ei);
+	ioctl(fd, MEMERASE, &ei);
+
+	seek_off = lseek(fd, (div * QSPI_BLOCK_SIZE), SEEK_SET);
+	if (seek_off < 0) {
+		ERROR("Failed to find SYSIMG location\n");
+		ret = errno;
+		goto err_free_hse_fw;
+	}
+	bytes = write(fd, hse_fw, (blk_cnt * QSPI_BLOCK_SIZE));
+	if (bytes < 0 || bytes != (blk_cnt * QSPI_BLOCK_SIZE)) {
+		ERROR("Failed to write SYSIMG\n");
+		ret = errno;
+		goto err_free_hse_fw;
+	}
+
+err_free_hse_fw:
+	free(hse_fw);
+	return ret;
+}
+
+int hse_fw_blue_image_convert(const char *device, enum boot_type boot_medium)
+{
+	struct ivt ivt;
+	int fd, ret = 0;
+	uint32_t fw_size;
+	uint8_t *blue_fw;
+	uint16_t hse_status;
+
+	ret = hse_dev_open();
+	if (ret) {
+		ERROR("Failed to open HSE device - error %d\n", ret);
+		return ret;
+	}
+
+	/* check if hse has been initialised */
+	hse_status = hse_check_status();
+	if (!(hse_status & HSE_STATUS_INIT_OK)) {
+		ERROR("HSE not initialised or missing firmware\n");
+		ret = -ENODEV;
+		goto err_close_hse;
+	}
+
+	INFO("Retrieving IVT from device %s\n", device);
+
+	fd = open(device, O_SYNC | O_RDWR);
+	if (fd < 0) {
+		ERROR("Failed to open %s\n", device);
+		ret = errno;
+		goto err_close_hse;
+	}
+
+	if (boot_medium == QSPI)
+		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_QSPI, sizeof(ivt));
+	else
+		ret = get_dev_offset(fd, &ivt, IVT_OFFSET_SD_MMC, sizeof(ivt));
+
+	if (ret) {
+		ERROR("Failed to get IVT from device\n");
+		goto err_close_fd;
+	}
+
+	ret = hse_get_fw_size(&fw_size);
+	if (ret)
+		goto err_close_fd;
+
+	blue_fw = malloc(fw_size);
+	if (!blue_fw) {
+		ERROR("Failed to allocate space for HSE Blue Firmware\n");
+		ret = -ENOMEM;
+		goto err_close_fd;
+	}
+
+	ret = hse_update_fw(blue_fw, fw_size);
+	if (ret)
+		goto err_free_blue_fw;
+
+	if (boot_medium == QSPI)
+		ret = hse_fw_write_qspi(fd, &ivt, blue_fw, fw_size);
+	else
+		ret = hse_fw_write_sd_mmc(fd, &ivt, blue_fw, fw_size);
+
+	if (!ret)
+		INFO("HSE Blue Firmware Image written successfully\n");
+
+err_free_blue_fw:
+	free(blue_fw);
+err_close_fd:
+	close(fd);
+err_close_hse:
+	hse_dev_close();
+
+	return ret;
+}
+
 int hse_key_format()
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
@@ -1157,10 +1373,12 @@ void usage(char *progname)
 	printf("\t-h:\tdisplay this help string\n");
 	printf("\t-f:\tformat key catalogs\n");
 	printf("\t\trequires -d\n");
-	printf("\t\tmutually exclusive with -s\n");
+	printf("\t\tmutually exclusive with -s and -u\n");
 	printf("\t-s:\tset up advanced secure boot\n");
 	printf("\t\trequires -d and --bl2_key, --bl31_key, --bl33_key\n");
-	printf("\t\tmutually exclusive with -f\n");
+	printf("\t\tmutually exclusive with -f and -u\n");
+	printf("\t-u:\tconvert currently running HSE FW image to blue image\n");
+	printf("\t\tmutually exclusive with -f and -s\n");
 	printf("\t-o:\tforce overwrite of HSE key catalog\n");
 	printf("\t-b:\tspecify boot medium type, possible values:\n");
 	printf("\t\t\t    sd - SD card boot (default)\n");
@@ -1185,10 +1403,10 @@ int main(int argc, char *argv[])
 {
 	char *devpath = NULL, *bl2_sign_path = NULL, *bl2_bin_path = NULL;
 	char *bootmedium = "sd";
-	int c, fflag = 0, sflag = 0, oflag = 0, ret = 0;
+	int c, fflag = 0, sflag = 0, oflag = 0, uflag = 0, ret = 0;
 	enum boot_type type = SD;
 
-	while ((c = getopt_long(argc, argv, "hfosb:d:", secboot_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "hfosub:d:", secboot_options, NULL)) != -1) {
 		switch (c) {
 			case 'h':
 				usage(argv[0]);
@@ -1216,6 +1434,9 @@ int main(int argc, char *argv[])
 			case 's':
 				sflag = 1;
 				break;
+			case 'u':
+				uflag = 1;
+				break;
 			case 'd':
 				devpath = optarg;
 				break;
@@ -1232,14 +1453,14 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (!fflag && !sflag) {
-		ERROR("-s or -f should be used\n");
+	if (!fflag && !sflag && !uflag) {
+		ERROR("-s, -f or -u should be used\n");
 		usage(argv[0]);
 		return -1;
 	}
 
-	if (fflag && sflag) {
-		ERROR("Options -s and -f are mutually exclusive\n");
+	if ((fflag && sflag) || (fflag && uflag) || (sflag && uflag)) {
+		ERROR("Options -s, -f and -u are mutually exclusive\n");
 		usage(argv[0]);
 		return -1;
 	}
@@ -1266,6 +1487,12 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 	INFO("Chosen boot medium: %s\n", bootmedium);
+
+	if (uflag) {
+		INFO("Converting HSE Pink Firmware Image to Blue Firmware Image\n");
+		ret = hse_fw_blue_image_convert(devpath, type);
+		return ret;
+	}
 
 	if (fflag) {
 		INFO("Formatting HSE key catalog\n");
