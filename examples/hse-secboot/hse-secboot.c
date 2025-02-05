@@ -54,6 +54,8 @@
 #define HSE_APP_CORE_A53_0 HSE_APP_CORE4
 #endif
 
+#define BL2_VERSION_OFFSET	0x4
+
 enum boot_type {
 	QSPI = 0,
 	SD = 2,
@@ -685,7 +687,7 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	smr_entry.authScheme.sigScheme.signSch = HSE_SIGN_RSASSA_PKCS1_V15;
 	smr_entry.authScheme.sigScheme.sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA_1;
 	smr_entry.smrDecrypt.decryptKeyHandle = HSE_SMR_DECRYPT_KEY_HANDLE_NOT_USED;
-	smr_entry.versionOffset = 0;
+	smr_entry.versionOffset = BL2_VERSION_OFFSET;
 
 	/* workaround for bus error on writing to hse rmem */
 	memcpy(smr_entry_hse, &(smr_entry), sizeof(smr_entry));
