@@ -2,7 +2,7 @@
 /*
  * NXP HSE Userspace Driver - Memory Management
  *
- * Copyright 2021-2024 NXP
+ * Copyright 2021-2025 NXP
  */
 
 #include <stdio.h>
@@ -16,13 +16,30 @@
 #include "hse-internal.h"
 
 #define HSE_NODE_SIZE    sizeof(struct node_data) /* memory block metadata */
+#define HSE_MEM_OFF      (8 * 1024) /* memory for nodes */
+
+/**
+ * enum hse_node_status
+ * HSE_NODE_UNUSED: the node is not used in the linked list
+ * HSE_NODE_OWNING_MEM: the node is used in the linked list and owns
+ *                      memory, but does not contain a valid buffer
+ * HSE_NODE_USING_MEM: the node is used in the linked list and uses
+ *                     its allocated memory to hold a valid buffer
+ */
+enum hse_node_status {
+	HSE_NODE_UNUSED = 0x0,
+	HSE_NODE_OWNING_MEM = 0x10,
+	HSE_NODE_USING_MEM = 0x20
+};
 
 struct node_data {
 	uint32_t size;
-	uint8_t used;
-	uint8_t reserved[3];
-	uint64_t next_offset;
-} __attribute__((packed));
+	uint32_t mem_offset;
+	uint32_t next_offset;
+	uint8_t use_status;
+	uint8_t type;
+	uint8_t reserved[2]; /* necessary for alignment to 8 */
+};
 
 /**
  * struct hse_mem_priv - component private data
@@ -49,6 +66,55 @@ static volatile struct node_data *next_node(volatile struct node_data *block, bo
 	return (struct node_data *)((uint8_t *)priv.mem_start + block->next_offset);
 }
 
+static volatile struct node_data *next_unused_node(bool intl)
+{
+	volatile struct node_data *mem = intl ? priv.intl_mem_start : priv.mem_start;
+	uint64_t mem_start = (uint64_t)(intl ? priv.intl_mem_start : priv.mem_start);
+
+	while (((uint64_t)mem <= (mem_start + HSE_MEM_OFF - HSE_NODE_SIZE)) &&
+		   (mem->use_status != HSE_NODE_UNUSED))
+		mem += 1;
+
+	if ((uint64_t)mem >= mem_start + HSE_MEM_OFF)
+		return NULL;
+	return mem;
+}
+
+static int get_node_handle(uint64_t addr, bool intl)
+{
+	uint64_t mem_start = (uint64_t)(intl ? priv.intl_mem_start : priv.mem_start);
+
+	if (addr - mem_start > HSE_MEM_OFF - HSE_NODE_SIZE)
+		return -EINVAL;
+
+	return (addr - mem_start) / HSE_NODE_SIZE;
+}
+
+static struct node_data *get_node_ptr(int node_handle, bool intl)
+{
+	uint64_t mem_start = (uint64_t)(intl ? priv.intl_mem_start : priv.mem_start);
+	uint64_t mem_addr = mem_start + (node_handle * HSE_NODE_SIZE);
+
+	if (mem_addr >= mem_start + HSE_MEM_OFF)
+		return NULL;
+
+	return (struct node_data *)mem_addr;
+}
+
+uint64_t hse_get_node_mem_addr(int node_handle, bool intl)
+{
+	uint64_t mem_start = (uint64_t)(intl ? priv.intl_mem_start : priv.mem_start);
+
+	if (node_handle < 0) 
+		return 0;
+
+	if (!get_node_ptr(node_handle, intl) ||
+		!(get_node_ptr(node_handle, intl)->use_status == HSE_NODE_USING_MEM))
+		return 0;
+
+	return mem_start + get_node_ptr(node_handle, intl)->mem_offset;
+}
+
 void hse_intl_iterstart()
 {
 	priv.iter = priv.intl_mem_start;
@@ -57,14 +123,15 @@ void hse_intl_iterstart()
 bool hse_intl_hasnext()
 {
 	pthread_spin_lock(priv.mem_lock);
-	while ((next_node(priv.iter, true) != NULL) && (!next_node(priv.iter, true)->used))
+	while ((next_node(priv.iter, true) != NULL) &&
+		   (!(next_node(priv.iter, true)->use_status == HSE_NODE_USING_MEM)))
 		priv.iter = next_node(priv.iter, true);
 	pthread_spin_unlock(priv.mem_lock);
 
 	return (next_node(priv.iter, true) != NULL) ? true : false;
 }
 
-uint8_t *hse_intl_next()
+int hse_intl_next()
 {
 	volatile struct node_data *to_ret;
 
@@ -73,7 +140,7 @@ uint8_t *hse_intl_next()
 	priv.iter = next_node(priv.iter, true);
 	pthread_spin_unlock(priv.mem_lock);
 
-	return (uint8_t *)to_ret + HSE_NODE_SIZE;
+	return get_node_handle((uint64_t)to_ret, true);
 }
 
 void hse_intl_iterstop()
@@ -81,7 +148,7 @@ void hse_intl_iterstop()
 	priv.iter = NULL;
 }
 
-int hse_mem_init(const void *intl_base_addr, const void *rmem_base_addr)
+int hse_mem_init(void *intl_base_addr, void *rmem_base_addr)
 {
 	if (!intl_base_addr || !rmem_base_addr)
 		return EINVAL;
@@ -94,24 +161,26 @@ int hse_mem_init(const void *intl_base_addr, const void *rmem_base_addr)
 	return 0;
 }
 
-int hse_mem_setup(const void *base_addr, const uint64_t mem_size, bool intl)
+int hse_mem_setup(void *base_addr, uint64_t mem_size, bool intl)
 {
 	volatile struct node_data **mem = intl ? &priv.intl_mem_start : &priv.mem_start;
 
-	if (!base_addr)
+	if (!base_addr || mem_size < HSE_MEM_OFF)
 		return EINVAL;
 
+	_raw_hse_memset((void *)base_addr, 0, HSE_MEM_OFF);
 	*mem = (struct node_data *)base_addr;
-	(*mem)->size = mem_size - HSE_NODE_SIZE;
+	(*mem)->size = mem_size - HSE_MEM_OFF;
 	(*mem)->next_offset = 0;
-	(*mem)->used = false;
+	(*mem)->mem_offset = HSE_MEM_OFF;
+	(*mem)->use_status = HSE_NODE_OWNING_MEM;
 
 	priv.mem_lock = get_mem_lock();
 
 	return 0;
 }
 
-static void *_hse_mem_alloc(size_t size, bool intl)
+static int _hse_mem_alloc(size_t size, bool intl)
 {
 	volatile struct node_data *crt_block;
 	volatile struct node_data *best_block;
@@ -119,20 +188,19 @@ static void *_hse_mem_alloc(size_t size, bool intl)
 	size_t best_block_size;
 	uint64_t mem_start;
 
-	/* align size to HSE_NODE_SIZE */
-	size = (size + (HSE_NODE_SIZE - 1)) & ~(HSE_NODE_SIZE - 1);
 	if (!size)
-		return NULL;
+		return -EINVAL;
+
+	/* align size to 8 bytes */
+	size = (size + (8 - 1)) & ~(8 - 1);
 
 	pthread_spin_lock(priv.mem_lock);
 
 	if (intl) {
-
 		crt_block = priv.intl_mem_start;
 		best_block = NULL;
 		best_block_size = priv.intl_mem_start->size;
 	} else {
-
 		crt_block = priv.mem_start;
 		best_block = NULL;
 		best_block_size = priv.mem_start->size;
@@ -140,117 +208,142 @@ static void *_hse_mem_alloc(size_t size, bool intl)
 
 	while (crt_block) {
 		/* check if current block fits */
-		if ((!crt_block->used) &&
-		    (crt_block->size >= (size + HSE_NODE_SIZE)) &&
+		if (!(crt_block->use_status == HSE_NODE_USING_MEM) && (crt_block->size >= size) &&
 		    (crt_block->size <= best_block_size)) {
 			best_block = crt_block;
 			best_block_size = crt_block->size;
 		}
-
 		crt_block = next_node(crt_block, intl);
 	}
 
 	if (!best_block) {
 		/* no matching block found */
 		pthread_spin_unlock(priv.mem_lock);
-		return NULL;
+		return -ENOMEM;
 	}
 
-	/* found a match, split a chunk of requested size and return it */
-	best_block->size = best_block->size - size - HSE_NODE_SIZE;
-	alloc_block = (struct node_data *)((uint8_t *)best_block +
-					   HSE_NODE_SIZE + best_block->size);
+	alloc_block = next_unused_node(intl);
+	/* no unused node found, return best_block */
+	if (!alloc_block) {
+		best_block->type = 0;
+		best_block->use_status = HSE_NODE_USING_MEM;
+		pthread_spin_unlock(priv.mem_lock);
+		return get_node_handle((uint64_t)best_block, intl);
+	}
+
+	best_block->size = best_block->size - size;
 	alloc_block->size = size;
-	alloc_block->used = true;
+	alloc_block->type = 0;
+	alloc_block->mem_offset = best_block->mem_offset + best_block->size;
+	alloc_block->use_status = HSE_NODE_USING_MEM;
 
-	if (intl)
-		mem_start = (uint64_t)priv.intl_mem_start;
-	else
-		mem_start = (uint64_t)priv.mem_start;
-
+	mem_start = (uint64_t)(intl ? priv.intl_mem_start : priv.mem_start);
 
 	alloc_block->next_offset = best_block->next_offset;
 	best_block->next_offset = (uint64_t)alloc_block - mem_start;
 
 	pthread_spin_unlock(priv.mem_lock);
 
-	return (void *)((uint8_t *)alloc_block + HSE_NODE_SIZE);
+	return get_node_handle((uint64_t)alloc_block, intl);
 }
 
-void *hse_mem_alloc(size_t size)
-{
-	return _hse_mem_alloc(size, false);
-}
-
-void *hse_intl_mem_alloc(size_t size)
-{
-	return _hse_mem_alloc(size, true);
-}
-
-static void _hse_mem_free(void *addr, bool intl)
+static void _hse_mem_free(int node_handle, bool intl)
 {
 	volatile struct node_data *prev_block;
 	volatile struct node_data *next_block;
 	volatile struct node_data *free_block;
 
-	if (addr == NULL)
+	if (node_handle < 0)
 		return;
 
 	/* get the node_data for the block to be freed */
-	free_block = (struct node_data *)((uint8_t *)addr - HSE_NODE_SIZE);
-	if (free_block == NULL)
+	free_block = get_node_ptr(node_handle, intl);
+	if (!free_block || !(free_block->use_status == HSE_NODE_USING_MEM))
 		return;
 
 	pthread_spin_lock(priv.mem_lock);
 
 	/* find left neighbour of free_block */
-	if (intl) {
-		next_block = priv.intl_mem_start;
-	} else {
-		next_block = priv.mem_start;
-	}
-
-	free_block->used = false;
+	next_block = intl ? priv.intl_mem_start : priv.mem_start;
+	_raw_hse_memset((void *)hse_get_node_mem_addr(node_handle, intl), 0, free_block->size);
+	free_block->use_status = HSE_NODE_OWNING_MEM;
 
 	prev_block = NULL;
-	while ((next_block != NULL) && (next_block < free_block)) {
+	while ((next_block != NULL) && (next_block != free_block)) {
 		prev_block = next_block;
 		next_block = next_node(next_block, intl);
 	}
 
-	if (next_node(free_block, intl) != NULL) {
-		if (!next_node(free_block, intl)->used) {
-			free_block->size += next_node(free_block, intl)->size;
-			free_block->size += HSE_NODE_SIZE;
-
+	next_block = next_node(free_block, intl);
+	if (next_block != NULL) {
+		if (!(next_block->use_status == HSE_NODE_USING_MEM)) {
+			free_block->size += next_block->size;
 			/* remove next_block from list */
-			free_block->next_offset = next_node(free_block, intl)->next_offset;
+			free_block->next_offset = next_block->next_offset;
+
+			_raw_hse_memset((void *)next_block, 0, HSE_NODE_SIZE);
 		}
 	}
 
 	if (prev_block != NULL) {
-		if (!prev_block->used) {
-			prev_block->size += free_block->size + HSE_NODE_SIZE;
-
+		if (!(prev_block->use_status == HSE_NODE_USING_MEM)) {
+			prev_block->size += free_block->size;
 			/* remove free_block from list */
 			prev_block->next_offset = free_block->next_offset;
+
+			_raw_hse_memset((void *)free_block, 0, HSE_NODE_SIZE);
 		}
 	}
 
 	pthread_spin_unlock(priv.mem_lock);
 }
 
-void hse_mem_free(void *addr)
+uint8_t hse_intl_get_node_type(int node_handle)
 {
-	_hse_mem_free(addr, false);
+	struct node_data *node = get_node_ptr(node_handle, true);
+
+	if (!node)
+		return 0;
+	return node->type;
 }
 
-void hse_intl_mem_free(void *addr)
+void hse_intl_set_node_type(int node_handle, uint8_t type)
 {
-	_hse_mem_free(addr, true);
+	struct node_data *node = get_node_ptr(node_handle, true);
+
+	if (!node)
+		return;
+	node->type = type;
 }
 
-void *hse_memcpy(void *dest, const void *src, size_t size)
+int hse_mem_alloc(size_t size)
+{
+	return _hse_mem_alloc(size, false);
+}
+
+int hse_intl_mem_alloc(size_t size, uint8_t type)
+{
+	int node_handle = _hse_mem_alloc(size, true);
+
+	if (node_handle < 0)
+		goto err_node_idx;
+	hse_intl_set_node_type(node_handle, type);
+
+err_node_idx:
+	return node_handle;
+}
+
+void hse_mem_free(int node_handle)
+{
+	_hse_mem_free(node_handle, false);
+}
+
+void hse_intl_mem_free(int node_handle)
+{
+	_hse_mem_free(node_handle, true);
+}
+
+void *_raw_hse_memcpy(void *dest, const void *src, size_t size)
 {
 	const uint8_t *s = src;
 	uint8_t *d = dest;
@@ -282,7 +375,7 @@ void *hse_memcpy(void *dest, const void *src, size_t size)
 	return dest;
 }
 
-void *hse_memset(void *dest, int fill, size_t size)
+void *_raw_hse_memset(void *dest, int fill, size_t size)
 {
 	uint8_t *d = dest;
 	uint64_t *d64;
@@ -319,4 +412,55 @@ void *hse_memset(void *dest, int fill, size_t size)
 	}
 
 	return dest;
+}
+
+void hse_memcpy_to_dev(int dest_handle, const void *src, size_t size, size_t offset)
+{
+	uint8_t *d;
+	struct node_data *dest_node;
+
+	dest_node = get_node_ptr(dest_handle, false);
+
+	if (!size || !dest_node ||
+		!(dest_node->use_status == HSE_NODE_USING_MEM) ||
+		size > (dest_node->size - offset))
+		return;
+
+	d = (uint8_t *)((uint64_t)priv.mem_start + dest_node->mem_offset + offset);
+
+	_raw_hse_memcpy(d, src, size);
+}
+
+void hse_memcpy_from_dev(void *dest, int src_handle, size_t size, size_t offset)
+{
+	uint8_t *s;
+	struct node_data *src_node;
+
+	src_node = get_node_ptr(src_handle, false);
+
+	if (!size || !src_node ||
+		!(src_node->use_status == HSE_NODE_USING_MEM) ||
+		size > (src_node->size - offset))
+		return;
+
+	s = (uint8_t *)((uint64_t)priv.mem_start + src_node->mem_offset + offset);
+
+	_raw_hse_memcpy(dest, s, size);
+}
+
+void hse_memset(int node_handle, int fill, size_t size, size_t offset)
+{
+	uint8_t *d;
+	struct node_data *dest_node;
+
+	dest_node = get_node_ptr(node_handle, false);
+
+	if (!size || !dest_node ||
+		!(dest_node->use_status == HSE_NODE_USING_MEM) ||
+		size > (dest_node->size - offset))
+		return;
+
+	d = (uint8_t *)((uint64_t)priv.mem_start + dest_node->mem_offset + offset);
+
+	_raw_hse_memset(d, fill, size);
 }

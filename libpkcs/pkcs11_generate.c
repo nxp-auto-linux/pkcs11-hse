@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2025 NXP
  */
 
 #include <stdio.h>
@@ -11,7 +11,6 @@
 
 #include "pkcs11_context.h"
 #include "hse_interface.h"
-#include "simclist.h"
 #include "pkcs11_util.h"
 #include "hse-internal.h"
 
@@ -32,8 +31,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 	hseKeyGenerateSrv_t *keyGenReq = &srv_desc.hseSrv.keyGenReq;
 	struct hse_keyObject *key = NULL;
 	CK_OBJECT_HANDLE obj;
-	CK_BBOOL obj_found = CK_FALSE;
-	uint8_t *hse_pubExp = NULL;
 	uint16_t *keyBitsLen;
 	void *ecc_oid, *pubExp;
 	CK_BYTE *idtemp;
@@ -42,7 +39,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 	CK_BBOOL *keyFlag_val;
 	char *label = NULL;
 	CK_RV rc = CKR_OK;
-	int err;
+	int err, key_handle = -1, pubExp_handle = -1;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -75,21 +72,20 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 	obj = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &obj);
+	key_handle = get_key_object_handle(obj);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (!key) {
-		key = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
-		if (!key)
+	if (key_handle < 0) {
+		key_handle = hse_intl_mem_alloc(sizeof(*key), HSE_KEY_OBJ);
+		if (key_handle < 0)
 			return CKR_HOST_MEMORY;
 	} else if (idtemp[2] == HSE_KEY_CATALOG_ID_NVM) {
 		printf("ERROR: NVM Slot is already occupied."
 				" The slot should be cleared, before a new key can be added\n");
 		return CKR_ARGUMENTS_BAD;
-	} else {
-		obj_found = CK_TRUE;
 	}
+	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
+	memset(key, 0, sizeof(*key));
 
-	hse_memset(key, 0x0, sizeof(struct hse_keyObject));
 	/* key handles are unique in HSE; use them for UID */
 	key->key_handle = obj;
 	key->key_uid = obj;
@@ -102,7 +98,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
             goto err_free_key_intl;
         }
 
-		hse_memcpy(key->key_label, label, getattr_len(pPrivateKeyTemplate, CKA_LABEL, ulPrivateKeyAttributeCount));
+		memcpy(key->key_label, label, getattr_len(pPrivateKeyTemplate, CKA_LABEL, ulPrivateKeyAttributeCount));
 	}
 
 	/* key class and key type */
@@ -143,12 +139,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 				}
 			}
 
-			hse_pubExp = hse_mem_alloc(pubExpLen);
-			if (!hse_pubExp) {
+			pubExp_handle = hse_mem_alloc(pubExpLen);
+			if (pubExp_handle < 0) {
 				rc = CKR_HOST_MEMORY;
 				goto err_free_key_intl;
 			}
-			hse_memcpy(hse_pubExp, pubExp, pubExpLen);
+			hse_memcpy_to_dev(pubExp_handle, pubExp, pubExpLen, 0);
 
 			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPublicKeyTemplate, CKA_ENCRYPT, ulPublicKeyAttributeCount)) && (*keyFlag_val))
 				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_ENCRYPT;
@@ -167,7 +163,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 			keyGenReq->keyInfo.specific.pubExponentSize = pubExpLen;
 			keyGenReq->keyGenScheme = HSE_KEY_GEN_RSA_KEY_PAIR;
 			keyGenReq->sch.rsaKey.pubExpLength = pubExpLen;
-			keyGenReq->sch.rsaKey.pPubExp = hse_virt_to_dma((void *)hse_pubExp);
+			keyGenReq->sch.rsaKey.pPubExp = hse_virt_to_dma(pubExp_handle, 0);
 			keyGenReq->sch.rsaKey.pModulus = 0u;
 			break;
 		case CKM_EC_KEY_PAIR_GEN:
@@ -206,23 +202,22 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 		goto err_free_key_data;
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
 	/* private and public key are stored in the same slot in HSE */
 	*phPrivateKey = key->key_handle;
 	*phPublicKey = key->key_handle;
-	/* append object to list if not already found */
-	if (obj_found == CK_FALSE)
-		list_append(&gCtx->object_list, key);
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	hse_key_object_write(key);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
-	hse_mem_free(hse_pubExp);
+	hse_mem_free(pubExp_handle);
 
 	return CKR_OK;
 
 err_free_key_data:
-	hse_mem_free(hse_pubExp);
+	hse_mem_free(pubExp_handle);
 err_free_key_intl:
-	hse_intl_mem_free(key);
+	hse_intl_mem_free(key_handle);
 	return rc;
 }
 
@@ -241,14 +236,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	struct hse_keyObject *key = NULL;
 	uint8_t keyType;
 	CK_OBJECT_HANDLE obj;
-	CK_BBOOL obj_found = CK_FALSE;
 	CK_BBOOL *keyFlag_val = NULL;
 	uint16_t *keyBitsLen;
 	CK_BYTE *idtemp;
 	CK_ULONG id_len;
 	char *label = NULL;
 	CK_RV rc = CKR_OK;
-	int err;
+	int err, key_handle;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -297,21 +291,19 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	obj = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &obj);
+	key_handle = get_key_object_handle(obj);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (!key) {
-		key = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
-		if (!key)
+	if (key_handle < 0) { 
+		key_handle = hse_intl_mem_alloc(sizeof(*key), HSE_KEY_OBJ);
+		if (key_handle < 0)
 			return CKR_HOST_MEMORY;
 	} else if (idtemp[2] == HSE_KEY_CATALOG_ID_NVM) {
 		printf("ERROR: NVM Slot is already occupied."
 				" The slot should be cleared, before a new key can be added\n");
 		return CKR_ARGUMENTS_BAD;
-	} else {
-		obj_found = CK_TRUE;
 	}
-
-	hse_memset(key, 0x0, sizeof(struct hse_keyObject));
+	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
+	memset(key, 0, sizeof(*key));
 
 	/* key handles are unique in HSE; use them for UID */
 	key->key_handle = obj;
@@ -334,9 +326,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	}
 
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
-	if (label != NULL) {
-		hse_memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
-	}
+	if (label != NULL)
+		memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
 
 	if (!(keyBitsLen = (uint16_t *)getattr_pval(pTemplate, CKA_VALUE_LEN, ulCount))) {
 		rc = CKR_ARGUMENTS_BAD;
@@ -383,16 +374,15 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 		goto err_free_key_intl;
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
 	*phKey = key->key_handle;
-	/* append object to list if not already found */
-	if (obj_found == CK_FALSE)
-		list_append(&gCtx->object_list, key);
+
+	gCtx->mtxFns.lock(gCtx->keyMtx);
+	hse_key_object_write(key);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
 	return CKR_OK;
 
 err_free_key_intl:
-	hse_intl_mem_free(key);
+	hse_intl_mem_free(key_handle);
 	return rc;
 }

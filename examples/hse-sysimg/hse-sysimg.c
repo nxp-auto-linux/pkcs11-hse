@@ -2,7 +2,7 @@
 /*
  * hse-sysimg - example application using libhse to publish SYS_IMG to SD Card
  *
- * Copyright 2019-2022, 2024 NXP
+ * Copyright 2019-2022, 2025 NXP
  */
 
 #include <stdio.h>
@@ -25,7 +25,7 @@ struct ivt {
 	uint8_t reserved2[196];
 } __attribute__((packed));
 
-int hse_sysimg_get_size(uint32_t *size)
+int hse_sysimg_get_size(int size_handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseGetSysImageSizeSrv_t *get_sysimg_size_req;
@@ -34,7 +34,7 @@ int hse_sysimg_get_size(uint32_t *size)
 	get_sysimg_size_req = &srv_desc.hseSrv.getSysImageSizeReq;
 
 	srv_desc.srvId = HSE_SRV_ID_GET_SYS_IMAGE_SIZE;
-	get_sysimg_size_req->pSysImageSize = hse_virt_to_dma(size);
+	get_sysimg_size_req->pSysImageSize = hse_virt_to_dma(size_handle, 0);
 
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 
@@ -99,7 +99,8 @@ int main(int argc, char *argv[])
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hsePublishSysImageSrv_t *publish_sysimg_req;
-	uint32_t *publish_off, *sysimg_size;
+	uint32_t *publish_off, sysimg_size;
+	int publish_off_handle, sysimg_size_handle, sysimg_handle;
 	uint16_t status;
 	void *sysimg;
 	int err;
@@ -129,29 +130,31 @@ int main(int argc, char *argv[])
 	}
 
 	/* unused, but required by HSE */
-	publish_off = hse_mem_alloc(sizeof(*publish_off));
-	if (!publish_off) {
-		printf("ERROR: 'publish_off' allocation failed\n");
+	publish_off_handle = hse_mem_alloc(sizeof(*publish_off));
+	if (publish_off_handle < 0) {
+		printf("ERROR: 'publish_off_handle' allocation failed\n");
 		err = ENOMEM;
 		goto err_hse_dev_close;
 	}
 
-	sysimg_size = hse_mem_alloc(sizeof(*sysimg_size));
-	if (!sysimg_size) {
-		printf("ERROR: 'sysimg_size' allocation failed\n");
+	sysimg_size_handle = hse_mem_alloc(sizeof(sysimg_size));
+	if (sysimg_size_handle < 0) {
+		printf("ERROR: 'sysimg_size_handle' allocation failed\n");
 		err = ENOMEM;
 		goto err_free_publish_off;
 	}
 
-	err = hse_sysimg_get_size(sysimg_size);
+	err = hse_sysimg_get_size(sysimg_size_handle);
 	if (err) {
-		printf("ERROR: could not read SYSIMG size\n");
+		printf("ERROR: could not read SYSIMG size from HSE\n");
 		goto err_free_sysimg_size;
 	}
 
-	sysimg = hse_mem_alloc(*sysimg_size);
-	if (!sysimg) {
-		printf("ERROR: could not allocate memory for SYSIMG\n");
+	hse_memcpy_from_dev(&sysimg_size, sysimg_size_handle, sizeof(sysimg_size), 0);
+
+	sysimg_handle = hse_mem_alloc(sysimg_size);
+	if (sysimg_handle < 0) {
+		printf("ERROR: could not allocate memory for `sysimg_handle`\n");
 		err = ENOMEM;
 		goto err_free_sysimg_size;
 	}
@@ -160,9 +163,9 @@ int main(int argc, char *argv[])
 
 	srv_desc.srvId = HSE_SRV_ID_PUBLISH_SYS_IMAGE;
 	publish_sysimg_req->publishOptions = HSE_PUBLISH_ALL_DATA_SETS;
-	publish_sysimg_req->pPublishOffset = hse_virt_to_dma(publish_off);
-	publish_sysimg_req->pBuffLength = hse_virt_to_dma(sysimg_size);
-	publish_sysimg_req->pBuff = hse_virt_to_dma(sysimg);
+	publish_sysimg_req->pPublishOffset = hse_virt_to_dma(publish_off_handle, 0);
+	publish_sysimg_req->pBuffLength = hse_virt_to_dma(sysimg_size_handle, 0);
+	publish_sysimg_req->pBuff = hse_virt_to_dma(sysimg_handle, 0);
 
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (err) {
@@ -170,14 +173,22 @@ int main(int argc, char *argv[])
 		goto err_free_sysimg;
 	}
 
-	err = hse_sysimg_write(argv[1], sysimg, *sysimg_size);
+	sysimg = malloc(sysimg_size);
+	if (!sysimg) {
+		printf("ERROR: could not publish SYSIMG\n");
+		goto err_free_sysimg;
+	}
+	hse_memcpy_from_dev(sysimg, sysimg_handle, sysimg_size, 0);
 
+	err = hse_sysimg_write(argv[1], sysimg, sysimg_size);
+
+	free(sysimg);
 err_free_sysimg:
-	hse_mem_free(sysimg);
+	hse_mem_free(sysimg_handle);
 err_free_sysimg_size:
-	hse_mem_free(sysimg_size);
+	hse_mem_free(sysimg_size_handle);
 err_free_publish_off:
-	hse_mem_free(publish_off);
+	hse_mem_free(publish_off_handle);
 err_hse_dev_close:
 	hse_dev_close();
 	return err;

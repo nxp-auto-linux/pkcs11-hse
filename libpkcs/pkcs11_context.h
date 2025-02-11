@@ -9,7 +9,6 @@
 #include <stdint.h>
 #include <libhse.h>
 
-#include "simclist.h"
 #include "hse_interface.h"
 #include "pkcs11-unix.h"
 
@@ -39,6 +38,10 @@
 #define BITS_PER_BYTE 8
 #define HSE_MIN_AES_KEY_BITS_LEN 128
 #define HSE_MAX_AES_KEY_BITS_LEN 256
+
+enum hse_intl_obj_type {
+	HSE_KEY_OBJ = 1,
+};
 
 /*
  * struct hse_cryptCtx - crypto ops context
@@ -163,7 +166,6 @@ struct globalCtx {
 	CK_TOKEN_INFO token;
 	struct mutexFns mtxFns;
 	CK_VOID_PTR keyMtx;
-	list_t object_list;
 };
 
 /*

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2024 NXP
+ * Copyright 2021-2025 NXP
  */
 
 #include <stdio.h>
@@ -8,7 +8,6 @@
 #include <string.h>
 
 #include "pkcs11_context.h"
-#include "simclist.h"
 #include "hse-internal.h"
 #include "pkcs11_util.h"
 
@@ -23,17 +22,17 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseImportKeySrv_t *import_key_req;
-	volatile hseKeyInfo_t *key_info;
+	hseKeyInfo_t key_info;
 	uint32_t pkey0_len, pkey1_len, pkey2_len;
-	void *pkey0 = NULL, *pkey1 = NULL, *pkey2 = NULL, *ecc_oid, *ec_point;
+	void *ecc_oid, *ec_point;
 	struct hse_keyObject *key;
 	CK_BYTE *idtemp;
 	CK_ULONG id_len;
 	CK_OBJECT_HANDLE search_obj;
-	CK_BBOOL obj_found = CK_FALSE;
 	char *label = NULL;
 	CK_RV rc = CKR_OK;
-	int err;
+	int err, key_info_handle = -1, key_handle = -1;
+	int pkey0_handle = -1, pkey1_handle = -1, pkey2_handle = -1;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -51,10 +50,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	    getattr_len(pTemplate, CKA_LABEL, ulCount) > MAX_LABEL_LEN)
 		return CKR_ARGUMENTS_BAD;
 
-	key_info = (hseKeyInfo_t *)hse_mem_alloc(sizeof(hseKeyInfo_t));
-	if (key_info == NULL)
+	key_info_handle = hse_mem_alloc(sizeof(key_info));
+	if (key_info_handle < 0)
 		return CKR_HOST_MEMORY;
-	hse_memset((void *)key_info, 0, sizeof(hseKeyInfo_t));
+	hse_memset(key_info_handle, 0, sizeof(key_info), 0);
 
 	/* error if id_len doesn't conform to hse expectations */
 	id_len = getattr_len(pTemplate, CKA_ID, ulCount);
@@ -71,11 +70,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 
 	search_obj = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
 	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key = (struct hse_keyObject *)list_seek(&gCtx->object_list, &search_obj);
+	key_handle = get_key_object_handle(search_obj);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (!key) {
-		key = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
-		if (!key) {
+	if (key_handle < 0) {
+		key_handle = hse_intl_mem_alloc(sizeof(*key), HSE_KEY_OBJ);
+		if (key_handle < 0) {
 			rc = CKR_HOST_MEMORY;
 			goto err_free_key_info;
 		}
@@ -84,7 +83,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 		printf(" The slot should be cleared, before a new key can be added\n");
 		rc = CKR_ARGUMENTS_BAD;
 		goto err_free_key_info;
-	} else obj_found = CK_TRUE;
+	}
+	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	/* get key handle for CKA_ID */
 	key->key_handle = search_obj;
@@ -110,19 +110,17 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 		key->key_class = CK_UNAVAILABLE_INFORMATION;
 	}
 
-	hse_memset(key->key_label, 0, MAX_LABEL_LEN);
+	memset(key->key_label, 0, MAX_LABEL_LEN);
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
-	if (label != NULL) {
-		hse_memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
-	}
+	if (label != NULL)
+		memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
 
-	key_info->keyCounter = 0;
-	key_info->smrFlags = 0ul;
+	memset(&key_info, 0, sizeof(key_info));
 
 	import_key_req = &srv_desc.hseSrv.importKeyReq;
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
-	import_key_req->pKeyInfo = hse_virt_to_dma((void *)key_info);
+	import_key_req->pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
 	import_key_req->targetKeyHandle = key->key_handle;
 	import_key_req->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	import_key_req->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
@@ -135,33 +133,33 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				rc = CKR_ARGUMENTS_BAD;
 				goto err_free_key_intl;
 			}
-			pkey0 = hse_mem_alloc(pkey0_len);
-			if (pkey0 == NULL) {
+			pkey0_handle = hse_mem_alloc(pkey0_len);
+			if (pkey0_handle < 0) {
 				rc = CKR_HOST_MEMORY;
 				goto err_free_key_intl;
 			}
-			hse_memcpy(pkey0, getattr_pval(pTemplate, CKA_MODULUS, ulCount), pkey0_len);
+			hse_memcpy_to_dev(pkey0_handle, getattr_pval(pTemplate, CKA_MODULUS, ulCount), pkey0_len, 0);
 
 			pkey1_len = getattr_len(pTemplate, CKA_PUBLIC_EXPONENT, ulCount);
 			if (!pkey1_len) {
 				rc = CKR_ARGUMENTS_BAD;
 				goto err_free_pkey0;
 			}
-			pkey1 = hse_mem_alloc(pkey1_len);
-			if (pkey1 == NULL) {
+			pkey1_handle = hse_mem_alloc(pkey1_len);
+			if (pkey1_handle < 0) {
 				rc = CKR_HOST_MEMORY;
 				goto err_free_pkey0;
 			}
-			hse_memcpy(pkey1, getattr_pval(pTemplate, CKA_PUBLIC_EXPONENT, ulCount), pkey1_len);
+			hse_memcpy_to_dev(pkey1_handle, getattr_pval(pTemplate, CKA_PUBLIC_EXPONENT, ulCount), pkey1_len, 0);
 
 			/* rsa can be used for sign/verify */
-			key_info->keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_USAGE_ENCRYPT | HSE_KF_ACCESS_EXPORTABLE;
-			key_info->keyBitLen = pkey0_len * 8;
-			key_info->specific.pubExponentSize = pkey1_len;
-			key_info->keyType = HSE_KEY_TYPE_RSA_PUB;
+			key_info.keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_USAGE_ENCRYPT | HSE_KF_ACCESS_EXPORTABLE;
+			key_info.keyBitLen = pkey0_len * 8;
+			key_info.specific.pubExponentSize = pkey1_len;
+			key_info.keyType = HSE_KEY_TYPE_RSA_PUB;
 
-			import_key_req->pKey[0] = hse_virt_to_dma(pkey0); /* public modulus */
-			import_key_req->pKey[1] = hse_virt_to_dma(pkey1); /* public exponent */
+			import_key_req->pKey[0] = hse_virt_to_dma(pkey0_handle, 0); /* public modulus */
+			import_key_req->pKey[1] = hse_virt_to_dma(pkey1_handle, 0); /* public exponent */
 			import_key_req->pKey[2] = 0u;
 			import_key_req->keyLen[0] = pkey0_len;
 			import_key_req->keyLen[1] = pkey1_len;
@@ -174,17 +172,17 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 					rc = CKR_ARGUMENTS_BAD;
 					goto err_free_pkey1;
 				}
-				pkey2 = hse_mem_alloc(pkey2_len);
-				if (pkey2 == NULL) {
+				pkey2_handle = hse_mem_alloc(pkey2_len);
+				if (pkey2_handle < 0) {
 					rc = CKR_HOST_MEMORY;
 					goto err_free_pkey1;
 				}
-				hse_memcpy(pkey2, getattr_pval(pTemplate, CKA_PRIVATE_EXPONENT, ulCount), pkey2_len);
+				hse_memcpy_to_dev(pkey2_handle, getattr_pval(pTemplate, CKA_PRIVATE_EXPONENT, ulCount), pkey2_len, 0);
 
-				key_info->keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_DECRYPT | HSE_KF_ACCESS_EXPORTABLE;
-				key_info->keyType = HSE_KEY_TYPE_RSA_PAIR;
+				key_info.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_DECRYPT | HSE_KF_ACCESS_EXPORTABLE;
+				key_info.keyType = HSE_KEY_TYPE_RSA_PAIR;
 
-				import_key_req->pKey[2] = hse_virt_to_dma(pkey2); /* private exponent */
+				import_key_req->pKey[2] = hse_virt_to_dma(pkey2_handle, 0); /* private exponent */
 				import_key_req->keyLen[2] = pkey2_len;
 			}
 
@@ -199,14 +197,14 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 
 			/* bypass DER encoding header, we don't support it */
 			pkey0_len = pkey0_len - 3;
-			pkey0 = hse_mem_alloc(pkey0_len);
-			if (pkey0 == NULL) {
+			pkey0_handle = hse_mem_alloc(pkey0_len);
+			if (pkey0_handle < 0) {
 				rc = CKR_HOST_MEMORY;
 				goto err_free_key_intl;
 			}
 			ec_point = getattr_pval(pTemplate, CKA_EC_POINT, ulCount);
 			ec_point = (uint8_t *)ec_point + 3;
-			hse_memcpy(pkey0, ec_point, pkey0_len);
+			hse_memcpy_to_dev(pkey0_handle, ec_point, pkey0_len, 0);
 
 			ecc_oid = getattr_pval(pTemplate, CKA_EC_PARAMS, ulCount);
 			if (ecc_oid == NULL) {
@@ -215,13 +213,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			}
 
 			/* ecc keys can only be used for sign/verify */
-			key_info->keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_ACCESS_EXPORTABLE;
-			key_info->specific.eccCurveId = ecparam2curveid((char *)ecc_oid, 
+			key_info.keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_ACCESS_EXPORTABLE;
+			key_info.specific.eccCurveId = ecparam2curveid((char *)ecc_oid, 
 							(uint8_t)getattr_len(pTemplate, CKA_EC_PARAMS, ulCount));
-			key_info->keyBitLen = hse_get_ec_key_bitlen(key_info->specific.eccCurveId);
-			key_info->keyType = HSE_KEY_TYPE_ECC_PUB;
+			key_info.keyBitLen = hse_get_ec_key_bitlen(key_info.specific.eccCurveId);
+			key_info.keyType = HSE_KEY_TYPE_ECC_PUB;
 
-			import_key_req->pKey[0] = hse_virt_to_dma(pkey0); /* public x & y coords of ec */
+			import_key_req->pKey[0] = hse_virt_to_dma(pkey0_handle, 0); /* public x & y coords of ec */
 			import_key_req->pKey[1] = 0u;
 			import_key_req->pKey[2] = 0u;
 			import_key_req->keyLen[0] = pkey0_len;
@@ -238,17 +236,17 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 					rc = CKR_ARGUMENTS_BAD;
 					goto err_free_pkey0;
 				}
-				pkey2 = hse_mem_alloc(pkey2_len);
-				if (pkey2 == NULL) {
+				pkey2_handle = hse_mem_alloc(pkey2_len);
+				if (pkey2_handle < 0) {
 					rc = CKR_HOST_MEMORY;
 					goto err_free_pkey0;
 				}
-				hse_memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
+				hse_memcpy_to_dev(pkey2_handle, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len, 0);
 
-				key_info->keyFlags |= HSE_KF_USAGE_SIGN;
-				key_info->keyType = HSE_KEY_TYPE_ECC_PAIR;
+				key_info.keyFlags |= HSE_KF_USAGE_SIGN;
+				key_info.keyType = HSE_KEY_TYPE_ECC_PAIR;
 
-				import_key_req->pKey[2] = hse_virt_to_dma(pkey2); /* ec private scalar/order */
+				import_key_req->pKey[2] = hse_virt_to_dma(pkey2_handle, 0); /* ec private scalar/order */
 				import_key_req->keyLen[2] = pkey2_len;
 			}
 
@@ -264,28 +262,28 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				rc = CKR_ARGUMENTS_BAD;
 				goto err_free_key_intl;
 			}
-			pkey2 = hse_mem_alloc(pkey2_len);
-			if (pkey2 == NULL) {
+			pkey2_handle = hse_mem_alloc(pkey2_len);
+			if (pkey2_handle < 0) {
 				rc = CKR_HOST_MEMORY;
 				goto err_free_key_intl;
 			}
-			hse_memcpy(pkey2, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len);
+			hse_memcpy_to_dev(pkey2_handle, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len, 0);
 
 			if (key->key_type == CKK_AES) {
 				/* aes keys can only be used for encrypt/decrypt */
-				key_info->keyFlags = (HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
-				key_info->keyType = HSE_KEY_TYPE_AES;
+				key_info.keyFlags = (HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
+				key_info.keyType = HSE_KEY_TYPE_AES;
 			} else {
 				/* HMAC key */
-				key_info->keyFlags = (HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
-				key_info->keyType = HSE_KEY_TYPE_HMAC;
+				key_info.keyFlags = (HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
+				key_info.keyType = HSE_KEY_TYPE_HMAC;
 			}
 
-			key_info->keyBitLen = pkey2_len * 8;
+			key_info.keyBitLen = pkey2_len * 8;
 
 			import_key_req->pKey[0] = 0u;
 			import_key_req->pKey[1] = 0u;
-			import_key_req->pKey[2] = hse_virt_to_dma(pkey2); /* sym key */
+			import_key_req->pKey[2] = hse_virt_to_dma(pkey2_handle, 0); /* sym key */
 			import_key_req->keyLen[0] = 0u;
 			import_key_req->keyLen[1] = 0u;
 			import_key_req->keyLen[2] = pkey2_len;
@@ -295,6 +293,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_key_intl;
 	}
+	hse_memcpy_to_dev(key_info_handle, (void *)&key_info, sizeof(key_info), 0);
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
@@ -305,29 +304,27 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	}
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
+	hse_key_object_write(key);
 	*phObject = key->key_handle;
-	/* append object to list if not already found */
-	if (obj_found == CK_FALSE)
-		list_append(&gCtx->object_list, key);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
-	hse_mem_free(pkey2);
-	hse_mem_free(pkey1);
-	hse_mem_free(pkey0);
-	hse_mem_free((void *)key_info);
+	hse_mem_free(pkey2_handle);
+	hse_mem_free(pkey1_handle);
+	hse_mem_free(pkey0_handle);
+	hse_mem_free(key_info_handle);
 
 	return CKR_OK;
 
 err_free_pkey2:
-	hse_mem_free(pkey2);
+	hse_mem_free(pkey2_handle);
 err_free_pkey1:
-	hse_mem_free(pkey1);
+	hse_mem_free(pkey1_handle);
 err_free_pkey0:
-	hse_mem_free(pkey0);
+	hse_mem_free(pkey0_handle);
 err_free_key_intl:
-	hse_intl_mem_free(key);
+	hse_intl_mem_free(key_handle);
 err_free_key_info:
-	hse_mem_free((void *)key_info);
+	hse_mem_free(key_info_handle);
 	return rc;
 }
 
@@ -340,7 +337,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	struct hse_keyObject *pkey;
-	int err;
+	int err, key_handle;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -349,10 +346,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 		return CKR_SESSION_HANDLE_INVALID;
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
-	pkey = (struct hse_keyObject *)list_seek(&gCtx->object_list, &hObject);
+	key_handle = get_key_object_handle(hObject);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (pkey == NULL)
+	if (key_handle < 0)
 		return CKR_OBJECT_HANDLE_INVALID;
+	pkey = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
 	srv_desc.hseSrv.eraseKeyReq.keyHandle = pkey->key_handle;
@@ -365,13 +363,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 		return CKR_FUNCTION_FAILED;
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
-	if (list_delete(&gCtx->object_list, pkey) != 0) {
-		gCtx->mtxFns.unlock(gCtx->keyMtx);
-		return CKR_FUNCTION_FAILED;
-	}
+	hse_key_object_remove(pkey);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-
-	hse_intl_mem_free(pkey);
+	hse_intl_mem_free(key_handle);
 
 	return CKR_OK;
 }
@@ -413,7 +407,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjectsInit)(
 	}
 
 	sCtx->findCtx.init = CK_TRUE;
-	list_iterator_start(&gCtx->object_list);
+	hse_intl_iterstart();
 
 	return CKR_OK;
 }
@@ -429,7 +423,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjects)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	struct hse_keyObject *key;
 	struct hse_findCtx *finder;
-	int i;
+	int i, key_handle;
 	CK_BYTE *key_id;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
@@ -444,7 +438,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjects)(
 	if (phObject == NULL || ulMaxObjectCount == 0 || pulObjectCount == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (!list_iterator_hasnext(&gCtx->object_list)) {
+	if (!hse_intl_hasnext()) {
 		*pulObjectCount = 0;
 		return CKR_OK;
 	}
@@ -452,18 +446,20 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjects)(
 	finder = &sCtx->findCtx;
 	i = 0;
 	do {
-		key = (struct hse_keyObject *)list_iterator_next(&gCtx->object_list);
+		key_handle = hse_intl_next();
+		key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 		/* either ALL attributes match, or no attributes match (empty template -> return all) */
 		if (finder->obj_class && key->key_class != *finder->obj_class)
 			continue;
+
 		if(finder->obj_uid && key->key_uid != *finder->obj_uid)
 			continue;
 
-		if ((finder->label != NULL) && (strcmp(key->key_label, (const char *)finder->label)))
-				continue;
+		if (finder->label && (strcmp(key->key_label, (const char *)finder->label)))
+			continue;
 		
-		if (finder->key_id != NULL) {
+		if (finder->key_id) {
 			key_id = finder->key_id;
 			if (GET_KEY_HANDLE(key_id[2], key_id[1], key_id[0]) != key->key_uid)
 				continue;
@@ -475,7 +471,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjects)(
 
 		if (i >= ulMaxObjectCount)
 			break;
-	} while (list_iterator_hasnext(&gCtx->object_list));
+	} while (hse_intl_hasnext());
 
 	*pulObjectCount = i;
 
@@ -499,7 +495,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjectsFinal)(
 		return CKR_OPERATION_NOT_INITIALIZED;
 
 	sCtx->findCtx.init = CK_FALSE;
-	list_iterator_stop(&gCtx->object_list);
+	hse_intl_iterstop();
 
 	return CKR_OK;
 }

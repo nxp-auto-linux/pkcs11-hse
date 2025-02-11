@@ -258,62 +258,64 @@ int hse_check_prev_import(int key_idx)
 int hse_mus_enable()
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseAttrMUConfig_t *mu_config;
+	hseAttrMUConfig_t mu_config;
+	int32_t mu_config_handle;
 	int i, ret = 0;
 
-	mu_config = hse_mem_alloc(sizeof(*mu_config));
-	if (!mu_config) {
-		ERROR("Failed to allocate space for MU Configuration\n");
-		return -ENOMEM;
-	}
-	hse_memset(mu_config, 0, sizeof(*mu_config));
-
-	srv_desc.srvId = HSE_SRV_ID_SET_ATTR;
+	memset(&mu_config, 0, sizeof(mu_config));
 
 	for (i = 0; i < HSE_NUM_OF_MU_INSTANCES; i++) {
-		mu_config->muInstances[i].muConfig = HSE_MU_ACTIVATED;
-		mu_config->muInstances[i].xrdcDomainId = 0u;
-		mu_config->muInstances[i].sharedMemChunkSize = 0u;
+		mu_config.muInstances[i].muConfig = HSE_MU_ACTIVATED;
+		mu_config.muInstances[i].xrdcDomainId = 0u;
+		mu_config.muInstances[i].sharedMemChunkSize = 0u;
 	}
 
+	mu_config_handle = hse_mem_alloc(sizeof(mu_config));
+	if (mu_config_handle < 0) {
+		ERROR("Failed to allocate space for MU Configuration in reserved memory\n");
+		return -ENOMEM;
+	}
+	hse_memcpy_to_dev(mu_config_handle, &mu_config, sizeof(mu_config), 0);
+
+	srv_desc.srvId = HSE_SRV_ID_SET_ATTR;
 	srv_desc.hseSrv.setAttrReq.attrId = HSE_MU_CONFIG_ATTR_ID;
-	srv_desc.hseSrv.setAttrReq.attrLen = sizeof(*mu_config);
-	srv_desc.hseSrv.setAttrReq.pAttr = hse_virt_to_dma(mu_config);
+	srv_desc.hseSrv.setAttrReq.attrLen = sizeof(mu_config);
+	srv_desc.hseSrv.setAttrReq.pAttr = hse_virt_to_dma(mu_config_handle, 0);
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to enable MUs\n");
+	hse_mem_free(mu_config_handle);
 
-	hse_mem_free(mu_config);
 	return ret;
 }
 
 int hse_get_fw_size(uint32_t *fw_size)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseAttrHseFwSize_t *hse_fw_size;
+	int hse_fw_size_handle;
 	int ret = 0;
 
-	hse_fw_size = hse_mem_alloc(sizeof(*hse_fw_size));
-	if (!hse_fw_size) {
+	hse_fw_size_handle = hse_mem_alloc(sizeof(hseAttrHseFwSize_t));
+	if (hse_fw_size_handle < 0) {
 		ERROR("Failed to allocate space for HSE Firmware Size Attribute\n");
 		return -ENOMEM;
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_GET_ATTR;
 	srv_desc.hseSrv.getAttrReq.attrId = HSE_FW_SIZE_ATTR_ID;
-	srv_desc.hseSrv.getAttrReq.attrLen = sizeof(*hse_fw_size);
-	srv_desc.hseSrv.getAttrReq.pAttr = hse_virt_to_dma(hse_fw_size);
+	srv_desc.hseSrv.getAttrReq.attrLen = sizeof(hseAttrHseFwSize_t);
+	srv_desc.hseSrv.getAttrReq.pAttr = hse_virt_to_dma(hse_fw_size_handle, 0);
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc));
 	if (ret) {
 		ERROR("Failed to get HSE Firmware Size\n");
 		goto err_free_fw_size;
 	}
-	hse_memcpy(fw_size, hse_fw_size, sizeof(*hse_fw_size));
+	hse_memcpy_from_dev(fw_size, hse_fw_size_handle, sizeof(hseAttrHseFwSize_t), 0);
 
 err_free_fw_size:
-	hse_mem_free(hse_fw_size);
+	hse_mem_free(hse_fw_size_handle);
 
 	return ret;
 }
@@ -321,21 +323,21 @@ err_free_fw_size:
 int hse_update_fw(void *new_fw, uint32_t size)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	uint8_t *hse_new_fw, *hse_size;
+	int hse_fw_size_handle, hse_new_fw_handle;
 	int ret = 0;
 
 	if (!new_fw)
 		return -EINVAL;
 
-	hse_size = hse_mem_alloc(sizeof(*hse_size));
-	if (!hse_size) {
+	hse_fw_size_handle = hse_mem_alloc(sizeof(size));
+	if (hse_fw_size_handle < 0) {
 		ERROR("Failed to allocate space for HSE Firmware Size\n");
 		return -ENOMEM;
 	}
-	hse_memcpy(hse_size, &size, sizeof(size));
+	hse_memcpy_to_dev(hse_fw_size_handle, &size, sizeof(size), 0);
 
-	hse_new_fw = hse_mem_alloc(size);
-	if (!hse_new_fw) {
+	hse_new_fw_handle = hse_mem_alloc(size);
+	if (hse_new_fw_handle < 0) {
 		ERROR("Failed to allocate space for HSE Firmware\n");
 		ret = -ENOMEM;
 		goto err_free_hse_size;
@@ -344,20 +346,20 @@ int hse_update_fw(void *new_fw, uint32_t size)
 	srv_desc.srvId = HSE_SRV_ID_FIRMWARE_UPDATE;
 	srv_desc.hseSrv.firmwareUpdateReq.inFwFileLength = 0;
 	srv_desc.hseSrv.firmwareUpdateReq.pInFwFile = 0;
-	srv_desc.hseSrv.firmwareUpdateReq.pFwBufferLength = hse_virt_to_dma(hse_size);
-	srv_desc.hseSrv.firmwareUpdateReq.pOutFwBuffer = hse_virt_to_dma(hse_new_fw);
+	srv_desc.hseSrv.firmwareUpdateReq.pFwBufferLength = hse_virt_to_dma(hse_fw_size_handle, 0);
+	srv_desc.hseSrv.firmwareUpdateReq.pOutFwBuffer = hse_virt_to_dma(hse_new_fw_handle, 0);
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc));
 	if (ret) {
 		ERROR("Failed to update HSE Firmware\n");
 		goto err_free_hse_new_fw;
 	}
-	hse_memcpy(new_fw, hse_new_fw, size);
+	hse_memcpy_from_dev(new_fw, hse_new_fw_handle, size, 0);
 
 err_free_hse_new_fw:
-	hse_mem_free(hse_new_fw);
+	hse_mem_free(hse_new_fw_handle);
 err_free_hse_size:
-	hse_mem_free(hse_size);
+	hse_mem_free(hse_fw_size_handle);
 
 	return ret;
 }
@@ -507,36 +509,36 @@ err_close_hse:
 int hse_key_format()
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseKeyGroupCfgEntry_t *nvm_catalog, *ram_catalog;
+	int nvm_catalog_handle, ram_catalog_handle;
 	int ret = 0;
 
-	nvm_catalog = hse_mem_alloc(sizeof(hseKeyGroupCfgEntry_t) * NUM_NVM_GROUPS);
-	if (!nvm_catalog) {
-		ERROR("Failed to allocate space for NVM Key Group\n");
+	nvm_catalog_handle = hse_mem_alloc(sizeof(hseKeyGroupCfgEntry_t) * NUM_NVM_GROUPS);
+	if (nvm_catalog_handle < 0) {
+		ERROR("Failed to allocate space for NVM Key Group in reserved memory\n");
 		return -ENOMEM;
 	}
 
-	ram_catalog = hse_mem_alloc(sizeof(hseKeyGroupCfgEntry_t) * NUM_RAM_GROUPS);
-	if (!ram_catalog) {
-		ERROR("Failed to allocate space for RAM Key Group\n");
+	ram_catalog_handle = hse_mem_alloc(sizeof(hseKeyGroupCfgEntry_t) * NUM_RAM_GROUPS);
+	if (ram_catalog_handle < 0) {
+		ERROR("Failed to allocate space for RAM Key Group in reserved memory\n");
 		ret = -ENOMEM;
-		goto err_free_nvm;
+		goto err_hse_free_nvm;
 	}
 
-	hse_memcpy(nvm_catalog, &nvm_cat, sizeof(nvm_cat));
-	hse_memcpy(ram_catalog, &ram_cat, sizeof(ram_cat));
+	hse_memcpy_to_dev(nvm_catalog_handle, &nvm_cat, sizeof(nvm_cat), 0);
+	hse_memcpy_to_dev(ram_catalog_handle, &ram_cat, sizeof(ram_cat), 0);
 
 	srv_desc.srvId = HSE_SRV_ID_FORMAT_KEY_CATALOGS;
-	srv_desc.hseSrv.formatKeyCatalogsReq.pNvmKeyCatalogCfg = hse_virt_to_dma(nvm_catalog);
-	srv_desc.hseSrv.formatKeyCatalogsReq.pRamKeyCatalogCfg = hse_virt_to_dma(ram_catalog);
+	srv_desc.hseSrv.formatKeyCatalogsReq.pNvmKeyCatalogCfg = hse_virt_to_dma(nvm_catalog_handle, 0);
+	srv_desc.hseSrv.formatKeyCatalogsReq.pRamKeyCatalogCfg = hse_virt_to_dma(ram_catalog_handle, 0);
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to format key catalogs!\n");
 
-	hse_mem_free(ram_catalog);
-err_free_nvm:
-	hse_mem_free(nvm_catalog);
+	hse_mem_free(ram_catalog_handle);
+err_hse_free_nvm:
+	hse_mem_free(nvm_catalog_handle);
 	return ret;
 }
 
@@ -545,7 +547,7 @@ int hse_set_and_publish_cnt_table(void)
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	FILE *f;
 	void *cnt_table;
-	void *hse_cnt_table; 
+	int hse_cnt_table_handle; 
 	int ret = 0, err = 0;
 
 	cnt_table = malloc(HSE_NVM_CONTAINER_CNT_TBL_SIZE);
@@ -554,8 +556,8 @@ int hse_set_and_publish_cnt_table(void)
 		return -ENOMEM;
 	}
 
-	hse_cnt_table = hse_mem_alloc(HSE_NVM_CONTAINER_CNT_TBL_SIZE);
-	if (!hse_cnt_table) {
+	hse_cnt_table_handle = hse_mem_alloc(HSE_NVM_CONTAINER_CNT_TBL_SIZE);
+	if (hse_cnt_table_handle < 0) {
 		ERROR("Failed to alloc reserved memory for counter table\n");
 		ret = -ENOMEM;
 		goto err_free_cnt_table;
@@ -575,14 +577,14 @@ int hse_set_and_publish_cnt_table(void)
 
 	srv_desc.srvId = HSE_SRV_ID_PUBLISH_LOAD_CNT_TBL;
 	srv_desc.hseSrv.publishLoadCntTblReq.action = HSE_NVM_CNT_TBL_ACTION_PUBLISH;
-	srv_desc.hseSrv.publishLoadCntTblReq.pNvmContainerCntTbl = hse_virt_to_dma(hse_cnt_table);
+	srv_desc.hseSrv.publishLoadCntTblReq.pNvmContainerCntTbl = hse_virt_to_dma(hse_cnt_table_handle, 0);
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret) {
 		ERROR("Failed to publish monotonic counter table\n");
 		goto err_free_hse_cnt_table;
 	}
-	hse_memcpy(cnt_table, hse_cnt_table, HSE_NVM_CONTAINER_CNT_TBL_SIZE);
+	hse_memcpy_from_dev(cnt_table, hse_cnt_table_handle, HSE_NVM_CONTAINER_CNT_TBL_SIZE, 0);
 
 	f = fopen(HSE_MONOTONIC_CNT_TABLE_PATH, "wb");
 	if (!f) {
@@ -601,39 +603,42 @@ int hse_set_and_publish_cnt_table(void)
 	
 	fclose(f);
 err_free_hse_cnt_table:
-	hse_mem_free(hse_cnt_table);
+	hse_mem_free(hse_cnt_table_handle);
 err_free_cnt_table:
 	free(cnt_table);
 
 	return ret;
 }
 
-int hse_rsa_key_import(uint8_t *rsa_modulus, int rsa_modulus_size,
-                   uint8_t *rsa_pub_exponent, int rsa_pub_exponent_size, uint32_t handle)
+int hse_rsa_key_import(int rsa_modulus_handle, int rsa_modulus_size,
+	                int rsa_pub_exponent_handle, int rsa_pub_exponent_size, uint32_t handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	volatile hseKeyInfo_t *key_info;
+	hseKeyInfo_t key_info;
+	int key_info_handle;
 	int ret = 0;
 
-	key_info = hse_mem_alloc(sizeof(*key_info));
-	if (!key_info) {
-		ERROR("Failed to allocate space for key info\n");
+	memset(&key_info, 0, sizeof(key_info));
+
+	key_info.keyFlags = HSE_KF_USAGE_VERIFY;
+	key_info.keyBitLen = HSE_BYTES_TO_BITS(rsa_modulus_size);
+	key_info.keyCounter = 0ul;
+	key_info.smrFlags = 0ul;
+	key_info.keyType = HSE_KEY_TYPE_RSA_PUB;
+	key_info.specific.pubExponentSize = rsa_pub_exponent_size;
+
+	key_info_handle = hse_mem_alloc(sizeof(key_info));
+	if (key_info_handle < 0) {
+		ERROR("Failed to allocate space for key info in reserved memory\n");
 		return -ENOMEM;
 	}
-	hse_memset((void *)key_info, 0, sizeof(*key_info));
-
-	key_info->keyFlags = HSE_KF_USAGE_VERIFY;
-	key_info->keyBitLen = HSE_BYTES_TO_BITS(rsa_modulus_size);
-	key_info->keyCounter = 0ul;
-	key_info->smrFlags = 0ul;
-	key_info->keyType = HSE_KEY_TYPE_RSA_PUB;
-	key_info->specific.pubExponentSize = rsa_pub_exponent_size;
+	hse_memcpy_to_dev(key_info_handle, &key_info, sizeof(key_info), 0);
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
 	srv_desc.hseSrv.importKeyReq.targetKeyHandle = handle;
-	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma((void *)key_info);
-	srv_desc.hseSrv.importKeyReq.pKey[0] = hse_virt_to_dma(rsa_modulus);
-	srv_desc.hseSrv.importKeyReq.pKey[1] = hse_virt_to_dma(rsa_pub_exponent);
+	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
+	srv_desc.hseSrv.importKeyReq.pKey[0] = hse_virt_to_dma(rsa_modulus_handle, 0);
+	srv_desc.hseSrv.importKeyReq.pKey[1] = hse_virt_to_dma(rsa_pub_exponent_handle, 0);
 	srv_desc.hseSrv.importKeyReq.pKey[2] = 0u;
 	srv_desc.hseSrv.importKeyReq.keyLen[0] = rsa_modulus_size;
 	srv_desc.hseSrv.importKeyReq.keyLen[1] = rsa_pub_exponent_size;
@@ -644,19 +649,19 @@ int hse_rsa_key_import(uint8_t *rsa_modulus, int rsa_modulus_size,
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to import RSA Public Key\n");
+	hse_mem_free(key_info_handle);
 
-	hse_mem_free((void *)key_info);
 	return ret;
 }
 
 int hse_extract_and_import_sym_key(const char *keypath, uint32_t handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	volatile hseKeyInfo_t *key_info;
+	int hse_key_handle, hse_key_info_handle;
+	hseKeyInfo_t key_info = {0};
 	uint8_t key[32] = {0};
 	int ret = 0, err = 0;
 	uint32_t key_len;
-	void *hse_key;
 	FILE *f;
 
 	key_len = get_file_size(keypath);
@@ -678,34 +683,34 @@ int hse_extract_and_import_sym_key(const char *keypath, uint32_t handle)
 		goto err_close_keyfile;
 	}
 
-	key_info = hse_mem_alloc(sizeof(*key_info));
-	if (!key_info) {
+	hse_key_info_handle = hse_mem_alloc(sizeof(key_info));
+	if (hse_key_info_handle < 0) {
 		ERROR("Failed to allocate space for key info\n");
 		ret = -ENOMEM;
 		goto err_close_keyfile;
 	}
-	hse_memset((void *)key_info, 0, sizeof(*key_info));
 
-	hse_key = hse_mem_alloc(key_len);
-	if (!hse_key) {
+	hse_key_handle = hse_mem_alloc(key_len);
+	if (hse_key_handle < 0) {
 		ERROR("Failed to allocate space for Symmetric Key\n");
 		ret = -ENOMEM;
 		goto err_free_key_info;
 	}
-	hse_memcpy(hse_key, key, key_len);
+	hse_memcpy_to_dev(hse_key_handle, key, key_len, 0);
 
-	key_info->keyFlags = HSE_KF_USAGE_SIGN;
-	key_info->keyBitLen = HSE_BYTES_TO_BITS(key_len);
-	key_info->keyCounter = 0ul;
-	key_info->smrFlags = 0ul;
-	key_info->keyType = HSE_KEY_TYPE_HMAC;
+	key_info.keyFlags = HSE_KF_USAGE_SIGN;
+	key_info.keyBitLen = HSE_BYTES_TO_BITS(key_len);
+	key_info.keyCounter = 0ul;
+	key_info.smrFlags = 0ul;
+	key_info.keyType = HSE_KEY_TYPE_HMAC;
+	hse_memcpy_to_dev(hse_key_info_handle, &key_info, sizeof(key_info), 0);
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
 	srv_desc.hseSrv.importKeyReq.targetKeyHandle = handle;
-	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma((void *)key_info);
+	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma(hse_key_info_handle, 0);
 	srv_desc.hseSrv.importKeyReq.pKey[0] = 0u;
 	srv_desc.hseSrv.importKeyReq.pKey[1] = 0u;
-	srv_desc.hseSrv.importKeyReq.pKey[2] = hse_virt_to_dma(hse_key);
+	srv_desc.hseSrv.importKeyReq.pKey[2] = hse_virt_to_dma(hse_key_handle, 0);
 	srv_desc.hseSrv.importKeyReq.keyLen[0] = 0u;
 	srv_desc.hseSrv.importKeyReq.keyLen[1] = 0u;
 	srv_desc.hseSrv.importKeyReq.keyLen[2] = key_len;
@@ -716,9 +721,9 @@ int hse_extract_and_import_sym_key(const char *keypath, uint32_t handle)
 	if (ret)
 		ERROR("Failed to import Symmetric Key\n");
 
-	hse_mem_free(hse_key);
+	hse_mem_free(hse_key_handle);
 err_free_key_info:
-	hse_mem_free((void *)key_info);
+	hse_mem_free(hse_key_info_handle);
 err_close_keyfile:
 	fclose(f);
 	return ret;
@@ -729,6 +734,7 @@ int hse_extract_and_import_rsa_key(const char *keypath, uint32_t handle)
 	FILE *f;
 	int bytes, ret = 0;
 	EVP_PKEY *pkey;
+	int rsa_modulus_handle, rsa_pub_exponent_handle;
 	uint8_t *rsa_modulus, *rsa_pub_exponent;
 	BIGNUM *rsa_bn_modulus = NULL, *rsa_bn_pub_exponent = NULL;
 
@@ -759,25 +765,40 @@ int hse_extract_and_import_rsa_key(const char *keypath, uint32_t handle)
 		goto err_close_keyfile;
 	}
 
-	rsa_modulus = hse_mem_alloc(BN_num_bytes(rsa_bn_modulus));
-	if (!rsa_modulus) {
-		ERROR("Failed to allocate space for RSA Public Key Modulus\n");
+	rsa_modulus_handle = hse_mem_alloc(BN_num_bytes(rsa_bn_modulus));
+	if (rsa_modulus_handle < 0) {
+		ERROR("Failed to allocate space for RSA Public Key Modulus in reserved memory\n");
 		ret = -ENOMEM;
 		goto err_close_keyfile;
 	}
 
-	rsa_pub_exponent = hse_mem_alloc(BN_num_bytes(rsa_bn_pub_exponent));
-	if (!rsa_pub_exponent) {
+	rsa_modulus = malloc(BN_num_bytes(rsa_bn_modulus));
+	if (!rsa_modulus) {
 		ERROR("Failed to allocate space for RSA Public Key Exponent\n");
 		ret = -ENOMEM;
-		goto err_free_rsa_modulus;
+		goto err_hse_free_rsa_modulus;
 	}
 
 	bytes = BN_bn2bin(rsa_bn_modulus, rsa_modulus);
 	if (bytes != BN_num_bytes(rsa_bn_modulus)) {
 		ERROR("Failed to copy RSA Public Key Modulus\n");
 		ret = -ENOKEY;
-		goto err_free_rsa_pub_exponent;
+		goto err_free_rsa_modulus;
+	}
+	hse_memcpy_to_dev(rsa_modulus_handle, rsa_modulus, bytes, 0);
+
+	rsa_pub_exponent_handle = hse_mem_alloc(BN_num_bytes(rsa_bn_pub_exponent));
+	if (rsa_pub_exponent_handle < 0) {
+		ERROR("Failed to allocate space for RSA Public Key Exponent in reserved memory\n");
+		ret = -ENOMEM;
+		goto err_free_rsa_modulus;
+	}
+
+	rsa_pub_exponent = malloc(BN_num_bytes(rsa_bn_pub_exponent));
+	if (!rsa_pub_exponent) {
+		ERROR("Failed to allocate space for RSA Public Key Exponent\n");
+		ret = -ENOMEM;
+		goto err_hse_free_rsa_pub_exponent;
 	}
 
 	bytes = BN_bn2bin(rsa_bn_pub_exponent, rsa_pub_exponent);
@@ -786,26 +807,31 @@ int hse_extract_and_import_rsa_key(const char *keypath, uint32_t handle)
 		ret = -ENOKEY;
 		goto err_free_rsa_pub_exponent;
 	}
+	hse_memcpy_to_dev(rsa_pub_exponent_handle, rsa_pub_exponent, bytes, 0);
 
-	ret = hse_rsa_key_import(rsa_modulus, BN_num_bytes(rsa_bn_modulus), rsa_pub_exponent,
-						 BN_num_bytes(rsa_bn_pub_exponent), handle);
+	ret = hse_rsa_key_import(rsa_modulus_handle, BN_num_bytes(rsa_bn_modulus), rsa_pub_exponent_handle,
+				 BN_num_bytes(rsa_bn_pub_exponent), handle);
 
 err_free_rsa_pub_exponent:
-	hse_mem_free(rsa_pub_exponent);
+	free(rsa_pub_exponent);
+err_hse_free_rsa_pub_exponent:
+	hse_mem_free(rsa_pub_exponent_handle);
 err_free_rsa_modulus:
-	hse_mem_free(rsa_modulus);
+	free(rsa_modulus);
+err_hse_free_rsa_modulus:
+	hse_mem_free(rsa_modulus_handle);
 err_close_keyfile:
 	fclose(f);
 	return ret;
 }
 
-int hse_extract_bin(const char *bin_file, uint8_t *bin, size_t bin_size)
+int hse_extract_bin(const char *bin_file, int bin_handle, size_t bin_size)
 {
 	FILE *fd = NULL;
 	int ret = 0, err = 0;
 	uint8_t *bin_tmp = NULL;
 
-	if (!bin)
+	if (bin_handle < 0)
 		return -ENODATA;
 
 	fd = fopen(bin_file, "rb");
@@ -826,7 +852,7 @@ int hse_extract_bin(const char *bin_file, uint8_t *bin, size_t bin_size)
 		goto out_free_tmp_buf;
 	}
 
-	hse_memcpy(bin, bin_tmp, bin_size);
+	hse_memcpy_to_dev(bin_handle, bin_tmp, bin_size, 0);
 
 out_free_tmp_buf:
 	free(bin_tmp);
@@ -842,8 +868,8 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	uint32_t bl2_bin_size;
 	uint16_t bl2_sign_size;
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseSmrEntry_t smr_entry, *smr_entry_hse;
-	uint8_t *bl2_sign = NULL, *bl2_bin = NULL;
+	int bl2_bin_handle, bl2_sign_handle, smr_entry_handle;
+	hseSmrEntry_t smr_entry;
 	int ret = 0;
 
 	bl2_bin_size = get_file_size(bl2_bin_file);
@@ -852,46 +878,39 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 		return -ENODATA;
 	}
 
-	bl2_bin = hse_mem_alloc(bl2_bin_size);
-	if (!bl2_bin) {
-		ERROR("Failed to allocate space for BL2\n");
+	bl2_bin_handle = hse_mem_alloc(bl2_bin_size);
+	if (bl2_bin_handle < 0) {
+		ERROR("Failed to allocate space for BL2 in reserved memory\n");
 		return -ENOMEM;
 	}
 
-	ret = hse_extract_bin(bl2_bin_file, bl2_bin, bl2_bin_size);
+	ret = hse_extract_bin(bl2_bin_file, bl2_bin_handle, bl2_bin_size);
 	if (ret) {
 		ERROR("Failed to read BL2 binary from file\n");
-		goto err_free_bl2_bin;
+		goto err_hse_free_bl2_bin;
 	}
 
 	bl2_sign_size = get_file_size(bl2_sign_file);
 	if (bl2_sign_size <= 0) {
 		ERROR("Failed to retrieve BL2 signature size\n");
 		ret = -ENODATA;
-		goto err_free_bl2_bin;
+		goto err_hse_free_bl2_bin;
 	}
 
-	bl2_sign = hse_mem_alloc(bl2_sign_size);
-	if (!bl2_sign) {
-		ERROR("Failed to allocate space for BL2 signature\n");
+	bl2_sign_handle = hse_mem_alloc(bl2_sign_size);
+	if (bl2_sign_handle < 0) {
+		ERROR("Failed to allocate space for BL2 signature in reserved memory\n");
 		ret = -ENOMEM;
-		goto err_free_bl2_bin;
+		goto err_hse_free_bl2_bin;
 	}
 
-	ret = hse_extract_bin(bl2_sign_file, bl2_sign, bl2_sign_size);
+	ret = hse_extract_bin(bl2_sign_file, bl2_sign_handle, bl2_sign_size);
 	if (ret) {
 		ERROR("Failed to read BL2 signature from file\n");
-		goto err_free_bl2_sign;
+		goto err_hse_free_bl2_sign;
 	}
 
-	smr_entry_hse = hse_mem_alloc(sizeof(*smr_entry_hse));
-	if (!smr_entry_hse) {
-		ERROR("Failed to allocate space for SMR Entry\n");
-		ret = -ENOMEM;
-		goto err_free_bl2_sign;
-	}
-	hse_memset(smr_entry_hse, 0, sizeof(*smr_entry_hse));
-
+	memset(&smr_entry, 0, sizeof(smr_entry));
 	smr_entry.pSmrSrc = get_app_boot_start(ivt);
 	smr_entry.pSmrDest = app_boot->ram_load;
 	smr_entry.smrSize = bl2_bin_size;
@@ -910,16 +929,22 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	smr_entry.smrDecrypt.decryptKeyHandle = HSE_SMR_DECRYPT_KEY_HANDLE_NOT_USED;
 	smr_entry.versionOffset = BL2_VERSION_OFFSET;
 
+	smr_entry_handle = hse_mem_alloc(sizeof(smr_entry));
+	if (smr_entry_handle < 0) {
+		ERROR("Failed to allocate space for SMR Entry in reserved memory\n");
+		ret = -ENOMEM;
+		goto err_hse_free_bl2_sign;
+	}
 	/* workaround for bus error on writing to hse rmem */
-	memcpy(smr_entry_hse, &(smr_entry), sizeof(smr_entry));
+	hse_memcpy_to_dev(smr_entry_handle, &smr_entry, sizeof(smr_entry), 0);
 
 	srv_desc.srvId = HSE_SRV_ID_SMR_ENTRY_INSTALL;
 	srv_desc.hseSrv.smrEntryInstallReq.accessMode = HSE_ACCESS_MODE_ONE_PASS;
 	srv_desc.hseSrv.smrEntryInstallReq.entryIndex = 1u;
-	srv_desc.hseSrv.smrEntryInstallReq.pSmrEntry = hse_virt_to_dma(smr_entry_hse);
-	srv_desc.hseSrv.smrEntryInstallReq.pSmrData = hse_virt_to_dma(bl2_bin);
+	srv_desc.hseSrv.smrEntryInstallReq.pSmrEntry = hse_virt_to_dma(smr_entry_handle, 0);
+	srv_desc.hseSrv.smrEntryInstallReq.pSmrData = hse_virt_to_dma(bl2_bin_handle, 0);
 	srv_desc.hseSrv.smrEntryInstallReq.smrDataLength = bl2_bin_size;
-	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[0] = hse_virt_to_dma(bl2_sign);
+	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[0] = hse_virt_to_dma(bl2_sign_handle, 0);
 	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[1] = 0u;
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[0] = bl2_sign_size;
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[1] = 0u;
@@ -927,57 +952,59 @@ int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to install SMR Entry\n");
+	hse_mem_free(smr_entry_handle);
 
-	hse_mem_free(smr_entry_hse);
-
-err_free_bl2_sign:
-	hse_mem_free(bl2_sign);
-err_free_bl2_bin:
-	hse_mem_free(bl2_bin);
+err_hse_free_bl2_sign:
+	hse_mem_free(bl2_sign_handle);
+err_hse_free_bl2_bin:
+	hse_mem_free(bl2_bin_handle);
 	return ret;
 }
 
 int hse_cr_install(struct app_boot_hdr *app_boot)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	volatile hseCrEntry_t *cr_entry;
+	hseCrEntry_t cr_entry;
+	int cr_entry_handle;
 	int ret = 0;
 
-	cr_entry = hse_mem_alloc(sizeof(*cr_entry));
-	if (!cr_entry) {
-		ERROR("Failed to allocate space for core reset entry\n");
+	memset(&cr_entry, 0, sizeof(cr_entry));
+
+	cr_entry.coreId = HSE_APP_CORE_A53_0;
+	cr_entry.crSanction = HSE_CR_SANCTION_KEEP_CORE_IN_RESET;
+	cr_entry.preBootSmrMap = HSE_SMR_ENTRY_1;
+	cr_entry.pPassReset = app_boot->ram_entry;
+	cr_entry.altPreBootSmrMap = 0u;
+	cr_entry.pAltReset = 0u;
+	cr_entry.postBootSmrMap = 0u;
+	cr_entry.startOption = HSE_CR_AUTO_START;
+
+	cr_entry_handle = hse_mem_alloc(sizeof(cr_entry));
+	if (cr_entry_handle < 0) {
+		ERROR("Failed to allocate space for core reset entry in reserved memory\n");
 		return -ENOMEM;
 	}
-	hse_memset((void *)cr_entry, 0, sizeof(*cr_entry));
-
-	cr_entry->coreId = HSE_APP_CORE_A53_0;
-	cr_entry->crSanction = HSE_CR_SANCTION_KEEP_CORE_IN_RESET;
-	cr_entry->preBootSmrMap = HSE_SMR_ENTRY_1;
-	cr_entry->pPassReset = app_boot->ram_entry;
-	cr_entry->altPreBootSmrMap = 0u;
-	cr_entry->pAltReset = 0u;
-	cr_entry->postBootSmrMap = 0u;
-	cr_entry->startOption = HSE_CR_AUTO_START;
+	hse_memcpy_to_dev(cr_entry_handle, &cr_entry, sizeof(cr_entry), 0);
 
 	srv_desc.srvId = HSE_SRV_ID_CORE_RESET_ENTRY_INSTALL;
 	srv_desc.hseSrv.crEntryInstallReq.crEntryIndex = 1u;
-	srv_desc.hseSrv.crEntryInstallReq.pCrEntry = hse_virt_to_dma((void *)cr_entry);
+	srv_desc.hseSrv.crEntryInstallReq.pCrEntry = hse_virt_to_dma(cr_entry_handle, 0);
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to install Core Reset Entry\n");
 
-	hse_mem_free((void *)cr_entry);
+	hse_mem_free(cr_entry_handle);
 	return ret;
 }
 
-int hse_sysimg_getsize(uint32_t *sysimg_size)
+int hse_sysimg_getsize(int sysimg_size_handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	int ret = 0;
 
 	srv_desc.srvId = HSE_SRV_ID_GET_SYS_IMAGE_SIZE;
-	srv_desc.hseSrv.getSysImageSizeReq.pSysImageSize = hse_virt_to_dma(sysimg_size);
+	srv_desc.hseSrv.getSysImageSizeReq.pSysImageSize = hse_virt_to_dma(sysimg_size_handle, 0);
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
@@ -986,37 +1013,37 @@ int hse_sysimg_getsize(uint32_t *sysimg_size)
 	return ret;
 }
 
-int hse_sysimg_publish(void *sysimg, uint32_t *sysimg_size)
+int hse_sysimg_publish(int sysimg_handle, int sysimg_size_handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hsePublishSysImageSrv_t *publish_sysimg_req;
-	uint32_t *publish_offset;
+	int publish_offset_handle;
 	int ret = 0;
 
 	publish_sysimg_req = &srv_desc.hseSrv.publishSysImageReq;
 
 	/* unused, but required by HSE */
-	publish_offset = hse_mem_alloc(sizeof(*publish_offset));
-	if (!publish_offset) {
-		ERROR("Failed to allocate space for publish offset\n");
+	publish_offset_handle = hse_mem_alloc(sizeof(uint32_t));
+	if (publish_offset_handle < 0) {
+		ERROR("Failed to allocate space for publish offset in reserved memory\n");
 		return -ENOMEM;
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_PUBLISH_SYS_IMAGE;
 	publish_sysimg_req->publishOptions = HSE_PUBLISH_ALL_DATA_SETS;
-	publish_sysimg_req->pPublishOffset = hse_virt_to_dma(publish_offset);
-	publish_sysimg_req->pBuffLength = hse_virt_to_dma(sysimg_size);
-	publish_sysimg_req->pBuff = hse_virt_to_dma(sysimg);
+	publish_sysimg_req->pPublishOffset = hse_virt_to_dma(publish_offset_handle, 0);
+	publish_sysimg_req->pBuffLength = hse_virt_to_dma(sysimg_size_handle, 0);
+	publish_sysimg_req->pBuff = hse_virt_to_dma(sysimg_handle, 0);
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
 		ERROR("Failed to publish SYS_IMG\n");
 
-	hse_mem_free(publish_offset);
+	hse_mem_free(publish_offset_handle);
 	return ret;
 }
 
-int hse_sysimg_write_sd_mmc(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_size,
+int hse_sysimg_write_sd_mmc(int fd, struct ivt *ivt, void *sysimg, uint32_t sysimg_size,
                             enum boot_type boot_medium, bool secure)
 {
 	off_t seek_off;
@@ -1027,8 +1054,8 @@ int hse_sysimg_write_sd_mmc(int fd, struct ivt *ivt, void *sysimg, uint32_t *sys
 		ERROR("Failed to find SYSIMG location\n");
 		return errno;
 	}
-	bytes = write(fd, sysimg, *sysimg_size);
-	if (bytes < 0 || bytes != *sysimg_size) {
+	bytes = write(fd, sysimg, sysimg_size);
+	if (bytes < 0 || bytes != sysimg_size) {
 		ERROR("Failed to write SYSIMG\n");
 		return errno;
 	}
@@ -1056,7 +1083,7 @@ int hse_sysimg_write_sd_mmc(int fd, struct ivt *ivt, void *sysimg, uint32_t *sys
 	return 0;
 }
 
-int hse_sysimg_write_qspi(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysimg_size, bool secure)
+int hse_sysimg_write_qspi(int fd, struct ivt *ivt, void *sysimg, uint32_t sysimg_size, bool secure)
 {
 	off_t seek_off;
 	erase_info_t ei;
@@ -1074,7 +1101,7 @@ int hse_sysimg_write_qspi(int fd, struct ivt *ivt, void *sysimg, uint32_t *sysim
 	ei.start = (div * QSPI_BLOCK_SIZE);
 	ioctl(fd, MEMUNLOCK, &ei);
 	ioctl(fd, MEMERASE, &ei);
-	memcpy(sysimage+rem, sysimg, *sysimg_size);
+	memcpy(sysimage + rem, sysimg, sysimg_size);
 	seek_off = lseek(fd, (div * QSPI_BLOCK_SIZE), SEEK_SET);
 	if (seek_off < 0) {
 		ERROR("Failed to find SYSIMG location\n");
@@ -1122,7 +1149,8 @@ int hse_secboot_enable(const char *device, const char *bl2_sign_file,
 	bool gen_cnt_table = false;
 	struct app_boot_hdr app_boot;
 	uint16_t hse_status;
-	uint32_t *sysimg_size;
+	int sysimg_size_handle, sysimg_handle;
+	uint32_t sysimg_size;
 	void *sysimg;
 	int fd, ret = 0;
 
@@ -1219,41 +1247,50 @@ int hse_secboot_enable(const char *device, const char *bl2_sign_file,
 
 	INFO("Retrieving SYSIMG size\n");
 
-	sysimg_size = hse_mem_alloc(sizeof(*sysimg_size));
-	if (!sysimg_size) {
+	sysimg_size_handle = hse_mem_alloc(sizeof(sysimg_size));
+	if (sysimg_size_handle < 0) {
 		ERROR("Failed to allocate space for SYSIMG size\n");
 		ret = -ENOMEM;
 		goto err_close_fd;
 	}
 
-	ret = hse_sysimg_getsize(sysimg_size);
+	ret = hse_sysimg_getsize(sysimg_size_handle);
 	if (ret)
-		goto err_free_sysimg_size;
+		goto err_hse_free_sysimg_size;
+	hse_memcpy_from_dev(&sysimg_size, sysimg_size_handle, sizeof(sysimg_size), 0);
 
 	INFO("Publishing SYSIMG\n");
 
-	sysimg = hse_mem_alloc(*sysimg_size);
+	sysimg_handle = hse_mem_alloc(sysimg_size);
+	if (sysimg_handle < 0) {
+		ERROR("Failed to allocate space for SYSIMG\n");
+		goto err_hse_free_sysimg_size;
+	}
+
+	ret = hse_sysimg_publish(sysimg_handle, sysimg_size_handle);
+	if (ret)
+		goto err_hse_free_sysimg_size;
+
+	INFO("Writing SYSIMG to %s\n", device);
+
+	sysimg = malloc(sysimg_size);
 	if (!sysimg) {
 		ERROR("Failed to allocate space for SYSIMG\n");
 		ret = -ENOMEM;
-		goto err_free_sysimg_size;
+		goto err_hse_free_sysimg;
 	}
-
-	ret = hse_sysimg_publish(sysimg, sysimg_size);
-	if (ret)
-		goto err_free_sysimg;
-
-	INFO("Writing SYSIMG to %s\n", device);
+	hse_memcpy_from_dev(sysimg, sysimg_handle, sysimg_size, 0);
 
 	if (boot_medium == QSPI)
 		ret = hse_sysimg_write_qspi(fd, &ivt, sysimg, sysimg_size, 1);
 	else
 		ret = hse_sysimg_write_sd_mmc(fd, &ivt, sysimg, sysimg_size, boot_medium, 1);
+	free(sysimg);
 
-err_free_sysimg:
-	hse_mem_free(sysimg);
-err_free_sysimg_size:
-	hse_mem_free(sysimg_size);
+err_hse_free_sysimg:
+	hse_mem_free(sysimg_handle);
+err_hse_free_sysimg_size:
+	hse_mem_free(sysimg_size_handle);
 err_close_fd:
 	close(fd);
 err_close_hse:
@@ -1265,7 +1302,8 @@ int hse_keycatalog_format(const char* device, bool overwrite, enum boot_type boo
 {
 	struct ivt ivt;
 	void *sysimg;
-	uint32_t *sysimg_size;
+	uint32_t sysimg_size;
+	int sysimg_handle, sysimg_size_handle;
 	uint16_t hse_status;
 	int fd, ret = 0;
 
@@ -1320,40 +1358,50 @@ int hse_keycatalog_format(const char* device, bool overwrite, enum boot_type boo
 
 	INFO("Retrieving SYSIMG size\n");
 
-	sysimg_size = hse_mem_alloc(sizeof(*sysimg_size));
-	if (!sysimg_size) {
+	sysimg_size_handle = hse_mem_alloc(sizeof(sysimg_size));
+	if (sysimg_size_handle < 0) {
 		ERROR("Failed to allocate space for SYSIMG size\n");
 		ret = -ENOMEM;
 		goto err_close_fd;
 	}
 
-	ret = hse_sysimg_getsize(sysimg_size);
+	ret = hse_sysimg_getsize(sysimg_size_handle);
 	if (ret)
-		goto err_free_sysimg_size;
+		goto err_hse_free_sysimg_size;
+	hse_memcpy_from_dev(&sysimg_size, sysimg_size_handle, sizeof(sysimg_size), 0);
 
 	INFO("Publishing SYSIMG\n");
 
-	sysimg = hse_mem_alloc(*sysimg_size);
-	if (!sysimg) {
+	sysimg_handle = hse_mem_alloc(sysimg_size);
+	if (sysimg_handle < 0) {
 		ERROR("Failed to allocate space for SYSIMG\n");
-		goto err_free_sysimg_size;
+		goto err_hse_free_sysimg_size;
 	}
 
-	ret = hse_sysimg_publish(sysimg, sysimg_size);
+	ret = hse_sysimg_publish(sysimg_handle, sysimg_size_handle);
 	if (ret)
-		goto err_free_sysimg;
+		goto err_hse_free_sysimg_size;
 
 	INFO("Writing SYSIMG to %s\n", device);
+
+	sysimg = malloc(sysimg_size);
+	if (!sysimg) {
+		ERROR("Failed to allocate space for SYSIMG\n");
+		ret = -ENOMEM;
+		goto err_hse_free_sysimg;
+	}
+	hse_memcpy_from_dev(sysimg, sysimg_handle, sysimg_size, 0);
 
 	if (boot_medium == QSPI)
 		ret = hse_sysimg_write_qspi(fd, &ivt, sysimg, sysimg_size, 0);
 	else
 		ret = hse_sysimg_write_sd_mmc(fd, &ivt, sysimg, sysimg_size, boot_medium, 0);
+	free(sysimg);
 
-err_free_sysimg:
-	hse_mem_free(sysimg);
-err_free_sysimg_size:
-	hse_mem_free(sysimg_size);
+err_hse_free_sysimg:
+	hse_mem_free(sysimg_handle);
+err_hse_free_sysimg_size:
+	hse_mem_free(sysimg_size_handle);
 err_close_fd:
 	close(fd);
 err_close_hse:

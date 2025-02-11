@@ -30,4 +30,11 @@ uint16_t hse_get_ec_key_bitlen(hseEccCurveId_t eccCurveId);
 uint8_t ecparam2curveid(char *oid, uint8_t len);
 const uint8_t* curveid2ecparam(hseEccCurveId_t curve_id, uint8_t *len);
 
+void strcpy_pkcs11_padding(unsigned char *dest, const char *source, size_t dest_len);
+int32_t hse_key_object_write(struct hse_keyObject *key);
+int32_t hse_key_object_remove(struct hse_keyObject *key);
+int32_t hse_pkcs_read_objs_dir(void);
+
+int get_key_object_handle(CK_OBJECT_HANDLE handle);
+
 #endif

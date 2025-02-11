@@ -7,12 +7,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <dirent.h>
 
 #include "hse_interface.h"
 #include "pkcs11_context.h"
 #include "pkcs11_util.h"
 #include "hse-internal.h"
 
+#define PKCS_OBJ_DIR "/etc/pkcs-objs"
 #define CEIL_MOD_8(x)		(((x) + 7) >> 3)
 
 void *getattr_pval(CK_ATTRIBUTE_PTR template,
@@ -45,67 +47,67 @@ CK_ULONG getattr_len(CK_ATTRIBUTE_PTR template,
 	return 0;
 }
 
-static int hse_get_key_info(uint8_t channel, hseKeyHandle_t key_handle, hseKeyInfo_t *info)
+static int hse_get_key_info(uint8_t channel, hseKeyHandle_t key_handle, int info_handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseGetKeyInfoSrv_t *get_key_info_srv;
 
-	if (NULL == info)
+	if (info_handle < 0)
 		return EINVAL;
 	
 	get_key_info_srv = &srv_desc.hseSrv.getKeyInfoReq;
 
 	srv_desc.srvId = HSE_SRV_ID_GET_KEY_INFO;
 	get_key_info_srv->keyHandle = key_handle;
-	get_key_info_srv->pKeyInfo = hse_virt_to_dma(info);
+	get_key_info_srv->pKeyInfo = hse_virt_to_dma(info_handle, 0);
 
 	return hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc));
 }
 
 uint16_t hse_get_key_bit_length(uint8_t channel, struct hse_keyObject *key)
 {
-	hseKeyInfo_t *info;
+	hseKeyInfo_t info;
 	uint16_t bit_length;
-	int err;
+	int err, info_handle;
 
-	info = hse_mem_alloc(sizeof(*info));
-	if (info == NULL) 
+	info_handle = hse_mem_alloc(sizeof(info));
+	if (info_handle < 0) 
 		return 0;
 
-	err = hse_get_key_info(channel, key->key_handle, info);
+	err = hse_get_key_info(channel, key->key_handle, info_handle);
 	if (err) {
-		hse_mem_free(info);
+		hse_mem_free(info_handle);
 		return 0;
 	}
+	hse_memcpy_from_dev((void *)&info, info_handle, sizeof(info), 0);
+	bit_length = info.keyBitLen;
 
-	bit_length = info->keyBitLen;
-
-	hse_mem_free(info);
+	hse_mem_free(info_handle);
 
 	return bit_length;
 }
 
 int hse_get_ec_curve_id(uint8_t channel, struct hse_keyObject *key, hseEccCurveId_t *ec_curve_id)
 {
-	hseKeyInfo_t *info;
+	hseKeyInfo_t info;
 	hseEccCurveId_t curve_id = HSE_EC_CURVE_NONE;
-	int err;
+	int err, info_handle;
 
-	info = hse_mem_alloc(sizeof(*info));
-	if (info == NULL) 
+	info_handle = hse_mem_alloc(sizeof(info));
+	if (info_handle < 0) 
 		return ENOMEM;
 
-	err = hse_get_key_info(channel, key->key_handle, info);
+	err = hse_get_key_info(channel, key->key_handle, info_handle);
 	if (err) {
-		hse_mem_free(info);
+		hse_mem_free(info_handle);
 		return err;
 	}
-
-	curve_id = info->specific.eccCurveId;
+	hse_memcpy_from_dev((void *)&info, info_handle, sizeof(info), 0);
+	curve_id = info.specific.eccCurveId;
 	if (ec_curve_id)
 		*ec_curve_id = curve_id;
 
-	hse_mem_free(info);
+	hse_mem_free(info_handle);
 
 	return 0;
 }
@@ -478,34 +480,34 @@ uint16_t hse_get_tag_length(unsigned long tagBits)
 */
 int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *pkey0, uint8_t *pkey1, CK_ULONG *pkey0_len, CK_ULONG *pkey1_len)
 {
-	int err;
+	int err, key_info_handle, key_value0_handle, key_value1_handle, hse_pkey_length_handle;
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseExportKeySrv_t *export_key_srv;
 	uint16_t key_bit_length;
 	uint16_t pkey_length[2] = {0, 0};
-	uint8_t *key_value0, *key_value1;
-	uint16_t *hse_pkey_length;
-	hseKeyInfo_t *key_info;
+	uint8_t *key_value0 = NULL, *key_value1 = NULL;
+	hseKeyInfo_t key_info;
 	hseEccCurveId_t ecc_curve_id;
 	bool Weierstrass_curve = FALSE;
 
-	key_info = hse_mem_alloc(sizeof(*key_info));
-	if (key_info == NULL) 
+	key_info_handle = hse_mem_alloc(sizeof(key_info));
+	if (key_info_handle < 0) 
 		return CKR_HOST_MEMORY;
 	
-	err = hse_get_key_info(channel, key->key_handle, key_info);
+	err = hse_get_key_info(channel, key->key_handle, key_info_handle);
 	if (err) {
 		goto out_free_key_info;
 	}
+	hse_memcpy_from_dev((void *)&key_info, key_info_handle, sizeof(key_info), 0);
 
 	/* get the key size */
-	key_bit_length = key_info->keyBitLen;
+	key_bit_length = key_info.keyBitLen;
 
 	if (key->key_type == CKK_RSA) {
 		/* RSA public modulus n */
 		pkey_length[0] = key_bit_length >> 3;
 		/* RSA public exponent e */
-		pkey_length[1] = key_info->specific.pubExponentSize;
+		pkey_length[1] = key_info.specific.pubExponentSize;
 	} else if (key->key_type == CKK_EC) {
 		/* Length of Q: todo */
 		/* depends on the key format
@@ -518,7 +520,7 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
      	 *  - Montgomery curve keys:
      	 *    - raw format: the X coordinate, in big endian; the HSE will output #HSE_BITS_TO_BYTES(keyBitLength) bytes
 	 	 **/
-		ecc_curve_id = key_info->specific.eccCurveId;
+		ecc_curve_id = key_info.specific.eccCurveId;
 		switch (ecc_curve_id) {
 			case HSE_EC_SEC_SECP256R1:
 			case HSE_EC_SEC_SECP384R1:
@@ -551,35 +553,34 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 		goto out_free_key_info;
 	}
 
-	key_value0 = hse_mem_alloc(pkey_length[0]);
+	key_value0_handle = hse_mem_alloc(pkey_length[0]);
 	if (NULL == key_value0) {
 		err = CKR_HOST_MEMORY;
 		goto out_free_key_info;
 	}
 
-	key_value1 = hse_mem_alloc(pkey_length[1]);
+	key_value1_handle = hse_mem_alloc(pkey_length[1]);
 	if ((NULL == key_value1) && (key->key_type == CKK_RSA)) {
 		err = CKR_HOST_MEMORY;
 		goto out_free_pkey0;
 	}
 
-	hse_pkey_length = (uint16_t *)hse_mem_alloc(sizeof(uint16_t) * 2);
-	if (NULL == hse_pkey_length) {
+	hse_pkey_length_handle = hse_mem_alloc(sizeof(uint16_t) * 2);
+	if (hse_pkey_length_handle < 0) {
 		err = CKR_HOST_MEMORY;
 		goto out_free_pkey1;
 	}
 
-	hse_memcpy(&hse_pkey_length[0], &pkey_length[0], sizeof(uint16_t));
-	hse_memcpy(&hse_pkey_length[1], &pkey_length[1], sizeof(uint16_t));
+	hse_memcpy_to_dev(hse_pkey_length_handle, pkey_length, sizeof(uint16_t) * 2, 0);
 
 	srv_desc.srvId = HSE_SRV_ID_EXPORT_KEY;
 	
 	export_key_srv = &srv_desc.hseSrv.exportKeyReq;
 	export_key_srv->targetKeyHandle = key->key_handle;
-	export_key_srv->pKey[0] = hse_virt_to_dma(key_value0);
-	export_key_srv->pKey[1] = hse_virt_to_dma(key_value1);
-	export_key_srv->pKeyLen[0] = hse_virt_to_dma(hse_pkey_length);
-	export_key_srv->pKeyLen[1] = hse_virt_to_dma(&hse_pkey_length[1]);
+	export_key_srv->pKey[0] = hse_virt_to_dma(key_value0_handle, 0);
+	export_key_srv->pKey[1] = hse_virt_to_dma(key_value1_handle, 0);
+	export_key_srv->pKeyLen[0] = hse_virt_to_dma(hse_pkey_length_handle, 0);
+	export_key_srv->pKeyLen[1] = hse_virt_to_dma(hse_pkey_length_handle, sizeof(uint16_t));
 	export_key_srv->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	export_key_srv->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 	/* TODO: better to use HSE FW interface version */
@@ -596,42 +597,205 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc));
 	if (err)
 		goto out_free_pkey_len;
+	hse_memcpy_from_dev(pkey_length, hse_pkey_length_handle, sizeof(uint16_t) * 2, 0);
 
 #if (HSE_PLATFORM == HSE_S32G3XX)
-	if (NULL != pkey0)
-		hse_memcpy(pkey0, key_value0, hse_pkey_length[0]);
+	if (NULL != pkey0) 
+		hse_memcpy_from_dev(pkey0, key_value0_handle, pkey_length[0], 0);
 	if (NULL != pkey0_len)
-		*(pkey0_len) = hse_pkey_length[0];
+		*(pkey0_len) = pkey_length[0];
 #elif ((HSE_PLATFORM == HSE_S32G2XX) || (HSE_PLATFORM == HSE_S32R45X))
 	/* In case Weierstrass curve, convert raw format to uncompressed format: 0x04 || X || Y, in big endian; */
 	if (NULL != pkey0) {
 		if (Weierstrass_curve) {
 			*pkey0 = 0x4;
-			hse_memcpy(pkey0 + 1, key_value0, hse_pkey_length[0]);
+			hse_memcpy_from_dev(pkey0 + 1, key_value0_handle, pkey_length[0], 0);
 		} else {
-			hse_memcpy(pkey0, key_value0, hse_pkey_length[0]);
+			hse_memcpy_from_dev(pkey0, key_value0_handle, pkey_length[0], 0);
 		}
 	}
 	if (NULL != pkey0_len) {
 		if (Weierstrass_curve) 
-			*(pkey0_len) = hse_pkey_length[0] + 1;
+			*(pkey0_len) = pkey_length[0] + 1;
 		else 
-			*(pkey0_len) = hse_pkey_length[0];
+			*(pkey0_len) = pkey_length[0];
 	}
 #endif
 
 	if ((NULL != pkey1) && (key->key_type == CKK_RSA))
-		hse_memcpy(pkey1, key_value1, hse_pkey_length[1]);
+		hse_memcpy_from_dev(pkey1, key_value1_handle, pkey_length[1], 0);
 	if ((NULL != pkey1_len) && (key->key_type == CKK_RSA))
-		*(pkey1_len) = hse_pkey_length[1];
+		*(pkey1_len) = pkey_length[1];
 
 out_free_pkey_len:
-	hse_mem_free(hse_pkey_length);
+	hse_mem_free(hse_pkey_length_handle);
 out_free_pkey1:
-	hse_mem_free(key_value1);
+	hse_mem_free(key_value1_handle);
 out_free_pkey0:
-	hse_mem_free(key_value0);
+	hse_mem_free(key_value0_handle);
 out_free_key_info:
-	hse_mem_free(key_info);
+	hse_mem_free(key_info_handle);
 	return err;
+}
+
+/*
+ * PKCS11 standard: char buffers MUST be padded with the blank character (' ').
+ * MUST NOT be null-terminated.
+ */
+void strcpy_pkcs11_padding(unsigned char *dest, const char *source, size_t dest_len)
+{
+	/* todo: not safe in case the source is not null-terminated */
+	size_t src_len = strlen(source);
+	strncpy((char *)dest, source, dest_len);
+
+	if (src_len < dest_len)
+		memset(dest + src_len, ' ', dest_len - src_len);
+}
+
+/* Copy the ' ' padded string and restore it to NUL-terminated */
+static void strcpy_pkcs11_nul_padding(unsigned char *dest, const char *source, size_t dest_len)
+{
+	int tail = 0;
+	int index = (int)dest_len - 1;
+
+	for (; index >= 0; index--) {
+		if (((source[index] == ' ') || (source[index] == '\0')) && (tail == 0)) {
+			dest[index] = '\0';
+			continue;
+		} else {
+			tail = 1;
+			dest[index] = source[index];
+		}
+	}
+}
+
+int32_t hse_key_object_write(struct hse_keyObject *key)
+{
+	int ret;
+	FILE *key_file;
+	char key_file_path[64] = {0};
+	struct hse_keyObject serialized;
+
+	if (!key)
+		return EINVAL;
+
+	sprintf(key_file_path, "%s/0x%06lx.bin", PKCS_OBJ_DIR, key->key_handle);
+	key_file = fopen(key_file_path, "wb");
+	if (!key_file)
+		return EBADF;
+
+	strcpy_pkcs11_padding((unsigned char *)serialized.key_label, key->key_label, MAX_LABEL_LEN);
+	serialized.key_uid = key->key_uid;
+	serialized.key_handle = key->key_handle;
+	serialized.key_type = key->key_type;
+	serialized.key_class = key->key_class;
+
+	ret = fwrite(&serialized, sizeof(serialized), 1, key_file);
+	if (ret != 1) {
+		ret = EIO;
+		goto err_close_file;
+	}
+	ret = 0;
+
+err_close_file:
+	fclose(key_file);
+	return ret;
+}
+
+int32_t hse_key_object_remove(struct hse_keyObject *key)
+{
+	char key_file_path[64] = {0};
+
+	if (!key)
+		return EINVAL;
+	sprintf(key_file_path, "%s/0x%06lx.bin", PKCS_OBJ_DIR, key->key_handle);
+	
+	return remove(key_file_path);
+}
+
+int32_t hse_key_obj_read(char *key_name)
+{
+	FILE *key_file;
+	int ret, key_obj_handle;
+	char key_file_path[64] = {0};
+	struct hse_keyObject *key_obj, tmp_key_obj;
+
+	if (!key_name)
+		return EINVAL;
+
+	sprintf(key_file_path, "%s/%s", PKCS_OBJ_DIR, key_name);
+	key_file = fopen(key_file_path, "rb");
+	if (!key_file)
+		return EBADF;
+
+	ret = fread(&tmp_key_obj, sizeof(tmp_key_obj), 1, key_file);
+	if (ret != 1) {
+		ret = EIO;
+		goto err_close_file;
+	}
+
+	key_obj_handle = hse_intl_mem_alloc(sizeof(*key_obj), HSE_KEY_OBJ);
+	if (key_obj_handle < 0) {
+		ret = ENOMEM;
+		goto err_close_file;
+	}
+	key_obj = (struct hse_keyObject *)hse_get_node_mem_addr(key_obj_handle, true);
+
+	strcpy_pkcs11_nul_padding((unsigned char *)key_obj->key_label,
+				tmp_key_obj.key_label, MAX_LABEL_LEN);
+	key_obj->key_uid = tmp_key_obj.key_uid;
+	key_obj->key_handle = tmp_key_obj.key_handle;
+	key_obj->key_type = tmp_key_obj.key_type;
+	key_obj->key_class = tmp_key_obj.key_class;
+	ret = 0;
+
+err_close_file:
+	fclose(key_file);
+	return ret;
+}
+
+int32_t hse_pkcs_read_objs_dir(void)
+{
+	int ret = 0;
+	DIR *pkcs_dir;
+    struct dirent *in_file;
+
+	pkcs_dir = opendir(PKCS_OBJ_DIR);
+	if (!pkcs_dir)
+		return EBADF;
+
+	while ((in_file = readdir(pkcs_dir))) {
+		if (!strcmp (in_file->d_name, ".") || !strcmp (in_file->d_name, ".."))
+			continue;
+
+		ret = hse_key_obj_read(in_file->d_name);
+		if (ret)
+			break;
+    }
+	return ret;
+}
+
+int get_key_object_handle(CK_OBJECT_HANDLE handle)
+{
+    int curr_handle = -1;
+    struct hse_keyObject *key;
+
+    hse_intl_iterstart();
+    if (!hse_intl_hasnext())
+        return -1;
+
+    do {
+        curr_handle = hse_intl_next();
+        if (hse_intl_get_node_type(curr_handle) != HSE_KEY_OBJ)
+            continue;
+
+        key = (struct hse_keyObject *)hse_get_node_mem_addr(curr_handle, true);
+        if (key->key_handle == handle) {
+            hse_intl_iterstop();
+            return curr_handle;
+        }
+    } while (hse_intl_hasnext());
+
+    hse_intl_iterstop();
+    return -1;
 }

@@ -5,10 +5,11 @@
  * This is a simple application that generates an AES-256 key, encrypts some
  * data using AES-CBC, then decrypts it in-place and compares the result.
  *
- * Copyright 2022-2023 NXP
+ * Copyright 2022-2025 NXP
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
@@ -34,7 +35,8 @@ int hse_erase_key(uint32_t key_handle)
 int main(int argc, char *argv[])
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	void *iv, *plaintext, *ciphertext;
+	int iv_handle, plaintext_handle, ciphertext_handle;
+	void *plaintext, *ciphertext;
 	unsigned int group_id, slot_id;
 	uint32_t key_handle;
 	uint16_t status;
@@ -93,22 +95,22 @@ int main(int argc, char *argv[])
 	printf("DEMO: key generation successful\n");
 
 	/* allocate IV, input and output buffers */
-	iv = hse_mem_alloc(AES_BLOCK_SIZE);
-	if (!iv) {
+	iv_handle = hse_mem_alloc(AES_BLOCK_SIZE);
+	if (iv_handle < 0) {
 		err = ENOMEM;
 		goto out_erase_key;
 	}
-	hse_memset(iv, 0, AES_BLOCK_SIZE);
+	hse_memset(iv_handle, 0, AES_BLOCK_SIZE, 0);
 
-	plaintext = hse_mem_alloc(INPUT_SIZE);
-	if (!plaintext) {
+	plaintext_handle = hse_mem_alloc(INPUT_SIZE);
+	if (plaintext_handle < 0) {
 		err = ENOMEM;
 		goto out_free_iv;
 	}
-	hse_memcpy(plaintext, "Simple symmetric cipher encryption test", 40u);
+	hse_memcpy_to_dev(plaintext_handle, "Simple symmetric cipher encryption test", 40u, 0);
 
-	ciphertext = hse_mem_alloc(INPUT_SIZE);
-	if (!ciphertext) {
+	ciphertext_handle = hse_mem_alloc(INPUT_SIZE);
+	if (ciphertext_handle < 0) {
 		err = ENOMEM;
 		goto out_free_input;
 	}
@@ -121,10 +123,10 @@ int main(int argc, char *argv[])
 	srv_desc.hseSrv.symCipherReq.cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 	srv_desc.hseSrv.symCipherReq.sgtOption = HSE_SGT_OPTION_NONE;
 	srv_desc.hseSrv.symCipherReq.keyHandle = key_handle;
-	srv_desc.hseSrv.symCipherReq.pIV = hse_virt_to_dma(iv);
+	srv_desc.hseSrv.symCipherReq.pIV = hse_virt_to_dma(iv_handle, 0);
 	srv_desc.hseSrv.symCipherReq.inputLength = INPUT_SIZE;
-	srv_desc.hseSrv.symCipherReq.pInput = hse_virt_to_dma(plaintext);
-	srv_desc.hseSrv.symCipherReq.pOutput = hse_virt_to_dma(ciphertext);
+	srv_desc.hseSrv.symCipherReq.pInput = hse_virt_to_dma(plaintext_handle, 0);
+	srv_desc.hseSrv.symCipherReq.pOutput = hse_virt_to_dma(ciphertext_handle, 0);
 
 	/* issue encrypt service request */
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
@@ -142,10 +144,10 @@ int main(int argc, char *argv[])
 	srv_desc.hseSrv.symCipherReq.cipherDir = HSE_CIPHER_DIR_DECRYPT;
 	srv_desc.hseSrv.symCipherReq.sgtOption = HSE_SGT_OPTION_NONE;
 	srv_desc.hseSrv.symCipherReq.keyHandle = key_handle;
-	srv_desc.hseSrv.symCipherReq.pIV = hse_virt_to_dma(iv);
+	srv_desc.hseSrv.symCipherReq.pIV = hse_virt_to_dma(iv_handle, 0);
 	srv_desc.hseSrv.symCipherReq.inputLength = INPUT_SIZE;
-	srv_desc.hseSrv.symCipherReq.pInput = hse_virt_to_dma(ciphertext);
-	srv_desc.hseSrv.symCipherReq.pOutput = hse_virt_to_dma(ciphertext);
+	srv_desc.hseSrv.symCipherReq.pInput = hse_virt_to_dma(ciphertext_handle, 0);
+	srv_desc.hseSrv.symCipherReq.pOutput = hse_virt_to_dma(ciphertext_handle, 0);
 
 	/* issue decrypt service request */
 	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
@@ -156,6 +158,17 @@ int main(int argc, char *argv[])
 	printf("DEMO: decrypt operation successful\n");
 
 	/* check result against initial input */
+	plaintext = malloc(INPUT_SIZE);
+	ciphertext = malloc(INPUT_SIZE);
+
+	if (!plaintext || !ciphertext) {
+		printf("DEMO: plaintext and ciphertext alloc failed\n");
+		goto out_free_output;
+	}
+
+	hse_memcpy_from_dev(plaintext, plaintext_handle, INPUT_SIZE, 0);
+	hse_memcpy_from_dev(ciphertext, ciphertext_handle, INPUT_SIZE, 0);
+
 	err = memcmp(plaintext, ciphertext, INPUT_SIZE);
 	if (err != 0) {
 		printf("DEMO: error - result does not match plaintext\n");
@@ -165,11 +178,11 @@ int main(int argc, char *argv[])
 	printf("DEMO: result check successful\n");
 
 out_free_output:
-	hse_mem_free(ciphertext);
+	hse_mem_free(plaintext_handle);
 out_free_input:
-	hse_mem_free(plaintext);
+	hse_mem_free(ciphertext_handle);
 out_free_iv:
-	hse_mem_free(iv);
+	hse_mem_free(iv_handle);
 out_erase_key:
 	if (hse_erase_key(key_handle))
 		printf("DEMO: key erase failed\n");

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2022-2024 NXP
+ * Copyright 2022-2025 NXP
  */
 
 #include <stdio.h>
@@ -130,9 +130,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Digest)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseHashSrv_t *hash_req;
-	void *output, *output_len, *input;
 	CK_RV rc = CKR_OK;
-	int err;
+	int err, input_handle, output_handle, output_len_handle;
 
 	rc = check_init(hSession, CK_FALSE);
 	if (rc != CKR_OK)
@@ -165,22 +164,22 @@ CK_DECLARE_FUNCTION(CK_RV, C_Digest)(
 	if (*pulDigestLen < sCtx->digestCtx.digestSize)
 		return CKR_BUFFER_TOO_SMALL;
 
-	input = hse_mem_alloc(ulDataLen);
-	if (input == NULL) {
+	input_handle = hse_mem_alloc(ulDataLen);
+	if (input_handle < 0) {
 		rc = CKR_HOST_MEMORY;
 		goto out_uninit;
 	}
-	hse_memcpy(input, pData, ulDataLen);
+	hse_memcpy_to_dev(input_handle, pData, ulDataLen, 0);
 
-	output_len = hse_mem_alloc(sizeof(uint32_t));
-	if (output_len == NULL) {
+	output_len_handle = hse_mem_alloc(sizeof(uint32_t));
+	if (output_len_handle < 0) {
 		rc = CKR_HOST_MEMORY;
 		goto out_free_input;
 	}
-	hse_memcpy(output_len, pulDigestLen, sizeof(uint32_t));
+	hse_memcpy_to_dev(output_len_handle, pulDigestLen, sizeof(uint32_t), 0);
 
-	output = hse_mem_alloc(*pulDigestLen);
-	if (output == NULL) {
+	output_handle = hse_mem_alloc(*pulDigestLen);
+	if (output_handle < 0) {
 		rc = CKR_HOST_MEMORY;
 		goto out_free_output_len;
 	}
@@ -193,9 +192,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_Digest)(
 	hash_req->hashAlgo = sCtx->digestCtx.mechanism;
 	hash_req->sgtOption = HSE_SGT_OPTION_NONE;
 	hash_req->inputLength = ulDataLen;
-	hash_req->pInput = hse_virt_to_dma(input);
-	hash_req->pHashLength = hse_virt_to_dma(output_len);
-	hash_req->pHash = hse_virt_to_dma(output);
+	hash_req->pInput = hse_virt_to_dma(input_handle, 0);
+	hash_req->pHashLength = hse_virt_to_dma(output_len_handle, 0);
+	hash_req->pHash = hse_virt_to_dma(output_handle, 0);
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
@@ -203,19 +202,18 @@ CK_DECLARE_FUNCTION(CK_RV, C_Digest)(
 		goto out_free_output;
 	}
 
-	hse_memcpy(pDigest, output, *(uint32_t *)output_len);
-
 	/* pkcs11-base-3.0: section 5.2: In either case, *pulBufLen is set to hold the exact number of bytes
 	* needed to hold the cryptographic output produced from the input to
 	* the function.*/
-	*pulDigestLen = *(uint32_t *)output_len;
+	hse_memcpy_from_dev(pulDigestLen, output_len_handle, sizeof(uint32_t), 0);
+	hse_memcpy_from_dev(pDigest, output_handle, *pulDigestLen, 0);
 
 out_free_output:
-	hse_mem_free(output);
+	hse_mem_free(output_handle);
 out_free_output_len:
-	hse_mem_free(output_len);
+	hse_mem_free(output_len_handle);
 out_free_input:
-	hse_mem_free(input);
+	hse_mem_free(input_handle);
 out_uninit:
 	sCtx->digestCtx.init = CK_FALSE;
 	if (sCtx->digestCtx.cache != NULL) {
@@ -234,10 +232,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestUpdate)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseHashSrv_t *hash_req;
-	void *input;
 	uint32_t bytes_left, full_blocks;
 	CK_RV rc = CKR_OK;
-	int err;
+	int err, input_handle;
 
 	rc = check_init(hSession, CK_FALSE);
 	if (rc != CKR_OK)
@@ -265,13 +262,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestUpdate)(
 	full_blocks = bytes_left - (bytes_left % sCtx->digestCtx.blockSize);
 
 	/* copy full_blocks to dynamic buffer */
-	input = hse_mem_alloc(full_blocks);
-	if (input == NULL) {
+	input_handle = hse_mem_alloc(full_blocks);
+	if (input_handle < 0) {
 		rc = CKR_HOST_MEMORY;
 		goto out_uninit;
 	}
-	hse_memcpy(input, sCtx->digestCtx.cache, sCtx->digestCtx.cache_idx);
-	hse_memcpy(input + sCtx->digestCtx.cache_idx, pPart, full_blocks - sCtx->digestCtx.cache_idx);
+	hse_memcpy_to_dev(input_handle, sCtx->digestCtx.cache, sCtx->digestCtx.cache_idx, 0);
+	hse_memcpy_to_dev(input_handle, pPart, full_blocks - sCtx->digestCtx.cache_idx, sCtx->digestCtx.cache_idx);
 	bytes_left -= full_blocks;
 
 	hash_req = &srv_desc.hseSrv.hashReq;
@@ -294,7 +291,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestUpdate)(
 	hash_req->hashAlgo = sCtx->digestCtx.mechanism;
 	hash_req->sgtOption = HSE_SGT_OPTION_NONE;
 	hash_req->inputLength = full_blocks;
-	hash_req->pInput = hse_virt_to_dma(input);
+	hash_req->pInput = hse_virt_to_dma(input_handle, 0);
 	hash_req->pHashLength = 0;
 	hash_req->pHash = 0;
 
@@ -309,7 +306,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestUpdate)(
 	sCtx->digestCtx.cache_idx = bytes_left;
 
 out_free_input:
-	hse_mem_free(input);
+	hse_mem_free(input_handle);
 out_uninit:
 	if (rc != CKR_OK) {
 		hse_stream_free(sCtx->digestCtx.streamID);
@@ -331,9 +328,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestFinal)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseHashSrv_t *hash_req;
-	void *input = NULL, *output, *output_len;
+	uint32_t output_len;
 	CK_RV rc = CKR_OK;
-	int err;
+	int err, input_handle = -1, output_handle = -1, output_len_handle = -1;
 
 	rc = check_init(hSession, CK_FALSE);
 	if (rc != CKR_OK)
@@ -358,28 +355,28 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestFinal)(
 		return CKR_BUFFER_TOO_SMALL;
 	}
 
-	output_len = hse_mem_alloc(sizeof(uint32_t));
-	if (output_len == NULL) {
+	output_len_handle = hse_mem_alloc(sizeof(uint32_t));
+	if (output_len_handle < 0) {
 		rc = CKR_HOST_MEMORY;
 		goto out_uninit;
 	}
-	hse_memcpy(output_len, pulDigestLen, sizeof(uint32_t));
+	hse_memcpy_to_dev(output_len_handle, pulDigestLen, sizeof(uint32_t), 0);
 
-	output = hse_mem_alloc(*pulDigestLen);
-	if (output == NULL) {
+	output_handle = hse_mem_alloc(*pulDigestLen);
+	if (output_handle < 0) {
 		rc = CKR_HOST_MEMORY;
 		goto out_free_output_len;
 	}
 
 	if (sCtx->digestCtx.cache_idx > 0) {
-		input = hse_mem_alloc(sCtx->digestCtx.cache_idx);
-		if (input == NULL) {
+		input_handle = hse_mem_alloc(sCtx->digestCtx.cache_idx);
+		if (input_handle < 0) {
 			rc = CKR_HOST_MEMORY;
 			goto out_free_output;
 		}
 
 		/* copy remaining data to buffer */
-		hse_memcpy(input, sCtx->digestCtx.cache, sCtx->digestCtx.cache_idx);
+		hse_memcpy_to_dev(input_handle, sCtx->digestCtx.cache, sCtx->digestCtx.cache_idx, 0);
 	}
 
 	hash_req = &srv_desc.hseSrv.hashReq;
@@ -392,30 +389,31 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestFinal)(
 	hash_req->hashAlgo = sCtx->digestCtx.mechanism;
 	hash_req->sgtOption = HSE_SGT_OPTION_NONE;
 	hash_req->inputLength = sCtx->digestCtx.cache_idx;
-	hash_req->pInput = hse_virt_to_dma(input);
-	hash_req->pHashLength = hse_virt_to_dma(output_len);
-	hash_req->pHash = hse_virt_to_dma(output);
+	hash_req->pInput = hse_virt_to_dma(input_handle, 0);
+	hash_req->pHashLength = hse_virt_to_dma(output_len_handle, 0);
+	hash_req->pHash = hse_virt_to_dma(output_handle, 0);
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_input;
 	}
+	hse_memcpy_from_dev((void *)&output_len, output_len_handle, sizeof(output_len), 0);
 
 	/* copy result back to pDigest */
-	hse_memcpy(pDigest, output, *(uint32_t *)output_len);
+	hse_memcpy_from_dev(pDigest, output_handle, output_len, 0);
 
 	/* pkcs11-base-3.0: section 5.2: In either case, *pulBufLen is set to hold the exact number of bytes
 	* needed to hold the cryptographic output produced from the input to
 	* the function.*/
-	*pulDigestLen = *(uint32_t *)output_len;
+	*pulDigestLen = output_len;
 
 out_free_input:
-	hse_mem_free(input);
+	hse_mem_free(input_handle);
 out_free_output:
-	hse_mem_free(output);
+	hse_mem_free(output_handle);
 out_free_output_len:
-	hse_mem_free(output_len);
+	hse_mem_free(output_len_handle);
 out_uninit:
 	hse_stream_free(sCtx->digestCtx.streamID);
 	sCtx->digestCtx.init = CK_FALSE;

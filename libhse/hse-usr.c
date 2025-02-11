@@ -405,8 +405,8 @@ int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size)
 
 	/* copy service descriptor */
 	offset = channel * HSE_SRV_DESC_MAX_SIZE;
-	hse_memcpy(priv.desc + offset, srv_desc, size);
-	hse_memset(priv.desc + offset + size, 0, HSE_SRV_DESC_MAX_SIZE - size);
+	_raw_hse_memcpy(priv.desc + offset, srv_desc, size);
+	_raw_hse_memset(priv.desc + offset + size, 0, HSE_SRV_DESC_MAX_SIZE - size);
 
 	/* issue request */
 	err = hse_mu_msg_send(channel, priv.desc_dma + offset);
@@ -541,14 +541,21 @@ void hse_stream_free(uint8_t stream)
  * hse_virt_to_dma - get DMA address from virtual address
  * @addr: virtual address in the reserved memory range
  */
-uint64_t hse_virt_to_dma(const void *addr)
+uint64_t hse_virt_to_dma(int node_handle, uint32_t off)
 {
-	uint offset;
+	uint32_t offset;
+	uint64_t addr;
 
-	if (!priv.init || priv.intl->event || !addr)
+	if (!priv.init || priv.intl->event || node_handle < 0)
 		return 0ul;
 
-	offset = (uint)((uint8_t *)addr - (uint8_t *)priv.rmem);
+	addr = hse_get_node_mem_addr(node_handle, false);
+	if (addr == 0) {
+		printf("libhse: node handle invalid\n");
+		return 0ul;
+	}
+
+	offset = (uint32_t)(((uint8_t *)addr + off) - (uint8_t *)priv.rmem);
 	if (offset > priv.rmem_size) {
 		printf("libhse: address not located in HSE reserved memory\n");
 		return 0ul;

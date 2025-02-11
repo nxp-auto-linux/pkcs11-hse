@@ -14,7 +14,6 @@
 #include "libhse.h"
 #include "pkcs11_context.h"
 #include "hse-internal.h"
-#include "simclist.h"
 #include "pkcs11_util.h"
 
 #define PKCS_HSE_FILE "/etc/pkcs-hse-objs"
@@ -193,115 +192,6 @@ CK_INTERFACE pkcs_interfaces[NUM_INTERFACES] = {
 	{(unsigned char *)"PKCS 11", (void *)&gFunctionList, 0},
 };
 
-/*
- * PKCS11 standard: char buffers MUST be padded with the blank character (' ').
- * MUST NOT be null-terminated.
- */
-static void strcpy_pkcs11_padding(unsigned char *dest, const char *source, size_t dest_len)
-{
-	/* todo: not safe in case the source is not null-terminated */
-	size_t src_len = strlen(source);
-	strncpy((char *)dest, source, dest_len);
-
-	if (src_len < dest_len)
-		memset(dest + src_len, ' ', dest_len - src_len);
-}
-
-/* Copy the ' ' padded string and restore it to NUL-terminated */
-static void strcpy_pkcs11_nul_padding(unsigned char *dest, const char *source, size_t dest_len)
-{
-	int tail = 0;
-	int index = (int)dest_len - 1;
-
-	for (; index >= 0; index--) {
-		if (((source[index] == ' ') || (source[index] == '\0')) && (tail == 0)) {
-			dest[index] = '\0';
-			continue;
-		} else {
-			tail = 1;
-			dest[index] = source[index];
-		}
-	}
-}
-
-/* simclist helper to serialize an element */
-static void *object_list_serializer(const void *el, uint32_t *packed_len)
-{
-	struct hse_keyObject *object = (struct hse_keyObject *)el;
-	struct hse_keyObject *serialized;
-
-	serialized = malloc(sizeof(*serialized));
-
-	strcpy_pkcs11_padding((unsigned char *)serialized->key_label, object->key_label, MAX_LABEL_LEN);
-	serialized->key_uid = object->key_uid;
-	serialized->key_handle = object->key_handle;
-	serialized->key_type = object->key_type;
-	serialized->key_class = object->key_class;
-
-	/* serialized struct has fixed size */
-	*packed_len = sizeof(struct hse_keyObject);
-
-	return (void *)serialized;
-}
-
-/* simclist helper to unserialize an element */
-static void *object_list_unserializer(const void *data, uint32_t *data_len)
-{
-	struct hse_keyObject *object;
-	uint8_t *s_key_label, *s_key_uid, *s_key_handle, *s_key_type, *s_key_class;
-
-	s_key_label = (uint8_t *)data;
-	s_key_uid = s_key_label + MAX_LABEL_LEN;
-	s_key_handle = s_key_uid + sizeof(CK_ULONG);
-	s_key_type = s_key_handle + sizeof(CK_OBJECT_HANDLE);
-	s_key_class = s_key_type + sizeof(CK_KEY_TYPE);
-
-	object = (struct hse_keyObject *)hse_intl_mem_alloc(sizeof(struct hse_keyObject));
-
-	strcpy_pkcs11_nul_padding((unsigned char *)object->key_label, (char *)s_key_label, MAX_LABEL_LEN);
-	object->key_uid = *(CK_ULONG *)s_key_uid;
-	object->key_handle = *(CK_OBJECT_HANDLE *)s_key_handle;
-	object->key_type = *(CK_KEY_TYPE *)s_key_type;
-	object->key_class = *(CK_OBJECT_CLASS *)s_key_class;
-
-	/* unserialized struct has fixed size */
-	*data_len = sizeof(struct hse_keyObject);
-
-	return (void *)object;
-}
-
-/* simclist helper to locate objects by handle */
-static int object_list_seeker(const void *el, const void *key)
-{
-	const struct hse_keyObject *object = (struct hse_keyObject *)el;
-
-	if ((el == NULL) || (key == NULL))
-		return 0;
-
-	if (object->key_handle == *(CK_OBJECT_HANDLE *)key)
-		return 1;
-
-	return 0;
-}
-
-/* simclist helper to compare objects */
-static int object_list_comparator(const void *a, const void *b)
-{
-	const struct hse_keyObject *key_a = (struct hse_keyObject *)a;
-	const struct hse_keyObject *key_b = (struct hse_keyObject *)b;
-
-	if (key_a->key_handle != key_b->key_handle)
-		return 1;
-
-	if (key_a->key_type != key_b->key_type)
-		return 1;
-
-	if (key_a->key_class != key_b->key_class)
-		return 1;
-
-	return 0;
-}
-
 struct globalCtx *getCtx(void)
 {
 	return &globalContext;
@@ -358,7 +248,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	struct hse_keyObject *mem_key;
 	CK_TOKEN_INFO_PTR pToken = &gCtx->token;
 	CK_SLOT_INFO_PTR pSlot = &gCtx->slot;
 	CK_C_INITIALIZE_ARGS_PTR initArgs = pInitArgs;
@@ -450,27 +339,14 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 	pToken->firmwareVersion.major = 1;
 	pToken->firmwareVersion.minor = 0;
 
-	if (list_init(&gCtx->object_list) != 0)
-		return CKR_HOST_MEMORY;
-	list_attributes_seeker(&gCtx->object_list, object_list_seeker);
-	list_attributes_comparator(&gCtx->object_list, object_list_comparator);
-	list_attributes_serializer(&gCtx->object_list, object_list_serializer);
-	list_attributes_unserializer(&gCtx->object_list, object_list_unserializer);
-
 	if (hse_dev_open())
 		return CKR_HOST_MEMORY;
 
 	/* start iteration through mem contents */
 	hse_intl_iterstart();
 
-	if (hse_intl_hasnext()) {
-		while (hse_intl_hasnext()) {
-			mem_key = (struct hse_keyObject *)hse_intl_next();
-			list_append(&gCtx->object_list, mem_key);
-		}
-	} else  {
-		/* fail silently - we cannot restore list from file */
-		list_restore_file(&gCtx->object_list, PKCS_HSE_FILE, NULL);
+	if (!hse_intl_hasnext()) {
+		hse_pkcs_read_objs_dir();
 	}
 
 	hse_intl_iterstop();
@@ -490,13 +366,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Finalize)(
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
 
-	/* serialize the object_list and save to file */
-	list_dump_file(&gCtx->object_list, PKCS_HSE_FILE, NULL);
-
 	hse_dev_close();
-
-	list_delete_range(&gCtx->object_list, 0, list_size(&gCtx->object_list) - 1);
-	list_destroy(&gCtx->object_list);
 
 	gCtx->cryptokiInit = CK_FALSE;
 
@@ -829,7 +699,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	struct globalCtx *gCtx = getCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	struct hse_keyObject *pkey;
-	int i;
+	int i, pkey_handle;
 	CK_RV err = CKR_OK;
 
 	if (!gCtx->cryptokiInit)
@@ -842,10 +712,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 		return CKR_SESSION_HANDLE_INVALID;
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
-	pkey = (struct hse_keyObject *)list_seek(&gCtx->object_list, &hObject);
+	pkey_handle = get_key_object_handle(hObject);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (pkey == NULL)
+	if (pkey_handle < 0)
 		return CKR_OBJECT_HANDLE_INVALID;
+	pkey = (struct hse_keyObject *)hse_get_node_mem_addr(pkey_handle, true);
 
 	for (i = 0; i < ulCount; i++) {
 		switch (pTemplate[i].type) {
