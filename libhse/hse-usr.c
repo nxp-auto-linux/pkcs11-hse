@@ -2,7 +2,7 @@
 /*
  * NXP HSE User Space Driver - Core
  *
- * Copyright 2019-2024 NXP
+ * Copyright 2019-2025 NXP
  */
 
 #include <stdio.h>
@@ -15,6 +15,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <semaphore.h>
 #include <unistd.h>
 #include <poll.h>
 #include <pthread.h>
@@ -58,7 +59,10 @@
 
 #define HSE_UIO_FILE_SIZE    20u /* maximum size of sysfs file content */
 
-#define HSE_UIO_REQ_TIMEOUT    2000u /* request timeout, in milliseconds */
+#define HSE_UIO_REQ_TIMEOUT  2000u /* request timeout, in milliseconds */
+
+#define HSE_DEV_SETUP_SEM    "/libhse_dev_setup" /* POSIX semaphore name used during device setup */
+#define HSE_SEM_PERMS		 0660
 
 /**
  * enum hse_fw_status - HSE firmware status
@@ -559,9 +563,19 @@ uint64_t hse_virt_to_dma(const void *addr)
 static int hse_dev_setup(void)
 {
 	unsigned int offset = offsetof(struct hse_uio_intl, mem_ph);
+	sem_t *setup_sem = NULL;
 
+	setup_sem = sem_open(HSE_DEV_SETUP_SEM, O_CREAT, HSE_SEM_PERMS, 1);
+	if (setup_sem == SEM_FAILED) {
+		printf("libhse: couldn't open setup semaphore\n");
+		return errno;
+	}
+
+	sem_wait(setup_sem);
 	if (priv.intl->setup_done) {
 		hse_mem_init((uint8_t *)priv.intl + offset, priv.rmem);
+		sem_post(setup_sem);
+		sem_close(setup_sem);
 		return 0;
 	}
 
@@ -574,16 +588,26 @@ static int hse_dev_setup(void)
 	if (hse_mem_setup((uint8_t *)priv.intl + offset,
 			  priv.intl_size - offset, true)) {
 		printf("libhse: failed to set up intl mem pool\n");
+		sem_post(setup_sem);
+		sem_close(setup_sem);
 		return ENOMEM;
 	}
 
 	/* initialize reserved memory as buffer pool */
 	if (hse_mem_setup(priv.rmem, priv.rmem_size, false)) {
 		printf("libhse: failed to set up shared mem pool\n");
+		sem_post(setup_sem);
+		sem_close(setup_sem);
 		return ENOMEM;
 	}
 
 	priv.intl->setup_done = true;
+
+	/* destroy semaphore once all processes close it */
+	sem_unlink(HSE_DEV_SETUP_SEM);
+
+	sem_post(setup_sem);
+	sem_close(setup_sem);
 
 	return 0;
 }
