@@ -37,11 +37,13 @@
 #define BL2_SIGN_ARG_ID 0x100
 #define BL2_BIN_ARG_ID 0x101
 #define RPMB_DEFAULT_KEY_HANDLE 0x010200
+#define DDRFW_DEFAULT_KEY_HANDLE 0x01700
 #define BL2_DEFAULT_KEY_HANDLE 0x010700
 #define BL31_DEFAULT_KEY_HANDLE 0x010700
 #define BL32_DEFAULT_KEY_HANDLE 0x010700
 #define BL33_DEFAULT_KEY_HANDLE 0x010700
 
+#define HSE_MONOTONIC_CNT_NUM 4
 #define HSE_MONOTONIC_CNT_TABLE_PATH "/etc/keys/secboot/hse_cnt_table.bin"
 
 // Assuming 64KB QSPI block size
@@ -65,6 +67,7 @@ enum boot_type {
 enum key_type {
 	INVALID_KEY = -1,
 	RPMB_KEY = 0,
+	DDRFW_KEY,
 	BL2_KEY,
 	BL31_KEY,
 	BL32_KEY,
@@ -112,6 +115,7 @@ struct secboot_key {
 
 struct secboot_key secboot_keys[] = {
 	{ RPMB_KEY, false, RPMB_DEFAULT_KEY_HANDLE, "RPMB Symmetric key", NULL, NULL },
+	{ DDRFW_KEY, true, DDRFW_DEFAULT_KEY_HANDLE, "DDR FW Public key", NULL, NULL },
 	{ BL2_KEY, true, BL2_DEFAULT_KEY_HANDLE, "BL2 Public key", NULL, NULL },
 	{ BL31_KEY, true, BL31_DEFAULT_KEY_HANDLE, "BL31 Public key", NULL, NULL },
 	{ BL32_KEY, false, BL32_DEFAULT_KEY_HANDLE, "BL32 Public key", NULL, NULL },
@@ -123,6 +127,7 @@ const struct option secboot_options[] = {
 	{ "bl2_sign", required_argument, NULL, BL2_SIGN_ARG_ID },
 	{ "bl2_bin", required_argument, NULL, BL2_BIN_ARG_ID },
 	{ "rpmb_key", required_argument, NULL, RPMB_KEY },
+	{ "ddrfw_key", required_argument, NULL, DDRFW_KEY},
 	{ "bl2_key",  required_argument, NULL, BL2_KEY },
 	{ "bl31_key", required_argument, NULL, BL31_KEY },
 	{ "bl32_key", required_argument, NULL, BL32_KEY },
@@ -242,7 +247,7 @@ int hse_check_prev_import(int key_idx)
 {
 	for (int i = 0; i < key_idx; i++) {
 		if (secboot_keys[i].handle == secboot_keys[key_idx].handle) {
-			INFO("Key slot already occupied, %s already imported for a previous BL.\n",
+			INFO("Slot already occupied, %s already imported for a previous image.\n",
 				 secboot_keys[key_idx].name);
 			return 1;
 		}
@@ -557,7 +562,7 @@ int hse_set_and_publish_cnt_table(void)
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_CONFIG_COUNTER;
-	srv_desc.hseSrv.configSecCounter.counterIndex = 3;
+	srv_desc.hseSrv.configSecCounter.counterIndex = HSE_MONOTONIC_CNT_NUM;
 	srv_desc.hseSrv.configSecCounter.RPBitSize = 32;
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
@@ -1387,6 +1392,8 @@ void usage(char *progname)
 	printf("\t-d:\tspecify full path to SD/MMC/MTD device (e.g. /dev/sdb or /dev/mtd0)\n");
 	printf("\t--rpmb_key: specify full path to symmetric key file for Rollback Protection and HSE key slot,\n");
 	printf("\t            if this option is present, the HSE Monotonic Counter Table will be generated\n");
+	printf("\t--ddrfw_key: specify full path to PEM format key file");
+	printf("for DDR FW and HSE key slot\n");
 	printf("\t--bl2_sign: specify full path to the binary signature file of BL2 (required)\n");
 	printf("\t--bl2_bin: specify full path to the BL2 binary file (required)\n");
 	printf("\t--bl2_key: specify full path to PEM format key file for BL2 and HSE key slot (required)\n");
@@ -1417,6 +1424,7 @@ int main(int argc, char *argv[])
 			case BL2_BIN_ARG_ID:
 				bl2_bin_path = optarg;
 				break;
+			case DDRFW_KEY:
 			case RPMB_KEY:
 			case BL2_KEY:
 			case BL31_KEY:
