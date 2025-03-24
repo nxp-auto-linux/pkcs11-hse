@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2024 NXP
+ * Copyright 2024-2025 NXP
  */
 
 #ifndef __PKCS11_UTIL_H__
@@ -9,7 +9,7 @@
 void *getattr_pval(CK_ATTRIBUTE_PTR template, CK_ATTRIBUTE_TYPE attribute, CK_ULONG attrCount);
 CK_ULONG getattr_len(CK_ATTRIBUTE_PTR template, CK_ATTRIBUTE_TYPE attribute, CK_ULONG attrCount);
 
-uint16_t hse_get_key_bit_length(uint8_t channel, struct hse_keyObject *key);
+uint16_t hse_get_key_bit_length(uint8_t channel, CK_OBJECT_HANDLE key_handle);
 
 int32_t hse_get_hash_block_size(CK_MECHANISM_TYPE mechanism, uint32_t *block_size);
 
@@ -19,7 +19,7 @@ hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism);
 uint32_t rsa_ciphering_get_max_input_length(uint16_t rsa_key_length_bit, CK_MECHANISM_PTR mechanism);
 uint32_t rsa_ciphering_get_out_length(uint16_t rsa_key_length_bit);
 
-uint32_t sig_get_out_length(uint8_t channel, struct hse_keyObject *key, CK_MECHANISM_PTR mechanism);
+uint32_t sig_get_out_length(uint8_t channel, CK_OBJECT_HANDLE key_handle, CK_MECHANISM_PTR mechanism);
 uint16_t hse_get_tag_length(unsigned long tagBits);
 
 int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *pkey0, uint8_t *pkey1, CK_ULONG *pkey0_len, CK_ULONG *pkey1_len);

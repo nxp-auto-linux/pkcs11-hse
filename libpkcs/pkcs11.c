@@ -758,7 +758,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 				break;
 			case CKA_MODULUS:
 				if (pTemplate[i].pValue == NULL) 
-					pTemplate[i].ulValueLen = (CK_ULONG)hse_get_key_bit_length(sCtx->sID, pkey) >> 3;
+					pTemplate[i].ulValueLen = (CK_ULONG)hse_get_key_bit_length(sCtx->sID, pkey->key_handle) >> 3;
 				else
 					err = pkey_value_export(sCtx->sID, pkey, pTemplate[i].pValue, NULL, &pTemplate[i].ulValueLen, NULL);
 				break;

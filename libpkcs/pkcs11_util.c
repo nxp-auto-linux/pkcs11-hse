@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2024 NXP
+ * Copyright 2024-2025 NXP
  */
 
 #include <stdlib.h>
@@ -64,7 +64,7 @@ static int hse_get_key_info(uint8_t channel, hseKeyHandle_t key_handle, int info
 	return hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc));
 }
 
-uint16_t hse_get_key_bit_length(uint8_t channel, struct hse_keyObject *key)
+uint16_t hse_get_key_bit_length(uint8_t channel, CK_OBJECT_HANDLE key_handle)
 {
 	hseKeyInfo_t info;
 	uint16_t bit_length;
@@ -74,7 +74,7 @@ uint16_t hse_get_key_bit_length(uint8_t channel, struct hse_keyObject *key)
 	if (info_handle < 0) 
 		return 0;
 
-	err = hse_get_key_info(channel, key->key_handle, info_handle);
+	err = hse_get_key_info(channel, key_handle, info_handle);
 	if (err) {
 		hse_mem_free(info_handle);
 		return 0;
@@ -407,7 +407,7 @@ hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism)
 	return hash;
 }
 
-uint32_t sig_get_out_length(uint8_t channel, struct hse_keyObject *key, CK_MECHANISM_PTR mechanism)
+uint32_t sig_get_out_length(uint8_t channel, CK_OBJECT_HANDLE key_handle, CK_MECHANISM_PTR mechanism)
 {
 	CK_MECHANISM_TYPE mechanism_type = mechanism->mechanism;
 	uint32_t sig_len = 0;
@@ -423,7 +423,7 @@ uint32_t sig_get_out_length(uint8_t channel, struct hse_keyObject *key, CK_MECHA
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
-			sig_len = hse_get_key_bit_length(channel, key) >> 3;
+			sig_len = hse_get_key_bit_length(channel, key_handle) >> 3;
 			break;
 		case CKM_ECDSA:
 		case CKM_ECDSA_SHA1:
@@ -431,7 +431,7 @@ uint32_t sig_get_out_length(uint8_t channel, struct hse_keyObject *key, CK_MECHA
 		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
-			sig_len = (hse_get_key_bit_length(channel, key) >> 3) * 2;
+			sig_len = (hse_get_key_bit_length(channel, key_handle) >> 3) * 2;
 			break;
 		case CKM_AES_CMAC:
 			sig_len = 16;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2024 NXP
+ * Copyright 2021-2025 NXP
  */
 
 #include <stdio.h>
@@ -87,9 +87,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 	hseSymCipherSrv_t *sym_cipher_srv;
 	hseRsaCipherSrv_t *rsa_cipher_srv;
 	hseAeadSrv_t *aead_srv;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, output_handle = -1;
+	int err, input_handle = -1, output_handle = -1;
 	int output_len_handle = -1, pIV_handle = -1, pAAD_handle = -1;
 	uint16_t key_bit_length = 0;
 	uint32_t output_len = 0;
@@ -128,19 +127,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 			}
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->cryptCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
-
 	/* check for input length for RSA ciphering */
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
-		key_bit_length = hse_get_key_bit_length(sCtx->sID, key);
+		key_bit_length = hse_get_key_bit_length(sCtx->sID, sCtx->cryptCtx.keyHandle);
 		if (key_bit_length == 0) {
 			rc = CKR_GENERAL_ERROR;
 			goto out_uninit;
@@ -309,7 +299,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 
 			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
 				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
@@ -335,7 +325,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			sym_cipher_srv->inputLength = ulDataLen;
 			if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD)
@@ -356,7 +346,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			sym_cipher_srv->inputLength = ulDataLen;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -373,7 +363,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 			aead_srv->streamId = sCtx->cryptCtx.streamID;
 			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_GCM;
 			aead_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			aead_srv->keyHandle = key->key_handle;
+			aead_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			aead_srv->ivLength = gcm_params->ulIvLen;
 			aead_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			aead_srv->aadLength = gcm_params->ulAADLen;
@@ -394,7 +384,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 			aead_srv->streamId = sCtx->cryptCtx.streamID;
 			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_CCM;
 			aead_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			aead_srv->keyHandle = key->key_handle;
+			aead_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			aead_srv->ivLength = ccm_params->ulNonceLen;
 			aead_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			aead_srv->aadLength = ccm_params->ulAADLen;
@@ -412,7 +402,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
 			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			rsa_cipher_srv->keyHandle = key->key_handle;
+			rsa_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			rsa_cipher_srv->inputLength = ulDataLen;
 			rsa_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len_handle, 0);
@@ -426,7 +416,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
 			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			rsa_cipher_srv->keyHandle = key->key_handle;
+			rsa_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			rsa_cipher_srv->inputLength = ulDataLen;
 			rsa_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len_handle, 0);
@@ -549,9 +539,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 	hseSymCipherSrv_t *sym_cipher_srv;
 	hseRsaCipherSrv_t *rsa_cipher_srv;
 	hseAeadSrv_t *aead_srv;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, output_handle = -1;
+	int err, input_handle = -1, output_handle = -1;
 	int output_len_handle = -1, pIV_handle = -1, pAAD_handle = -1;
 	uint16_t key_bit_length = 0;
 	uint32_t output_len;
@@ -590,15 +579,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 		}
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->cryptCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
-
 	if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) {
 		gcm_params = (CK_GCM_PARAMS *)sCtx->cryptCtx.mechanism->pParameter;
 	} else if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CCM) {
@@ -609,7 +589,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP)) {
-		key_bit_length = hse_get_key_bit_length(sCtx->sID, key);
+		key_bit_length = hse_get_key_bit_length(sCtx->sID, sCtx->cryptCtx.keyHandle);
 		/* The input cipher text length should be equal to the key size */
 		if (ulEncryptedDataLen != (key_bit_length >> 3)) {
 			rc = CKR_ARGUMENTS_BAD;
@@ -746,7 +726,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 
 			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
 				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
@@ -772,7 +752,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			sym_cipher_srv->inputLength = ulEncryptedDataLen;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -791,7 +771,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			sym_cipher_srv->inputLength = ulEncryptedDataLen;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -807,7 +787,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			aead_srv->streamId = sCtx->cryptCtx.streamID;
 			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_GCM;
 			aead_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			aead_srv->keyHandle = key->key_handle;
+			aead_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			aead_srv->ivLength = gcm_params->ulIvLen;
 			aead_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			aead_srv->aadLength = gcm_params->ulAADLen;
@@ -829,7 +809,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			aead_srv->streamId = sCtx->cryptCtx.streamID;
 			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_CCM;
 			aead_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			aead_srv->keyHandle = key->key_handle;
+			aead_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			aead_srv->ivLength = ccm_params->ulNonceLen;
 			aead_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			aead_srv->aadLength = ccm_params->ulAADLen;
@@ -847,7 +827,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
 			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			rsa_cipher_srv->keyHandle = key->key_handle;
+			rsa_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			rsa_cipher_srv->inputLength = ulEncryptedDataLen;
 			rsa_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len_handle, 0);
@@ -861,7 +841,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 
 			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
 			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			rsa_cipher_srv->keyHandle = key->key_handle;
+			rsa_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			rsa_cipher_srv->inputLength = ulEncryptedDataLen;
 			rsa_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len_handle, 0);
@@ -996,9 +976,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSignSrv_t *sign_srv;
 	hseSignScheme_t *sign_scheme;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, sign0_handle = -1, output_len_handle = -1;
+	int err, input_handle = -1, sign0_handle = -1, output_len_handle = -1;
 	uint32_t output_len = 0;
 	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
 	hseMacSrv_t *mac_srv = NULL;
@@ -1035,15 +1014,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 		goto out_uninit;
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->signCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
-
 	input_handle = hse_mem_alloc(ulDataLen);
 	if (input_handle < 0) {
 		rc = CKR_HOST_MEMORY;
@@ -1052,7 +1022,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 	hse_memcpy_to_dev(input_handle, pData, ulDataLen, 0);
 
 	/* check the output length */
-	output_len = sig_get_out_length(sCtx->sID, key, sCtx->signCtx.mechanism);
+	output_len = sig_get_out_length(sCtx->sID, sCtx->signCtx.keyHandle, sCtx->signCtx.mechanism);
 	if (output_len > *pulSignatureLen) {
 		*pulSignatureLen = output_len;
 		rc = CKR_BUFFER_TOO_SMALL;
@@ -1170,7 +1140,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 		sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
 		sign_srv->streamId = sCtx->signCtx.streamID;
 		sign_srv->authDir = HSE_AUTH_DIR_GENERATE;
-		sign_srv->keyHandle = key->key_handle;
+		sign_srv->keyHandle = sCtx->signCtx.keyHandle;
 		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		sign_srv->inputLength = ulDataLen;
 		sign_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -1180,7 +1150,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 		mac_srv->streamId = sCtx->signCtx.streamID;
 		mac_srv->authDir = HSE_AUTH_DIR_GENERATE;
 		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
-		mac_srv->keyHandle = key->key_handle;
+		mac_srv->keyHandle = sCtx->signCtx.keyHandle;
 		mac_srv->inputLength = ulDataLen;
 		mac_srv->pInput = hse_virt_to_dma(input_handle, 0);
 		mac_srv->pTagLength = hse_virt_to_dma(output_len_handle, 0);
@@ -1324,9 +1294,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSignSrv_t *sign_srv;
 	hseSignScheme_t *sign_scheme;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, sign0_handle = -1, output_len_handle = -1;
+	int err, input_handle = -1, sign0_handle = -1, output_len_handle = -1;
 	uint32_t output_len = 0;
 	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
 	hseMacSrv_t *mac_srv = NULL;
@@ -1362,15 +1331,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 		rc = CKR_SIGNATURE_LEN_RANGE;
 		goto out_uninit;
 	}
-
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->signCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	input_handle = hse_mem_alloc(ulDataLen);
 	if (input_handle < 0) {
@@ -1495,7 +1455,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 		sign_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
 		sign_srv->streamId = sCtx->signCtx.streamID;
 		sign_srv->authDir = HSE_AUTH_DIR_VERIFY;
-		sign_srv->keyHandle = key->key_handle;
+		sign_srv->keyHandle = sCtx->signCtx.keyHandle;
 		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		sign_srv->inputLength = ulDataLen;
 		sign_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -1505,7 +1465,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 		mac_srv->streamId = sCtx->signCtx.streamID;
 		mac_srv->authDir = HSE_AUTH_DIR_VERIFY;
 		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
-		mac_srv->keyHandle = key->key_handle;
+		mac_srv->keyHandle = sCtx->signCtx.keyHandle;
 		mac_srv->inputLength = ulDataLen;
 		mac_srv->pInput = hse_virt_to_dma(input_handle, 0);
 		mac_srv->pTagLength = hse_virt_to_dma(output_len_handle, 0);
@@ -1549,9 +1509,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, output_handle = -1, pIV_handle = -1;
+	int err, input_handle = -1, output_handle = -1, pIV_handle = -1;
 	uint32_t bytes_left, full_blocks;
 	hseAccessMode_t access_mode;
 
@@ -1577,15 +1536,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		*pulEncryptedPartLen = full_blocks;
 		return CKR_OK;
 	}
-
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->cryptCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC) &&
@@ -1683,7 +1633,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 
 			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
 				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
@@ -1709,7 +1659,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			sym_cipher_srv->inputLength = full_blocks;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -1728,7 +1678,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			sym_cipher_srv->inputLength = full_blocks;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -1781,9 +1731,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
 	uint8_t input_len = 0, pad_value = 0, pad_len = 0;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, output_handle = -1;
+	int err, input_handle = -1, output_handle = -1;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -1804,15 +1753,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 		*pulLastEncryptedPartLen = sCtx->cryptCtx.cache_idx;
 		return CKR_OK;
 	}
-
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->cryptCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	/* Check the output length */
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
@@ -1892,7 +1832,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = 0;
 			sym_cipher_srv->inputLength = input_len;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -1912,7 +1852,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = 0;
 			sym_cipher_srv->inputLength = input_len;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -1931,7 +1871,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = 0;
 			sym_cipher_srv->inputLength = input_len;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -1986,9 +1926,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, output_handle = -1, pIV_handle = -1;
+	int err, input_handle = -1, output_handle = -1, pIV_handle = -1;
 	uint32_t bytes_left, full_blocks;
 	hseAccessMode_t access_mode;
 
@@ -2014,15 +1953,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		*pulPartLen = full_blocks;
 		return CKR_OK;
 	}
-
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->cryptCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC) &&
@@ -2120,7 +2050,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 
 			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
 				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
@@ -2145,7 +2075,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			sym_cipher_srv->inputLength = full_blocks;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -2164,7 +2094,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
 			sym_cipher_srv->inputLength = full_blocks;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -2216,9 +2146,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
 	uint8_t input_len = 0;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, output_handle = -1;
+	int err, input_handle = -1, output_handle = -1;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -2239,15 +2168,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 		*pulLastPartLen = sCtx->cryptCtx.cache_idx;
 		return CKR_OK; 
 	}
-
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->cryptCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	/* Check the output length */
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
@@ -2313,7 +2233,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = 0;
 			sym_cipher_srv->inputLength = input_len;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -2333,7 +2253,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = 0;
 			sym_cipher_srv->inputLength = input_len;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -2352,7 +2272,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = key->key_handle;
+			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = 0;
 			sym_cipher_srv->inputLength = input_len;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -2404,9 +2324,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 	hseSignScheme_t *sign_scheme;
 	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
 	hseMacSrv_t *mac_srv = NULL;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1;
+	int err, input_handle = -1;
 	uint32_t bytes_left, full_blocks;
 	hseAccessMode_t access_mode;
 
@@ -2426,15 +2345,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 		rc = CKR_ARGUMENTS_BAD;
 		goto out_uninit;
 	}
-
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->signCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	/* input process */
 	bytes_left = sCtx->signCtx.cache_idx + ulPartLen;
@@ -2535,7 +2445,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 		sign_srv->streamId = sCtx->signCtx.streamID;
 		sign_srv->authDir = HSE_AUTH_DIR_GENERATE;
 		sign_srv->bInputIsHashed = 0u;
-		sign_srv->keyHandle = key->key_handle;
+		sign_srv->keyHandle = sCtx->signCtx.keyHandle;
 		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		sign_srv->inputLength = full_blocks;
 		sign_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -2545,7 +2455,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 		mac_srv->streamId = sCtx->signCtx.streamID;
 		mac_srv->authDir = HSE_AUTH_DIR_GENERATE;
 		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
-		mac_srv->keyHandle = key->key_handle;
+		mac_srv->keyHandle = sCtx->signCtx.keyHandle;
 		mac_srv->inputLength = full_blocks;
 		mac_srv->pInput = hse_virt_to_dma(input_handle, 0);
 	}
@@ -2581,10 +2491,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 	hseSignSrv_t *sign_srv;
 	hseSignScheme_t *sign_scheme;
 	hseMacSrv_t *mac_srv = NULL;
-	struct hse_keyObject *key = NULL;
 	uint32_t bytes_left, sig_len;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, sign0_handle = -1, sig_len_handle = -1;
+	int err, input_handle = -1, sign0_handle = -1, sig_len_handle = -1;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -2600,15 +2509,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 		goto out_uninit;
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->signCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
-
 	/* the stream should be already started */
 	if (sCtx->signCtx.stream_start) {
 		rc = CKR_FUNCTION_FAILED;
@@ -2622,7 +2522,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 	}
 
 	/* Get required length of out buffer */
-	sig_len = sig_get_out_length(sCtx->sID, key, sCtx->signCtx.mechanism);
+	sig_len = sig_get_out_length(sCtx->sID, sCtx->signCtx.keyHandle, sCtx->signCtx.mechanism);
 
 	/* Signature length shouldn't be 0 at this point */
 	if (sig_len == 0) {
@@ -2717,7 +2617,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 		sign_srv->accessMode = HSE_ACCESS_MODE_FINISH;
 		sign_srv->streamId = sCtx->signCtx.streamID;
 		sign_srv->authDir = HSE_AUTH_DIR_GENERATE;
-		sign_srv->keyHandle = key->key_handle;
+		sign_srv->keyHandle = sCtx->signCtx.keyHandle;
 		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		sign_srv->inputLength = bytes_left;
 		sign_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -2727,7 +2627,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 		mac_srv->streamId = sCtx->signCtx.streamID;
 		mac_srv->authDir = HSE_AUTH_DIR_GENERATE;
 		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
-		mac_srv->keyHandle = key->key_handle;
+		mac_srv->keyHandle = sCtx->signCtx.keyHandle;
 		mac_srv->inputLength = bytes_left;
 		mac_srv->pInput = hse_virt_to_dma(input_handle, 0);
 		mac_srv->pTagLength = hse_virt_to_dma(sig_len_handle, 0);
@@ -2833,9 +2733,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 	hseSignScheme_t *sign_scheme;
 	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
 	hseMacSrv_t *mac_srv = NULL;
-	struct hse_keyObject *key;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1;
+	int err, input_handle = -1;
 	uint32_t bytes_left, full_blocks;
 	hseAccessMode_t access_mode;
 
@@ -2855,15 +2754,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 		rc = CKR_ARGUMENTS_BAD;
 		goto out_uninit;
 	}
-
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->signCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	/* input process */
 	bytes_left = sCtx->signCtx.cache_idx + ulPartLen;
@@ -2964,7 +2854,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 		sign_srv->streamId = sCtx->signCtx.streamID;
 		sign_srv->authDir = HSE_AUTH_DIR_VERIFY;
 		sign_srv->bInputIsHashed = 0u;
-		sign_srv->keyHandle = key->key_handle;
+		sign_srv->keyHandle = sCtx->signCtx.keyHandle;
 		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		sign_srv->inputLength = full_blocks;
 		sign_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -2973,7 +2863,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 		mac_srv->accessMode = access_mode;
 		mac_srv->streamId = sCtx->signCtx.streamID;
 		mac_srv->authDir = HSE_AUTH_DIR_VERIFY;
-		mac_srv->keyHandle = key->key_handle;
+		mac_srv->keyHandle = sCtx->signCtx.keyHandle;
 		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		mac_srv->inputLength = full_blocks;
 		mac_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -3010,10 +2900,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 	hseSignSrv_t *sign_srv;
 	hseSignScheme_t *sign_scheme;
 	hseMacSrv_t *mac_srv = NULL;
-	struct hse_keyObject *key = NULL;
 	uint32_t bytes_left, sig_len = 0;
 	CK_RV rc = CKR_OK;
-	int err, key_handle = -1, input_handle = -1, sign0_handle = -1, sig_len_handle = -1;
+	int err, input_handle = -1, sign0_handle = -1, sig_len_handle = -1;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -3029,15 +2918,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 		goto out_uninit;
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
-	key_handle = get_key_object_handle(sCtx->signCtx.keyHandle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
-	if (key_handle < 0) {
-		rc = CKR_KEY_HANDLE_INVALID;
-		goto out_uninit;
-	}
-	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
-
 	/* the stream should be already started */
 	if (sCtx->signCtx.stream_start) {
 		rc = CKR_FUNCTION_FAILED;
@@ -3051,7 +2931,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 	}
 
 	/* Get required length of out buffer */
-	sig_len = sig_get_out_length(sCtx->sID, key, sCtx->signCtx.mechanism);
+	sig_len = sig_get_out_length(sCtx->sID, sCtx->signCtx.keyHandle, sCtx->signCtx.mechanism);
 
 	/* Signature length shouldn't be 0 at this point */
 	if (sig_len == 0) {
@@ -3148,7 +3028,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 		sign_srv->accessMode = HSE_ACCESS_MODE_FINISH;
 		sign_srv->streamId = sCtx->signCtx.streamID;
 		sign_srv->authDir = HSE_AUTH_DIR_VERIFY;
-		sign_srv->keyHandle = key->key_handle;
+		sign_srv->keyHandle = sCtx->signCtx.keyHandle;
 		sign_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		sign_srv->inputLength = bytes_left;
 		sign_srv->pInput = hse_virt_to_dma(input_handle, 0);
@@ -3157,7 +3037,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 		mac_srv->accessMode = HSE_ACCESS_MODE_FINISH;
 		mac_srv->streamId = sCtx->signCtx.streamID;
 		mac_srv->authDir = HSE_AUTH_DIR_VERIFY;
-		mac_srv->keyHandle = key->key_handle;
+		mac_srv->keyHandle = sCtx->signCtx.keyHandle;
 		mac_srv->sgtOption = HSE_SGT_OPTION_NONE;
 		mac_srv->inputLength = bytes_left;
 		mac_srv->pInput = hse_virt_to_dma(input_handle, 0);
