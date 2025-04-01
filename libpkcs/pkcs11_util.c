@@ -367,6 +367,64 @@ hseHashAlgo_t hse_pkcs_hash_alg_translate(CK_MECHANISM_TYPE mechanism)
 	return hash;
 }
 
+hseCipherBlockMode_t hse_pkcs_cb_alg_translate(CK_MECHANISM_TYPE mechanism)
+{
+	hseCipherBlockMode_t cb_mode;
+
+	switch (mechanism) {
+		case CKM_AES_ECB:
+			cb_mode = HSE_CIPHER_BLOCK_MODE_ECB;
+			break;
+		case CKM_AES_CBC:
+		case CKM_AES_CBC_PAD:
+			cb_mode = HSE_CIPHER_BLOCK_MODE_CBC;
+			break;
+		case CKM_AES_CTR:
+			cb_mode = HSE_CIPHER_BLOCK_MODE_CTR;
+			break;
+		default:
+			cb_mode = HSE_CIPHER_BLOCK_MODE_NULL;
+			break;
+	}
+	return cb_mode;
+}
+
+hseAuthCipherMode_t hse_pkcs_ac_alg_translate(CK_MECHANISM_TYPE mechanism)
+{
+	hseAuthCipherMode_t ac_mode;
+
+	switch (mechanism) {
+		case CKM_AES_GCM:
+			ac_mode = HSE_AUTH_CIPHER_MODE_GCM;
+			break;
+		case CKM_AES_CCM:
+			ac_mode = HSE_AUTH_CIPHER_MODE_CCM;
+			break;
+		default:
+			ac_mode = 0;
+			break;
+	}
+	return ac_mode;
+}
+
+hseRsaAlgo_t hse_pkcs_rsa_alg_translate(CK_MECHANISM_TYPE mechanism)
+{
+	hseRsaAlgo_t rsa_alg;
+
+	switch (mechanism) {
+		case CKM_RSA_PKCS:
+			rsa_alg = HSE_RSA_ALGO_RSAES_PKCS1_V15;
+			break;
+		case CKM_RSA_PKCS_OAEP:
+			rsa_alg = HSE_RSA_ALGO_RSAES_OAEP;
+			break;
+		default:
+			rsa_alg = 0;
+			break;
+	}
+	return rsa_alg;
+}
+
 hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism)
 {
 	hseHashAlgo_t hash = HSE_HASH_ALGO_NULL;

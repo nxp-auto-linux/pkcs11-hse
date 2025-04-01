@@ -289,30 +289,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 
 	switch (sCtx->cryptCtx.mechanism->mechanism) {
 		case CKM_AES_ECB:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-
-			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
-				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			} else {
-				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
-			}
-
-			sym_cipher_srv->inputLength = ulDataLen;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
-
-			break;
-
+		case CKM_AES_CTR:
 		case CKM_AES_CBC:
 		case CKM_AES_CBC_PAD:
 
@@ -322,96 +299,55 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
 			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
+			sym_cipher_srv->cipherBlockMode = hse_pkcs_cb_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
+			if (sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB)
+				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
+
 			sym_cipher_srv->inputLength = ulDataLen;
 			if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC_PAD)
 				sym_cipher_srv->inputLength = output_len;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
-			break;
-
-		case CKM_AES_CTR:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			sym_cipher_srv->inputLength = ulDataLen;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
 			break;
 
 		case CKM_AES_GCM:
-
-			aead_srv = &srv_desc.hseSrv.aeadReq;
-
-			srv_desc.srvId = HSE_SRV_ID_AEAD;
-			aead_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			aead_srv->streamId = sCtx->cryptCtx.streamID;
-			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_GCM;
-			aead_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			aead_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			aead_srv->ivLength = gcm_params->ulIvLen;
-			aead_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			aead_srv->aadLength = gcm_params->ulAADLen;
-			aead_srv->pAAD = hse_virt_to_dma(pAAD_handle, 0);
-			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			aead_srv->inputLength = ulDataLen;
-			aead_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			aead_srv->tagLength = hse_get_tag_length(gcm_params->ulTagBits);
-			aead_srv->pTag = hse_virt_to_dma(output_handle, ulDataLen);
-			aead_srv->pOutput = hse_virt_to_dma(output_handle, 0);
-
-			break;
 		case CKM_AES_CCM:
+
 			aead_srv = &srv_desc.hseSrv.aeadReq;
 
 			srv_desc.srvId = HSE_SRV_ID_AEAD;
 			aead_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
 			aead_srv->streamId = sCtx->cryptCtx.streamID;
-			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_CCM;
+			aead_srv->authCipherMode = hse_pkcs_ac_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
 			aead_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			aead_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			aead_srv->ivLength = ccm_params->ulNonceLen;
+			if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) {
+				aead_srv->ivLength = gcm_params->ulIvLen;
+				aead_srv->aadLength = gcm_params->ulAADLen;
+				aead_srv->tagLength = hse_get_tag_length(gcm_params->ulTagBits);
+			} else {
+				aead_srv->ivLength = ccm_params->ulNonceLen;
+				aead_srv->aadLength = ccm_params->ulAADLen;
+				aead_srv->tagLength = ccm_params->ulMACLen;
+			}
 			aead_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			aead_srv->aadLength = ccm_params->ulAADLen;
 			aead_srv->pAAD = hse_virt_to_dma(pAAD_handle, 0);
 			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			aead_srv->inputLength = ulDataLen;
 			aead_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			aead_srv->tagLength = ccm_params->ulMACLen;
-			aead_srv->pTag = hse_virt_to_dma(output_handle, ulDataLen);
 			aead_srv->pOutput = hse_virt_to_dma(output_handle, 0);
+			aead_srv->pTag = hse_virt_to_dma(output_handle, ulDataLen);
 
 			break;
+
 		case CKM_RSA_PKCS:
-			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
-			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			rsa_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			rsa_cipher_srv->inputLength = ulDataLen;
-			rsa_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len_handle, 0);
-			rsa_cipher_srv->pOutput = hse_virt_to_dma(output_handle, 0);
-
-			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_PKCS1_V15;
-			break;
-
 		case CKM_RSA_PKCS_OAEP:
+
 			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
 
 			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
@@ -422,10 +358,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len_handle, 0);
 			rsa_cipher_srv->pOutput = hse_virt_to_dma(output_handle, 0);
 
-			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_OAEP;
-			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_pkcs_hash_alg_translate(oaep_params->hashAlg);
-			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.labelLength = 0;
-			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.pLabel = 0;
+			rsa_cipher_srv->rsaScheme.rsaAlgo = hse_pkcs_rsa_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
+			if (sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP) {
+				rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_pkcs_hash_alg_translate(oaep_params->hashAlg);
+				rsa_cipher_srv->rsaScheme.sch.rsaOAEP.labelLength = 0;
+				rsa_cipher_srv->rsaScheme.sch.rsaOAEP.pLabel = 0;
+			}
 			break;
 
 		default:
@@ -716,30 +654,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 
 	switch (sCtx->cryptCtx.mechanism->mechanism) {
 		case CKM_AES_ECB:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-
-			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
-				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			} else {
-				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
-			}
-
-			sym_cipher_srv->inputLength = ulEncryptedDataLen;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
-
-			break;
-
+		case CKM_AES_CTR:
 		case CKM_AES_CBC:
 		case CKM_AES_CBC_PAD:
 
@@ -749,57 +664,20 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
 			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
+			sym_cipher_srv->cipherBlockMode = hse_pkcs_cb_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
+			if (sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB)
+				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
+
 			sym_cipher_srv->inputLength = ulEncryptedDataLen;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
 			break;
 
-		case CKM_AES_CTR:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			sym_cipher_srv->inputLength = ulEncryptedDataLen;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
-
-			break;
 		case CKM_AES_GCM:
-
-			aead_srv = &srv_desc.hseSrv.aeadReq;
-
-			srv_desc.srvId = HSE_SRV_ID_AEAD;
-			aead_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
-			aead_srv->streamId = sCtx->cryptCtx.streamID;
-			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_GCM;
-			aead_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			aead_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			aead_srv->ivLength = gcm_params->ulIvLen;
-			aead_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			aead_srv->aadLength = gcm_params->ulAADLen;
-			aead_srv->pAAD = hse_virt_to_dma(pAAD_handle, 0);
-			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			aead_srv->inputLength = output_len;
-			aead_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			aead_srv->tagLength = hse_get_tag_length(gcm_params->ulTagBits);
-			aead_srv->pTag = hse_virt_to_dma(input_handle, output_len);
-			aead_srv->pOutput = hse_virt_to_dma(output_handle, 0);
-
-			break;
 		case CKM_AES_CCM:
 
 			aead_srv = &srv_desc.hseSrv.aeadReq;
@@ -807,36 +685,31 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			srv_desc.srvId = HSE_SRV_ID_AEAD;
 			aead_srv->accessMode = HSE_ACCESS_MODE_ONE_PASS;
 			aead_srv->streamId = sCtx->cryptCtx.streamID;
-			aead_srv->authCipherMode = HSE_AUTH_CIPHER_MODE_CCM;
+			aead_srv->authCipherMode = hse_pkcs_ac_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
 			aead_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			aead_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			aead_srv->ivLength = ccm_params->ulNonceLen;
+			if (sCtx->cryptCtx.mechanism->mechanism == CKM_AES_GCM) {
+				aead_srv->ivLength = gcm_params->ulIvLen;
+				aead_srv->aadLength = gcm_params->ulAADLen;
+				aead_srv->tagLength = hse_get_tag_length(gcm_params->ulTagBits);
+			} else {
+				aead_srv->ivLength = ccm_params->ulNonceLen;
+				aead_srv->aadLength = ccm_params->ulAADLen;
+				aead_srv->tagLength = ccm_params->ulMACLen;
+			}
 			aead_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			aead_srv->aadLength = ccm_params->ulAADLen;
 			aead_srv->pAAD = hse_virt_to_dma(pAAD_handle, 0);
 			aead_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			aead_srv->inputLength = output_len;
 			aead_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			aead_srv->tagLength = ccm_params->ulMACLen;
 			aead_srv->pTag = hse_virt_to_dma(input_handle, output_len);
 			aead_srv->pOutput = hse_virt_to_dma(output_handle, 0);
 
 			break;
+
 		case CKM_RSA_PKCS:
-			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
-			rsa_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			rsa_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			rsa_cipher_srv->inputLength = ulEncryptedDataLen;
-			rsa_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len_handle, 0);
-			rsa_cipher_srv->pOutput = hse_virt_to_dma(output_handle, 0);
-
-			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_PKCS1_V15;
-			break;
-
 		case CKM_RSA_PKCS_OAEP:
+
 			rsa_cipher_srv = &srv_desc.hseSrv.rsaCipherReq;
 
 			srv_desc.srvId = HSE_SRV_ID_RSA_CIPHER;
@@ -847,10 +720,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			rsa_cipher_srv->pOutputLength = hse_virt_to_dma(output_len_handle, 0);
 			rsa_cipher_srv->pOutput = hse_virt_to_dma(output_handle, 0);
 
-			rsa_cipher_srv->rsaScheme.rsaAlgo = HSE_RSA_ALGO_RSAES_OAEP;
-			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_pkcs_hash_alg_translate(oaep_params->hashAlg);
-			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.labelLength = 0;
-			rsa_cipher_srv->rsaScheme.sch.rsaOAEP.pLabel = 0;
+			rsa_cipher_srv->rsaScheme.rsaAlgo = hse_pkcs_rsa_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
+			if (sCtx->cryptCtx.mechanism->mechanism == CKM_RSA_PKCS_OAEP) {
+				rsa_cipher_srv->rsaScheme.sch.rsaOAEP.hashAlgo = hse_pkcs_hash_alg_translate(oaep_params->hashAlg);
+				rsa_cipher_srv->rsaScheme.sch.rsaOAEP.labelLength = 0;
+				rsa_cipher_srv->rsaScheme.sch.rsaOAEP.pLabel = 0;
+			}
 			break;
 
 		default:
@@ -1623,30 +1498,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 
 	switch (sCtx->cryptCtx.mechanism->mechanism) {
 		case CKM_AES_ECB:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-
-			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
-				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			} else {
-				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
-			}
-
-			sym_cipher_srv->inputLength = full_blocks;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
-
-			break;
-
+		case CKM_AES_CTR:
 		case CKM_AES_CBC:
 		case CKM_AES_CBC_PAD:
 
@@ -1656,36 +1508,18 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			sym_cipher_srv->accessMode = access_mode;
 			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
+			sym_cipher_srv->cipherBlockMode = hse_pkcs_cb_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
+			if (sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB)
+				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
+
 			sym_cipher_srv->inputLength = full_blocks;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
 			break;
-
-		case CKM_AES_CTR:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			sym_cipher_srv->inputLength = full_blocks;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
-
-			break;
-
 		default:
 			rc = CKR_ARGUMENTS_BAD;
 			goto out_free_piv;
@@ -1822,24 +1656,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 
 	switch (sCtx->cryptCtx.mechanism->mechanism) {
 		case CKM_AES_ECB:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = 0;
-			sym_cipher_srv->inputLength = input_len;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
-
-			break;
-
+		case CKM_AES_CTR:
 		case CKM_AES_CBC:
 		case CKM_AES_CBC_PAD:
 
@@ -1849,30 +1666,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
 			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
+			sym_cipher_srv->cipherBlockMode = hse_pkcs_cb_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = 0;
-			sym_cipher_srv->inputLength = input_len;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
-			break;
-
-		case CKM_AES_CTR:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = 0;
 			sym_cipher_srv->inputLength = input_len;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
@@ -2040,50 +1839,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 
 	switch (sCtx->cryptCtx.mechanism->mechanism) {
 		case CKM_AES_ECB:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-
-			if (sCtx->cryptCtx.mechanism->pParameter != NULL) {
-				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			} else {
-				sym_cipher_srv->pIV = 0u; /* IV is not required for ecb */
-			}
-
-			sym_cipher_srv->inputLength = full_blocks;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
-
-			break;
-
+		case CKM_AES_CTR:
 		case CKM_AES_CBC:
 		case CKM_AES_CBC_PAD:
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = access_mode;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
-			sym_cipher_srv->inputLength = full_blocks;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
-
-			break;
-
-		case CKM_AES_CTR:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
 
@@ -2091,11 +1849,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 			sym_cipher_srv->accessMode = access_mode;
 			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
+			sym_cipher_srv->cipherBlockMode = hse_pkcs_cb_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
+			if (sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB)
+				sym_cipher_srv->pIV = hse_virt_to_dma(pIV_handle, 0);
+
 			sym_cipher_srv->inputLength = full_blocks;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
@@ -2223,24 +1983,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 
 	switch (sCtx->cryptCtx.mechanism->mechanism) {
 		case CKM_AES_ECB:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_ECB;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = 0;
-			sym_cipher_srv->inputLength = input_len;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
-
-			break;
-
+		case CKM_AES_CTR:
 		case CKM_AES_CBC:
 		case CKM_AES_CBC_PAD:
 
@@ -2250,30 +1993,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
 			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
 			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CBC;
+			sym_cipher_srv->cipherBlockMode = hse_pkcs_cb_alg_translate(sCtx->cryptCtx.mechanism->mechanism);
 			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
 			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
 			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
 			sym_cipher_srv->pIV = 0;
-			sym_cipher_srv->inputLength = input_len;
-			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
-			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
-			break;
-
-		case CKM_AES_CTR:
-
-			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
-
-			srv_desc.srvId = HSE_SRV_ID_SYM_CIPHER;
-			sym_cipher_srv->accessMode = HSE_ACCESS_MODE_FINISH;
-			sym_cipher_srv->streamId = sCtx->cryptCtx.streamID;
-			sym_cipher_srv->cipherAlgo = HSE_CIPHER_ALGO_AES;
-			sym_cipher_srv->cipherBlockMode = HSE_CIPHER_BLOCK_MODE_CTR;
-			sym_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
-			sym_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
-			sym_cipher_srv->keyHandle = sCtx->cryptCtx.keyHandle;
-			sym_cipher_srv->pIV = 0;
 			sym_cipher_srv->inputLength = input_len;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);

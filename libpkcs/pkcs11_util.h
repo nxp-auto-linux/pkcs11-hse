@@ -14,6 +14,9 @@ uint16_t hse_get_key_bit_length(uint8_t channel, CK_OBJECT_HANDLE key_handle);
 int32_t hse_get_hash_block_size(CK_MECHANISM_TYPE mechanism, uint32_t *block_size);
 
 hseHashAlgo_t hse_pkcs_hash_alg_translate(CK_MECHANISM_TYPE mechanism);
+hseCipherBlockMode_t hse_pkcs_cb_alg_translate(CK_MECHANISM_TYPE mechanism);
+hseAuthCipherMode_t hse_pkcs_ac_alg_translate(CK_MECHANISM_TYPE mechanism);
+hseRsaAlgo_t hse_pkcs_rsa_alg_translate(CK_MECHANISM_TYPE mechanism);
 hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism);
 
 uint32_t rsa_ciphering_get_max_input_length(uint16_t rsa_key_length_bit, CK_MECHANISM_PTR mechanism);
