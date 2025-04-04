@@ -569,7 +569,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetInterface) (
 		if (strcmp((char *)pInterfaceName, (char *)pkcs_interfaces[i].pInterfaceName) != 0)
 			continue;
 
-		if (!pVersion && (pVersion->major != interface_version->major ||
+		if (pVersion && (pVersion->major != interface_version->major ||
 		    pVersion->minor != interface_version->minor))
 			continue;
 
