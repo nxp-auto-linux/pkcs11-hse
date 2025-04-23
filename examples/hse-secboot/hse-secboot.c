@@ -292,8 +292,6 @@ int hse_mus_enable()
 
 	for (i = 0; i < HSE_NUM_OF_MU_INSTANCES; i++) {
 		mu_config.muInstances[i].muConfig = HSE_MU_ACTIVATED;
-		mu_config.muInstances[i].xrdcDomainId = 0u;
-		mu_config.muInstances[i].sharedMemChunkSize = 0u;
 	}
 
 	mu_config_handle = hse_mem_alloc(sizeof(mu_config));
@@ -370,8 +368,6 @@ int hse_update_fw(void *new_fw, uint32_t size)
 	}
 
 	srv_desc.srvId = HSE_SRV_ID_FIRMWARE_UPDATE;
-	srv_desc.hseSrv.firmwareUpdateReq.inFwFileLength = 0;
-	srv_desc.hseSrv.firmwareUpdateReq.pInFwFile = 0;
 	srv_desc.hseSrv.firmwareUpdateReq.pFwBufferLength = hse_virt_to_dma(hse_fw_size_handle, 0);
 	srv_desc.hseSrv.firmwareUpdateReq.pOutFwBuffer = hse_virt_to_dma(hse_new_fw_handle, 0);
 
@@ -646,8 +642,6 @@ int hse_ecc_key_import(int xy_handle, int xy_size, char *curve_name, uint32_t ha
 	key_info.keyFlags = HSE_KF_USAGE_VERIFY;
 	key_info.specific.eccCurveId = hse_get_ecc_curve_id(curve_name);
 	key_info.keyBitLen = hse_get_ecc_curve_bitlen(key_info.specific.eccCurveId);
-	key_info.keyCounter = 0ul;
-	key_info.smrFlags = 0ul;
 	key_info.keyType = HSE_KEY_TYPE_ECC_PUB;
 
 	key_info_handle = hse_mem_alloc(sizeof(key_info));
@@ -661,11 +655,7 @@ int hse_ecc_key_import(int xy_handle, int xy_size, char *curve_name, uint32_t ha
 	srv_desc.hseSrv.importKeyReq.targetKeyHandle = handle;
 	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
 	srv_desc.hseSrv.importKeyReq.pKey[0] = hse_virt_to_dma(xy_handle, 0);
-	srv_desc.hseSrv.importKeyReq.pKey[1] = 0u;
-	srv_desc.hseSrv.importKeyReq.pKey[2] = 0u;
 	srv_desc.hseSrv.importKeyReq.keyLen[0] = xy_size;
-	srv_desc.hseSrv.importKeyReq.keyLen[1] = 0u;
-	srv_desc.hseSrv.importKeyReq.keyLen[2] = 0u;
 	srv_desc.hseSrv.importKeyReq.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	srv_desc.hseSrv.importKeyReq.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 
@@ -687,8 +677,6 @@ int hse_rsa_key_import(int rsa_modulus_handle, int rsa_modulus_size,
 
 	key_info.keyFlags = HSE_KF_USAGE_VERIFY;
 	key_info.keyBitLen = HSE_BYTES_TO_BITS(rsa_modulus_size);
-	key_info.keyCounter = 0ul;
-	key_info.smrFlags = 0ul;
 	key_info.keyType = HSE_KEY_TYPE_RSA_PUB;
 	key_info.specific.pubExponentSize = rsa_pub_exponent_size;
 
@@ -704,10 +692,8 @@ int hse_rsa_key_import(int rsa_modulus_handle, int rsa_modulus_size,
 	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
 	srv_desc.hseSrv.importKeyReq.pKey[0] = hse_virt_to_dma(rsa_modulus_handle, 0);
 	srv_desc.hseSrv.importKeyReq.pKey[1] = hse_virt_to_dma(rsa_pub_exponent_handle, 0);
-	srv_desc.hseSrv.importKeyReq.pKey[2] = 0u;
 	srv_desc.hseSrv.importKeyReq.keyLen[0] = rsa_modulus_size;
 	srv_desc.hseSrv.importKeyReq.keyLen[1] = rsa_pub_exponent_size;
-	srv_desc.hseSrv.importKeyReq.keyLen[2] = 0u;
 	srv_desc.hseSrv.importKeyReq.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	srv_desc.hseSrv.importKeyReq.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 
@@ -724,7 +710,6 @@ int hse_extract_and_import_sym_key(const char *keypath, uint32_t handle)
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	DECLARE_SET_ZERO(hseKeyInfo_t, key_info);
 	int hse_key_handle, hse_key_info_handle;
-	hseKeyInfo_t key_info = {0};
 	uint8_t key[32] = {0};
 	int ret = 0, err = 0;
 	uint32_t key_len;
@@ -766,19 +751,13 @@ int hse_extract_and_import_sym_key(const char *keypath, uint32_t handle)
 
 	key_info.keyFlags = HSE_KF_USAGE_SIGN;
 	key_info.keyBitLen = HSE_BYTES_TO_BITS(key_len);
-	key_info.keyCounter = 0ul;
-	key_info.smrFlags = 0ul;
 	key_info.keyType = HSE_KEY_TYPE_HMAC;
 	hse_memcpy_to_dev(hse_key_info_handle, &key_info, sizeof(key_info), 0);
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
 	srv_desc.hseSrv.importKeyReq.targetKeyHandle = handle;
 	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma(hse_key_info_handle, 0);
-	srv_desc.hseSrv.importKeyReq.pKey[0] = 0u;
-	srv_desc.hseSrv.importKeyReq.pKey[1] = 0u;
 	srv_desc.hseSrv.importKeyReq.pKey[2] = hse_virt_to_dma(hse_key_handle, 0);
-	srv_desc.hseSrv.importKeyReq.keyLen[0] = 0u;
-	srv_desc.hseSrv.importKeyReq.keyLen[1] = 0u;
 	srv_desc.hseSrv.importKeyReq.keyLen[2] = key_len;
 	srv_desc.hseSrv.importKeyReq.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	srv_desc.hseSrv.importKeyReq.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
@@ -1217,7 +1196,6 @@ int hse_ecc_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	else if (boot_medium == MMC)
 		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_MMC_FLASH);
 
-	smr_entry.checkPeriod = 0;
 	smr_entry.authKeyHandle = auth_handle;
 	smr_entry.authScheme.sigScheme.signSch = HSE_SIGN_ECDSA;
 	smr_entry.authScheme.sigScheme.sch.ecdsa.hashAlgo = HSE_HASH_ALGO_SHA_1;
@@ -1309,9 +1287,7 @@ int hse_rsa_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	srv_desc.hseSrv.smrEntryInstallReq.pSmrData = hse_virt_to_dma(bl2_bin_handle, 0);
 	srv_desc.hseSrv.smrEntryInstallReq.smrDataLength = bl2_bin_size;
 	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[0] = hse_virt_to_dma(bl2_sign_handle, 0);
-	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[1] = 0u;
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[0] = bl2_sign_size;
-	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[1] = 0u;
 
 	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
 	if (ret)
@@ -1336,9 +1312,6 @@ int hse_cr_install(struct app_boot_hdr *app_boot)
 	cr_entry.crSanction = HSE_CR_SANCTION_KEEP_CORE_IN_RESET;
 	cr_entry.preBootSmrMap = HSE_SMR_ENTRY_1;
 	cr_entry.pPassReset = app_boot->ram_entry;
-	cr_entry.altPreBootSmrMap = 0u;
-	cr_entry.pAltReset = 0u;
-	cr_entry.postBootSmrMap = 0u;
 	cr_entry.startOption = HSE_CR_AUTO_START;
 
 	cr_entry_handle = hse_mem_alloc(sizeof(cr_entry));
