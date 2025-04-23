@@ -861,9 +861,9 @@ out_close_fd:
 	return ret;
 }
 
-int hse_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
-		    const char *bl2_sign_file, const char *bl2_bin_file,
-		    uint32_t auth_handle, enum boot_type boot_medium)
+int hse_rsa_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
+			 const char *bl2_sign_file, const char *bl2_bin_file,
+			 uint32_t auth_handle, enum boot_type boot_medium)
 {
 	uint32_t bl2_bin_size;
 	uint16_t bl2_sign_size;
@@ -1233,9 +1233,9 @@ int hse_secboot_enable(const char *device, const char *bl2_sign_file,
 
 	INFO("Generating Secure Memory Region entry\n");
 
-	ret = hse_smr_install(fd, &ivt, &app_boot, bl2_sign_file,
-			      bl2_bin_file, secboot_keys[BL2_KEY].handle,
-			      boot_medium);
+	ret = hse_rsa_smr_install(fd, &ivt, &app_boot, bl2_sign_file,
+				  bl2_bin_file, secboot_keys[BL2_KEY].handle,
+				  boot_medium);
 	if (ret)
 		goto err_close_fd;
 
