@@ -15,6 +15,7 @@
 #include <openssl/bn.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
+#include <openssl/ec.h>
 #include <getopt.h>
 
 #include <sys/ioctl.h>
@@ -243,6 +244,33 @@ int hse_parse_keys(void)
 	return 0;
 }
 
+hseEccCurveId_t hse_get_ecc_curve_id(char *curve_name)
+{
+	if (!strncmp(curve_name, SN_X9_62_prime256v1, strlen(SN_X9_62_prime256v1))) {
+		return HSE_EC_SEC_SECP256R1;
+	} else if (!strncmp(curve_name, SN_secp384r1, strlen(SN_secp384r1))) {
+		return HSE_EC_SEC_SECP384R1;
+	}
+
+	ERROR("Curve name invalid: %s\n", curve_name);
+	return HSE_EC_CURVE_NONE;
+}
+
+uint16_t hse_get_ecc_curve_bitlen(hseEccCurveId_t hse_curve_id)
+{
+	switch (hse_curve_id)
+	{
+		case HSE_EC_SEC_SECP256R1:
+			return 256u;
+		case HSE_EC_SEC_SECP384R1:
+			return 384u;
+		case HSE_EC_BRAINPOOL_BRAINPOOLP256R1:
+			return 256u;
+		default:
+			return 0;
+	}
+}
+
 int hse_check_prev_import(int key_idx)
 {
 	for (int i = 0; i < key_idx; i++) {
@@ -258,11 +286,9 @@ int hse_check_prev_import(int key_idx)
 int hse_mus_enable()
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseAttrMUConfig_t mu_config;
+	DECLARE_SET_ZERO(hseAttrMUConfig_t, mu_config);
 	int32_t mu_config_handle;
 	int i, ret = 0;
-
-	memset(&mu_config, 0, sizeof(mu_config));
 
 	for (i = 0; i < HSE_NUM_OF_MU_INSTANCES; i++) {
 		mu_config.muInstances[i].muConfig = HSE_MU_ACTIVATED;
@@ -610,15 +636,54 @@ err_free_cnt_table:
 	return ret;
 }
 
+int hse_ecc_key_import(int xy_handle, int xy_size, char *curve_name, uint32_t handle)
+{
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	DECLARE_SET_ZERO(hseKeyInfo_t, key_info);
+	int key_info_handle;
+	int ret = 0;
+
+	key_info.keyFlags = HSE_KF_USAGE_VERIFY;
+	key_info.specific.eccCurveId = hse_get_ecc_curve_id(curve_name);
+	key_info.keyBitLen = hse_get_ecc_curve_bitlen(key_info.specific.eccCurveId);
+	key_info.keyCounter = 0ul;
+	key_info.smrFlags = 0ul;
+	key_info.keyType = HSE_KEY_TYPE_ECC_PUB;
+
+	key_info_handle = hse_mem_alloc(sizeof(key_info));
+	if (key_info_handle < 0) {
+		ERROR("Failed to allocate space for key info in reserved memory\n");
+		return -ENOMEM;
+	}
+	hse_memcpy_to_dev(key_info_handle, &key_info, sizeof(key_info), 0);
+
+	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
+	srv_desc.hseSrv.importKeyReq.targetKeyHandle = handle;
+	srv_desc.hseSrv.importKeyReq.pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
+	srv_desc.hseSrv.importKeyReq.pKey[0] = hse_virt_to_dma(xy_handle, 0);
+	srv_desc.hseSrv.importKeyReq.pKey[1] = 0u;
+	srv_desc.hseSrv.importKeyReq.pKey[2] = 0u;
+	srv_desc.hseSrv.importKeyReq.keyLen[0] = xy_size;
+	srv_desc.hseSrv.importKeyReq.keyLen[1] = 0u;
+	srv_desc.hseSrv.importKeyReq.keyLen[2] = 0u;
+	srv_desc.hseSrv.importKeyReq.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
+	srv_desc.hseSrv.importKeyReq.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
+
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	if (ret)
+		ERROR("Failed to import RSA Public Key\n");
+	hse_mem_free(key_info_handle);
+
+	return ret;
+}
+
 int hse_rsa_key_import(int rsa_modulus_handle, int rsa_modulus_size,
 	                int rsa_pub_exponent_handle, int rsa_pub_exponent_size, uint32_t handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseKeyInfo_t key_info;
+	DECLARE_SET_ZERO(hseKeyInfo_t, key_info);
 	int key_info_handle;
 	int ret = 0;
-
-	memset(&key_info, 0, sizeof(key_info));
 
 	key_info.keyFlags = HSE_KF_USAGE_VERIFY;
 	key_info.keyBitLen = HSE_BYTES_TO_BITS(rsa_modulus_size);
@@ -657,6 +722,7 @@ int hse_rsa_key_import(int rsa_modulus_handle, int rsa_modulus_size,
 int hse_extract_and_import_sym_key(const char *keypath, uint32_t handle)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	DECLARE_SET_ZERO(hseKeyInfo_t, key_info);
 	int hse_key_handle, hse_key_info_handle;
 	hseKeyInfo_t key_info = {0};
 	uint8_t key[32] = {0};
@@ -729,6 +795,109 @@ err_close_keyfile:
 	return ret;
 }
 
+int hse_extract_and_import_ecc_key(const char *keypath, uint32_t handle)
+{
+	FILE *f;
+	uint8_t *x, *y;
+	EVP_PKEY *pkey;
+	int bytes, ret = 0;
+	char curve_name[64];
+	int xy_handle, xy_size;
+	uint64_t curve_name_len;
+	BIGNUM *x_bn = NULL, *y_bn = NULL;
+
+	f = fopen(keypath, "rb");
+	if (!f) {
+		ERROR("Could not find ECC Key file %s\n", keypath);
+		return -ENOENT;
+	}
+
+	pkey = PEM_read_PUBKEY(f, NULL, NULL, NULL);
+	if (!pkey) {
+		ERROR("Failed to read ECC Public Key from file %s\n", keypath);
+		ret = -ENOKEY;
+		goto err_close_keyfile;
+	}
+
+	ret = EVP_PKEY_get_bn_param(pkey, "qx", &x_bn);
+	if (!x_bn) {
+		ERROR("Failed to read ECC x from file %s\n", keypath);
+		ret = -ENOKEY;
+		goto err_free_pkey;
+	}
+
+	ret = EVP_PKEY_get_bn_param(pkey, "qy", &y_bn);
+	if (!y_bn) {
+		ERROR("Failed to read ECC y from file %s\n", keypath);
+		ret = -ENOKEY;
+		goto err_free_x_bn;
+	}
+	xy_size = BN_num_bytes(x_bn) + BN_num_bytes(y_bn);
+
+	ret = EVP_PKEY_get_utf8_string_param(pkey, "group", curve_name,
+		                                 sizeof(curve_name), &curve_name_len);
+	if (!ret) {
+		ERROR("Failed to read ECC curve name from file %s\n", keypath);
+		ret = -ENOKEY;
+		goto err_free_y_bn;
+	}
+
+	xy_handle = hse_mem_alloc(xy_size);
+	if (xy_handle < 0) {
+		ERROR("Failed to allocate space for ECC public key in reserved memory\n");
+		ret = -ENOMEM;
+		goto err_close_keyfile;
+	}
+
+	x = malloc(BN_num_bytes(x_bn));
+	if (!x) {
+		ERROR("Failed to allocate space for ECC Public Key x component\n");
+		ret = -ENOMEM;
+		goto err_hse_free_xy;
+	}
+
+	bytes = BN_bn2bin(x_bn, x);
+	if (bytes != BN_num_bytes(x_bn)) {
+		ERROR("Failed to copy ECC Public Key x component\n");
+		ret = -ENOKEY;
+		goto err_free_x;
+	}
+	hse_memcpy_to_dev(xy_handle, x, bytes, 0);
+
+	y = malloc(BN_num_bytes(y_bn));
+	if (!y) {
+		ERROR("Failed to allocate space for ECC Public Key y component\n");
+		ret = -ENOMEM;
+		goto err_free_x;
+	}
+
+	bytes = BN_bn2bin(y_bn, y);
+	if (bytes != BN_num_bytes(y_bn)) {
+		ERROR("Failed to copy ECC Public Key y component\n");
+		ret = -ENOKEY;
+		goto err_free_y;
+	}
+	hse_memcpy_to_dev(xy_handle, y, bytes, BN_num_bytes(x_bn));
+
+	ret = hse_ecc_key_import(xy_handle, xy_size, curve_name, handle);
+
+err_free_y:
+	free(y);
+err_free_x:
+	free(x);
+err_hse_free_xy:
+	hse_mem_free(xy_handle);
+err_free_y_bn:
+	BN_free(y_bn);
+err_free_x_bn:
+	BN_free(x_bn);
+err_free_pkey:
+	EVP_PKEY_free(pkey);
+err_close_keyfile:
+	fclose(f);
+	return ret;
+}
+
 int hse_extract_and_import_rsa_key(const char *keypath, uint32_t handle)
 {
 	FILE *f;
@@ -755,21 +924,21 @@ int hse_extract_and_import_rsa_key(const char *keypath, uint32_t handle)
 	if (!rsa_bn_modulus) {
 		ERROR("Failed to read RSA Public Key Modulus from file %s\n", keypath);
 		ret = -ENOKEY;
-		goto err_close_keyfile;
+		goto err_free_pkey;
 	}
 
 	ret = EVP_PKEY_get_bn_param(pkey, "e", &rsa_bn_pub_exponent);
 	if (!rsa_bn_pub_exponent) {
 		ERROR("Failed to read RSA Public Key Exponent from file %s\n", keypath);
 		ret = -ENOKEY;
-		goto err_close_keyfile;
+		goto err_free_rsa_bn_modulus;
 	}
 
 	rsa_modulus_handle = hse_mem_alloc(BN_num_bytes(rsa_bn_modulus));
 	if (rsa_modulus_handle < 0) {
 		ERROR("Failed to allocate space for RSA Public Key Modulus in reserved memory\n");
 		ret = -ENOMEM;
-		goto err_close_keyfile;
+		goto err_free_rsa_bn_pub_exponent;
 	}
 
 	rsa_modulus = malloc(BN_num_bytes(rsa_bn_modulus));
@@ -820,6 +989,12 @@ err_free_rsa_modulus:
 	free(rsa_modulus);
 err_hse_free_rsa_modulus:
 	hse_mem_free(rsa_modulus_handle);
+err_free_rsa_bn_pub_exponent:
+	BN_free(rsa_bn_pub_exponent);
+err_free_rsa_bn_modulus:
+	BN_free(rsa_bn_modulus);
+err_free_pkey:
+	EVP_PKEY_free(pkey);
 err_close_keyfile:
 	fclose(f);
 	return ret;
@@ -861,6 +1036,226 @@ out_close_fd:
 	return ret;
 }
 
+int hse_get_bl2_bin(const char *bl2_bin_file, int *bl2_bin_handle, uint32_t *bl2_bin_size)
+{
+	int ret = 0;
+
+	*bl2_bin_size = get_file_size(bl2_bin_file);
+	if (!*bl2_bin_size) {
+		ERROR("Invalid BL2 size\n");
+		return -ENODATA;
+	}
+
+	*bl2_bin_handle = hse_mem_alloc(*bl2_bin_size);
+	if (*bl2_bin_handle < 0) {
+		ERROR("Failed to allocate space for BL2 in reserved memory\n");
+		return -ENOMEM;
+	}
+
+	ret = hse_extract_bin(bl2_bin_file, *bl2_bin_handle, *bl2_bin_size);
+	if (ret) {
+		ERROR("Failed to read BL2 binary from file\n");
+		hse_mem_free(*bl2_bin_handle);
+	}
+	return ret;
+}
+
+int hse_get_ecdsa_sig(const char *bl2_sign_file, int *bl2_sign_handle, uint16_t *bl2_sign_size)
+{
+	ECDSA_SIG *sig;
+	uint8_t *r, *s;
+	FILE *fd = NULL;
+	int ret = 0, err = 0, bytes;
+	uint16_t der_sign_size;
+	unsigned char *der_sign, *der_sign_copy;
+	BIGNUM *r_bn = NULL, *s_bn = NULL;
+
+	der_sign_size = get_file_size(bl2_sign_file);
+	if (der_sign_size <= 0) {
+		ERROR("Failed to retrieve BL2 signature size\n");
+		return -ENODATA;
+	}
+
+	der_sign = malloc(der_sign_size);
+	if (!der_sign) {
+		ERROR("Failed to allocate space for DER encoded ECDSA signature\n");
+		return -ENOMEM;
+	}
+	der_sign_copy = der_sign;
+
+	fd = fopen(bl2_sign_file, "rb");
+	if (!fd) {
+		ERROR("Could not find binary file %s\n", bl2_sign_file);
+		ret = -errno;
+		goto out_free_der_sign;
+	}
+
+	err = fread((void *)der_sign, 1, der_sign_size, fd);
+	if (err < 0 || err != der_sign_size) {
+		ret = -err;
+		goto out_close_file;
+	}
+
+	sig = d2i_ECDSA_SIG(NULL, (const unsigned char**)&der_sign, der_sign_size);
+	if (!sig) {
+		ERROR("Could not decode DER encoded ECDSA signature\n");
+		ret = -EINVAL;
+		goto out_close_file;
+	}
+
+	ECDSA_SIG_get0(sig, (const BIGNUM**)&r_bn, (const BIGNUM**)&s_bn);
+	if (!r_bn || !s_bn) {
+		ERROR("Could not retrieve R/S from ECDSA signature\n");
+		ret = -EINVAL;
+		goto out_free_sig;
+	}
+
+	r = malloc(BN_num_bytes(r_bn));
+	if (!r) {
+		ERROR("Failed to allocate space for ECDSA R component\n");
+		ret = -ENOMEM;
+		goto out_free_sig;
+	}
+	
+	bytes = BN_bn2bin(r_bn, r);
+	if (bytes != BN_num_bytes(r_bn)) {
+		ERROR("Failed to copy ECDSA R component\n");
+		ret = -ENOKEY;
+		goto out_free_r;
+	}
+
+	s = malloc(BN_num_bytes(s_bn));
+	if (!s) {
+		ERROR("Failed to allocate space for ECDSA S component\n");
+		ret = -ENOMEM;
+		goto out_free_r;
+	}
+	
+	bytes = BN_bn2bin(s_bn, s);
+	if (bytes != BN_num_bytes(s_bn)) {
+		ERROR("Failed to copy ECDSA S component\n");
+		ret = -ENOKEY;
+		goto out_free_s;
+	}
+
+	*bl2_sign_handle = hse_mem_alloc(BN_num_bytes(r_bn) + BN_num_bytes(s_bn));
+	if (*bl2_sign_handle < 0) {
+		ERROR("Failed to allocated memory for BL2 signature\n");
+		ret = -ENOMEM;
+		goto out_free_s;
+	}
+	*bl2_sign_size = BN_num_bytes(r_bn) + BN_num_bytes(s_bn);
+
+	hse_memcpy_to_dev(*bl2_sign_handle, r, BN_num_bytes(r_bn), 0);
+	hse_memcpy_to_dev(*bl2_sign_handle, s, BN_num_bytes(s_bn), BN_num_bytes(r_bn));
+
+out_free_s:
+	free(s);
+out_free_r:
+	free(r);
+out_free_sig:
+	ECDSA_SIG_free(sig);
+out_close_file:
+	fclose(fd);
+out_free_der_sign:
+	free(der_sign_copy);
+
+	return ret;
+}
+
+int hse_get_rsa_sig(const char *bl2_sign_file, int *bl2_sign_handle, uint16_t *bl2_sign_size)
+{
+	int ret = 0;
+
+	*bl2_sign_size = get_file_size(bl2_sign_file);
+	if (*bl2_sign_size <= 0) {
+		ERROR("Failed to retrieve BL2 signature size\n");
+		return -ENODATA;
+	}
+
+	*bl2_sign_handle = hse_mem_alloc(*bl2_sign_size);
+	if (*bl2_sign_handle < 0) {
+		ERROR("Failed to allocate space for BL2 signature in reserved memory\n");
+		return -ENOMEM;
+	}
+
+	ret = hse_extract_bin(bl2_sign_file, *bl2_sign_handle, *bl2_sign_size);
+	if (ret) {
+		ERROR("Failed to read BL2 signature from file\n");
+		hse_mem_free(*bl2_sign_handle);
+	}
+	return ret;
+}
+
+int hse_ecc_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
+			 const char *bl2_sign_file, const char *bl2_bin_file,
+			 uint32_t auth_handle, enum boot_type boot_medium)
+{
+	uint32_t bl2_bin_size;
+	uint16_t bl2_sign_size;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	DECLARE_SET_ZERO(hseSmrEntry_t, smr_entry);
+	int bl2_bin_handle, bl2_sign_handle, smr_entry_handle;
+	int ret = 0;
+
+	ret = hse_get_bl2_bin(bl2_bin_file, &bl2_bin_handle, &bl2_bin_size);
+	if (ret)
+		return ret;
+
+	ret = hse_get_ecdsa_sig(bl2_sign_file, &bl2_sign_handle, &bl2_sign_size);
+	if (ret)
+		goto err_hse_free_bl2_bin;
+
+	smr_entry.pSmrSrc = get_app_boot_start(ivt);
+	smr_entry.pSmrDest = app_boot->ram_load;
+	smr_entry.smrSize = bl2_bin_size;
+
+	if (boot_medium == QSPI)
+		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_QSPI_FLASH);
+	else if (boot_medium == SD)
+		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_SD_FLASH);
+	else if (boot_medium == MMC)
+		smr_entry.configFlags = (HSE_SMR_CFG_FLAG_MMC_FLASH);
+
+	smr_entry.checkPeriod = 0;
+	smr_entry.authKeyHandle = auth_handle;
+	smr_entry.authScheme.sigScheme.signSch = HSE_SIGN_ECDSA;
+	smr_entry.authScheme.sigScheme.sch.ecdsa.hashAlgo = HSE_HASH_ALGO_SHA_1;
+	smr_entry.smrDecrypt.decryptKeyHandle = HSE_SMR_DECRYPT_KEY_HANDLE_NOT_USED;
+	smr_entry.versionOffset = BL2_VERSION_OFFSET;
+
+	smr_entry_handle = hse_mem_alloc(sizeof(smr_entry));
+	if (smr_entry_handle < 0) {
+		ERROR("Failed to allocate space for SMR Entry in reserved memory\n");
+		ret = -ENOMEM;
+		goto err_hse_free_bl2_sign;
+	}
+	/* workaround for bus error on writing to hse rmem */
+	hse_memcpy_to_dev(smr_entry_handle, &smr_entry, sizeof(smr_entry), 0);
+
+	srv_desc.srvId = HSE_SRV_ID_SMR_ENTRY_INSTALL;
+	srv_desc.hseSrv.smrEntryInstallReq.accessMode = HSE_ACCESS_MODE_ONE_PASS;
+	srv_desc.hseSrv.smrEntryInstallReq.entryIndex = 1u;
+	srv_desc.hseSrv.smrEntryInstallReq.pSmrEntry = hse_virt_to_dma(smr_entry_handle, 0);
+	srv_desc.hseSrv.smrEntryInstallReq.pSmrData = hse_virt_to_dma(bl2_bin_handle, 0);
+	srv_desc.hseSrv.smrEntryInstallReq.smrDataLength = bl2_bin_size;
+	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[0] = hse_virt_to_dma(bl2_sign_handle, 0);
+	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[1] = hse_virt_to_dma(bl2_sign_handle, bl2_sign_size / 2);
+	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[0] = bl2_sign_size / 2;
+	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[1] = bl2_sign_size / 2;
+
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	if (ret)
+		ERROR("Failed to install SMR Entry\n");
+	hse_mem_free(smr_entry_handle);
+
+err_hse_free_bl2_sign:
+	hse_mem_free(bl2_sign_handle);
+err_hse_free_bl2_bin:
+	hse_mem_free(bl2_bin_handle);
+	return ret;
+}
+
 int hse_rsa_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 			 const char *bl2_sign_file, const char *bl2_bin_file,
 			 uint32_t auth_handle, enum boot_type boot_medium)
@@ -868,49 +1263,18 @@ int hse_rsa_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	uint32_t bl2_bin_size;
 	uint16_t bl2_sign_size;
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	DECLARE_SET_ZERO(hseSmrEntry_t, smr_entry);
 	int bl2_bin_handle, bl2_sign_handle, smr_entry_handle;
-	hseSmrEntry_t smr_entry;
 	int ret = 0;
 
-	bl2_bin_size = get_file_size(bl2_bin_file);
-	if (!bl2_bin_size) {
-		ERROR("Invalid BL2 size\n");
-		return -ENODATA;
-	}
+	ret = hse_get_bl2_bin(bl2_bin_file, &bl2_bin_handle, &bl2_bin_size);
+	if (ret)
+		return ret;
 
-	bl2_bin_handle = hse_mem_alloc(bl2_bin_size);
-	if (bl2_bin_handle < 0) {
-		ERROR("Failed to allocate space for BL2 in reserved memory\n");
-		return -ENOMEM;
-	}
-
-	ret = hse_extract_bin(bl2_bin_file, bl2_bin_handle, bl2_bin_size);
-	if (ret) {
-		ERROR("Failed to read BL2 binary from file\n");
+	ret = hse_get_rsa_sig(bl2_sign_file, &bl2_sign_handle, &bl2_sign_size);
+	if (ret)
 		goto err_hse_free_bl2_bin;
-	}
 
-	bl2_sign_size = get_file_size(bl2_sign_file);
-	if (bl2_sign_size <= 0) {
-		ERROR("Failed to retrieve BL2 signature size\n");
-		ret = -ENODATA;
-		goto err_hse_free_bl2_bin;
-	}
-
-	bl2_sign_handle = hse_mem_alloc(bl2_sign_size);
-	if (bl2_sign_handle < 0) {
-		ERROR("Failed to allocate space for BL2 signature in reserved memory\n");
-		ret = -ENOMEM;
-		goto err_hse_free_bl2_bin;
-	}
-
-	ret = hse_extract_bin(bl2_sign_file, bl2_sign_handle, bl2_sign_size);
-	if (ret) {
-		ERROR("Failed to read BL2 signature from file\n");
-		goto err_hse_free_bl2_sign;
-	}
-
-	memset(&smr_entry, 0, sizeof(smr_entry));
 	smr_entry.pSmrSrc = get_app_boot_start(ivt);
 	smr_entry.pSmrDest = app_boot->ram_load;
 	smr_entry.smrSize = bl2_bin_size;
@@ -964,11 +1328,9 @@ err_hse_free_bl2_bin:
 int hse_cr_install(struct app_boot_hdr *app_boot)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseCrEntry_t cr_entry;
+	DECLARE_SET_ZERO(hseCrEntry_t, cr_entry);
 	int cr_entry_handle;
 	int ret = 0;
-
-	memset(&cr_entry, 0, sizeof(cr_entry));
 
 	cr_entry.coreId = HSE_APP_CORE_A53_0;
 	cr_entry.crSanction = HSE_CR_SANCTION_KEEP_CORE_IN_RESET;
@@ -1143,7 +1505,7 @@ int hse_sysimg_write_qspi(int fd, struct ivt *ivt, void *sysimg, uint32_t sysimg
 }
 
 int hse_secboot_enable(const char *device, const char *bl2_sign_file,
-		       const char *bl2_bin_file, enum boot_type boot_medium)
+		       const char *bl2_bin_file, enum boot_type boot_medium, int eccflag)
 {
 	struct ivt ivt;
 	bool gen_cnt_table = false;
@@ -1214,7 +1576,10 @@ int hse_secboot_enable(const char *device, const char *bl2_sign_file,
 			INFO("DO NOT LOSE THE Symmetric KEY, IT IS NOT EXPORTABLE/RETRIEVABLE\n");
 			gen_cnt_table = true;
 		} else {
-			ret = hse_extract_and_import_rsa_key(secboot_keys[i].keypath, secboot_keys[i].handle);
+			if (!eccflag)
+				ret = hse_extract_and_import_rsa_key(secboot_keys[i].keypath, secboot_keys[i].handle);
+			else
+				ret = hse_extract_and_import_ecc_key(secboot_keys[i].keypath, secboot_keys[i].handle);
 		} 
 		if (ret) {
 			ERROR("Failed to import %s\n", secboot_keys[i].name);
@@ -1233,9 +1598,14 @@ int hse_secboot_enable(const char *device, const char *bl2_sign_file,
 
 	INFO("Generating Secure Memory Region entry\n");
 
-	ret = hse_rsa_smr_install(fd, &ivt, &app_boot, bl2_sign_file,
-				  bl2_bin_file, secboot_keys[BL2_KEY].handle,
-				  boot_medium);
+	if (!eccflag)
+		ret = hse_rsa_smr_install(fd, &ivt, &app_boot, bl2_sign_file,
+					  bl2_bin_file, secboot_keys[BL2_KEY].handle,
+					  boot_medium);
+	else
+		ret = hse_ecc_smr_install(fd, &ivt, &app_boot, bl2_sign_file,
+					  bl2_bin_file, secboot_keys[BL2_KEY].handle,
+					  boot_medium);
 	if (ret)
 		goto err_close_fd;
 
@@ -1438,6 +1808,7 @@ void usage(char *progname)
 	printf("\t\t\t  qspi - QSPI Flash boot\n");
 	printf("\t\t\t   mmc - MMC or eMMC boot\n");
 	printf("\t-d:\tspecify full path to SD/MMC/MTD device (e.g. /dev/sdb or /dev/mtd0)\n");
+	printf("\t-e:\tuse ECC keys and ECDSA signature for BL2 and BL3X images\n");
 	printf("\t--rpmb_key: specify full path to symmetric key file for Rollback Protection and HSE key slot,\n");
 	printf("\t            if this option is present, the HSE Monotonic Counter Table will be generated\n");
 	printf("\t--ddrfw_key: specify full path to PEM format key file");
@@ -1458,10 +1829,10 @@ int main(int argc, char *argv[])
 {
 	char *devpath = NULL, *bl2_sign_path = NULL, *bl2_bin_path = NULL;
 	char *bootmedium = "sd";
-	int c, fflag = 0, sflag = 0, oflag = 0, uflag = 0, ret = 0;
+	int c, fflag = 0, sflag = 0, oflag = 0, uflag = 0, eccflag = 0, ret = 0;
 	enum boot_type type = SD;
 
-	while ((c = getopt_long(argc, argv, "hfosub:d:", secboot_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "hfoseub:d:", secboot_options, NULL)) != -1) {
 		switch (c) {
 			case 'h':
 				usage(argv[0]);
@@ -1489,6 +1860,9 @@ int main(int argc, char *argv[])
 				break;
 			case 's':
 				sflag = 1;
+				break;
+			case 'e':
+				eccflag = 1;
 				break;
 			case 'u':
 				uflag = 1;
@@ -1563,7 +1937,7 @@ int main(int argc, char *argv[])
 			return ret; 
 		
 		ret = hse_secboot_enable(devpath, bl2_sign_path, bl2_bin_path,
-					 type);
+					 type, eccflag);
 		return ret;
 	}
 
