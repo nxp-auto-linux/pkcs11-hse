@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2025 NXP
  */
 
 #include <stdio.h>
@@ -17,13 +17,12 @@ int main(int argc, char *argv[])
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	DECLARE_SET_ZERO(hseImportKeySrv_t, import_key_req);
+	DECLARE_SET_ZERO(hseKeyInfo_t, key_info);
 
 	FILE *file;
 	uint16_t status;
-	int err;
+	int err, kek_buff_handle, key_info_handle;
 	char kek[HSE_KEK_SIZE];
-	void *kek_buff, *key_info;
-	hseKeyInfo_t *key_info_ptr;
 	size_t bytes_read;
 
 	switch (argc) {
@@ -61,31 +60,30 @@ int main(int argc, char *argv[])
 		goto out_dev_close;
 	}
 
-	kek_buff = hse_mem_alloc(HSE_KEK_SIZE);
-	if (!kek_buff) {
+	kek_buff_handle = hse_mem_alloc(HSE_KEK_SIZE);
+	if (kek_buff_handle < 0) {
 		err = -ENOMEM;
 		goto out_dev_close;
 	}
-	hse_memcpy(kek_buff, kek, HSE_KEK_SIZE);
+	hse_memcpy_to_dev(kek_buff_handle, kek, HSE_KEK_SIZE, 0);
+	
+	key_info.keyFlags = HSE_KF_ACCESS_WRITE_PROT | HSE_KF_USAGE_DECRYPT |
+				 HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_KEY_PROVISION;
+	key_info.keyBitLen = HSE_KEK_SIZE * 8;
+	key_info.keyType = HSE_KEY_TYPE_AES;
+	key_info.smrFlags = 0;
 
-	key_info = hse_mem_alloc(sizeof(hseKeyInfo_t));
-	if (!key_info) {
+	key_info_handle = hse_mem_alloc(sizeof(hseKeyInfo_t));
+	if (key_info_handle < 0) {
 		err = -ENOMEM;
 		goto out_free_kek;
 	}
-	hse_memset(key_info, 0, sizeof(hseKeyInfo_t));
-
-	key_info_ptr = (hseKeyInfo_t *)key_info;
-	key_info_ptr->keyFlags = HSE_KF_ACCESS_WRITE_PROT | HSE_KF_USAGE_DECRYPT |
-				 HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_KEY_PROVISION;
-	key_info_ptr->keyBitLen = HSE_KEK_SIZE * 8;
-	key_info_ptr->keyType = HSE_KEY_TYPE_AES;
-	key_info_ptr->smrFlags = 0;
+	hse_memcpy_to_dev(key_info_handle, &key_info, sizeof(key_info), 0);
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
 	import_key_req.targetKeyHandle = HSE_NVM_KEK_HANDLE;
-	import_key_req.pKeyInfo = hse_virt_to_dma(key_info);
-	import_key_req.pKey[2] = hse_virt_to_dma(kek_buff);
+	import_key_req.pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
+	import_key_req.pKey[2] = hse_virt_to_dma(kek_buff_handle, 0);
 	import_key_req.keyLen[2] = HSE_KEK_SIZE;
 	import_key_req.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	import_key_req.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
@@ -104,9 +102,9 @@ int main(int argc, char *argv[])
 	INFO("KEK was successfully imported\n");
 
 out_free_key:
-	hse_mem_free(key_info);
+	hse_mem_free(key_info_handle);
 out_free_kek:
-	hse_mem_free(kek_buff);
+	hse_mem_free(kek_buff_handle);
 out_dev_close:
 	hse_dev_close();
 out_file_close:
