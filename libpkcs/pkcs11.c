@@ -699,6 +699,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	struct globalCtx *gCtx = getCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	struct hse_keyObject *pkey;
+	struct dyn_attrHdrObject *attr_hdr;
 	int i, pkey_handle;
 	CK_RV err = CKR_OK;
 
@@ -724,13 +725,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 				if (pTemplate[i].pValue == NULL)
 					pTemplate[i].ulValueLen = MAX_LABEL_LEN;
 				else 
-					strncpy(pTemplate[i].pValue, pkey->key_label, MAX_LABEL_LEN);
+					strncpy(pTemplate[i].pValue, pkey->attrs.key_label, MAX_LABEL_LEN);
 				break;
 			case CKA_UNIQUE_ID:
 				if (pTemplate[i].pValue == NULL)
 					pTemplate[i].ulValueLen = sizeof(CK_ULONG);
 				else
-					memcpy(pTemplate[i].pValue, &pkey->key_uid, sizeof(CK_ULONG));
+					memcpy(pTemplate[i].pValue, &pkey->attrs.key_uid, sizeof(CK_ULONG));
 				break;
 			case CKA_ID:
 				if (pTemplate[i].pValue == NULL) {
@@ -738,9 +739,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 				} else {
 					uint8_t *byte_value;
 					byte_value = (uint8_t *)pTemplate[i].pValue;
-					byte_value[0] = (uint8_t)pkey->key_uid;
-					byte_value[1] = (uint8_t)((pkey->key_uid) >> 8);
-					byte_value[2] = (uint8_t)((pkey->key_uid) >> 16);
+					byte_value[0] = (uint8_t)pkey->attrs.key_uid;
+					byte_value[1] = (uint8_t)((pkey->attrs.key_uid) >> 8);
+					byte_value[2] = (uint8_t)((pkey->attrs.key_uid) >> 16);
 					pTemplate[i].ulValueLen = 0x3u;
 				}
 				break;
@@ -748,17 +749,17 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 				if (pTemplate[i].pValue == NULL)
 					pTemplate[i].ulValueLen = sizeof(CK_OBJECT_CLASS);
 				else
-					memcpy(pTemplate[i].pValue, &pkey->key_class, sizeof(CK_OBJECT_CLASS));
+					memcpy(pTemplate[i].pValue, &pkey->attrs.key_class, sizeof(CK_OBJECT_CLASS));
 				break;
 			case CKA_KEY_TYPE:
 				if (pTemplate[i].pValue == NULL)
 					pTemplate[i].ulValueLen = sizeof(CK_KEY_TYPE);
 				else
-					memcpy(pTemplate[i].pValue, &pkey->key_type, sizeof(CK_KEY_TYPE));
+					memcpy(pTemplate[i].pValue, &pkey->attrs.key_type, sizeof(CK_KEY_TYPE));
 				break;
 			case CKA_MODULUS:
 				if (pTemplate[i].pValue == NULL) 
-					pTemplate[i].ulValueLen = (CK_ULONG)hse_get_key_bit_length(sCtx->sID, pkey->key_handle) >> 3;
+					pTemplate[i].ulValueLen = (CK_ULONG)hse_get_key_bit_length(sCtx->sID, pkey->attrs.key_handle) >> 3;
 				else
 					err = pkey_value_export(sCtx->sID, pkey, pTemplate[i].pValue, NULL, &pTemplate[i].ulValueLen, NULL);
 				break;
@@ -812,7 +813,23 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 				}
 				break;
 			default:
-				pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+				{
+					attr_hdr = get_key_dyn_attr_hdr_handle(pkey->dyn_attrs_handle,
+									pTemplate[i].type);
+					if (attr_hdr == NULL) {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						break;
+					}
+
+					if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = attr_hdr->ulLen;
+						break;
+					}
+
+					memcpy(pTemplate[i].pValue,
+						   (void *)hse_get_node_mem_addr(attr_hdr->attr_handle, true),
+					       attr_hdr->ulLen);
+				}
 		}
 	}
 

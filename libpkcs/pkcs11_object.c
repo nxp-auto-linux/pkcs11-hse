@@ -87,33 +87,38 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	/* get key handle for CKA_ID */
-	key->key_handle = search_obj;
+	key->attrs.key_handle = search_obj;
 
 	/* key handles are unique in HSE; use them for UID */
-	key->key_uid = key->key_handle;
+	key->attrs.key_uid = key->attrs.key_handle;
+	key->dyn_attrs_handle = -1;
 
 	if ((CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount) == NULL) {
 		rc = CKR_ARGUMENTS_BAD;
 		goto err_free_key_intl;
 	} else {
-		key->key_type = *(CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount);
+		key->attrs.key_type = *(CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount);
 	}
 
 	/* if key is not RSA or EC, it cannot be either private or public, so object class is optional */
 	if (((CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount) == NULL) &&
-	    (key->key_type == CKK_RSA || key->key_type == CKK_EC)) {
+	    (key->attrs.key_type == CKK_RSA || key->attrs.key_type == CKK_EC)) {
 		rc = CKR_ARGUMENTS_BAD;
 		goto err_free_key_intl;
 	} else if (getattr_pval(pTemplate, CKA_CLASS, ulCount)) {
-		key->key_class = *(CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
+		key->attrs.key_class = *(CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
 	} else {
-		key->key_class = CK_UNAVAILABLE_INFORMATION;
+		key->attrs.key_class = CK_UNAVAILABLE_INFORMATION;
 	}
 
-	memset(key->key_label, 0, MAX_LABEL_LEN);
+	memset(key->attrs.key_label, 0, MAX_LABEL_LEN);
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
 	if (label != NULL)
-		memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
+		memcpy(key->attrs.key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
+
+	rc = hse_add_dyn_attr_list(key, pTemplate, ulCount);
+	if (rc)
+		goto err_free_key_intl;
 
 	memset(&key_info, 0, sizeof(key_info));
 
@@ -121,11 +126,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 
 	srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
 	import_key_req->pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
-	import_key_req->targetKeyHandle = key->key_handle;
+	import_key_req->targetKeyHandle = key->attrs.key_handle;
 	import_key_req->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	import_key_req->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 
-	switch (key->key_type) {
+	switch (key->attrs.key_type) {
 		case CKK_RSA:
 
 			pkey0_len = getattr_len(pTemplate, CKA_MODULUS, ulCount);
@@ -165,7 +170,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			import_key_req->keyLen[1] = pkey1_len;
 			import_key_req->keyLen[2] = 0u;
 
-			if (key->key_class == CKO_PRIVATE_KEY) {
+			if (key->attrs.key_class == CKO_PRIVATE_KEY) {
 
 				pkey2_len = getattr_len(pTemplate, CKA_PRIVATE_EXPONENT, ulCount);
 				if (!pkey2_len) {
@@ -229,7 +234,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			import_key_req->keyFormat.eccKeyFormat = HSE_KEY_FORMAT_ECC_PUB_RAW;
 #endif
 
-			if (key->key_class == CKO_PRIVATE_KEY) {
+			if (key->attrs.key_class == CKO_PRIVATE_KEY) {
 
 				pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
 				if (!pkey2_len) {
@@ -269,7 +274,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			}
 			hse_memcpy_to_dev(pkey2_handle, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len, 0);
 
-			if (key->key_type == CKK_AES) {
+			if (key->attrs.key_type == CKK_AES) {
 				/* aes keys can only be used for encrypt/decrypt */
 				key_info.keyFlags = (HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
 				key_info.keyType = HSE_KEY_TYPE_AES;
@@ -305,7 +310,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	hse_key_object_write(key);
-	*phObject = key->key_handle;
+	*phObject = key->attrs.key_handle;
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
 	hse_mem_free(pkey2_handle);
@@ -322,6 +327,7 @@ err_free_pkey1:
 err_free_pkey0:
 	hse_mem_free(pkey0_handle);
 err_free_key_intl:
+	hse_free_dyn_attr_list(key->dyn_attrs_handle);
 	hse_intl_mem_free(key_handle);
 err_free_key_info:
 	hse_mem_free(key_info_handle);
@@ -353,7 +359,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 	pkey = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
-	srv_desc.hseSrv.eraseKeyReq.keyHandle = pkey->key_handle;
+	srv_desc.hseSrv.eraseKeyReq.keyHandle = pkey->attrs.key_handle;
 	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
@@ -364,8 +370,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	hse_key_object_remove(pkey);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	hse_intl_mem_free(key_handle);
+	gCtx->mtxFns.unlock(gCtx->keyMtx);
 
 	return CKR_OK;
 }
@@ -399,6 +405,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjectsInit)(
 			sCtx->findCtx.key_id = (CK_BYTE *)getattr_pval(pTemplate, CKA_ID, ulCount);
 		else 
 			sCtx->findCtx.key_id = NULL;
+		sCtx->findCtx.search_template = pTemplate;
 	} else {
 		sCtx->findCtx.obj_class = NULL;
 		sCtx->findCtx.obj_uid = NULL;
@@ -406,6 +413,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjectsInit)(
 		sCtx->findCtx.key_id = NULL;
 	}
 
+	sCtx->findCtx.ulCount = ulCount;
 	sCtx->findCtx.init = CK_TRUE;
 	hse_intl_iterstart();
 
@@ -423,7 +431,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjects)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	struct hse_keyObject *key;
 	struct hse_findCtx *finder;
-	int i, key_handle;
+	struct dyn_attrHdrObject *dyn_attr_hdr;
+	int i, j, found, key_handle;
 	CK_BYTE *key_id;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
@@ -446,32 +455,65 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjects)(
 	finder = &sCtx->findCtx;
 	i = 0;
 	do {
+		found = 0;
+
 		key_handle = hse_intl_next();
+		if (hse_intl_get_node_type(key_handle) != HSE_KEY_OBJ)
+            continue;
+
 		key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 		/* either ALL attributes match, or no attributes match (empty template -> return all) */
-		if (finder->obj_class && key->key_class != *finder->obj_class)
+		if (finder->obj_class && key->attrs.key_class != *finder->obj_class)
 			continue;
+		else if (finder->obj_class)
+			found++;
 
-		if(finder->obj_uid && key->key_uid != *finder->obj_uid)
+		if(finder->obj_uid && key->attrs.key_uid != *finder->obj_uid)
 			continue;
+		else if (finder->obj_uid)
+			found++;
 
-		if (finder->label && (strcmp(key->key_label, (const char *)finder->label)))
+		if (finder->label && (strcmp(key->attrs.key_label, (const char *)finder->label)))
 			continue;
+		else if (finder->label)
+			found++;
 		
 		if (finder->key_id) {
 			key_id = finder->key_id;
-			if (GET_KEY_HANDLE(key_id[2], key_id[1], key_id[0]) != key->key_uid)
+			if (GET_KEY_HANDLE(key_id[2], key_id[1], key_id[0]) != key->attrs.key_uid)
 				continue;
+			else
+				found++;
 		}
 
-		/* found a match */
-		phObject[i] = key->key_handle;
-		i++;
+		for (j = 0; j < finder->ulCount; j++) {
+			if (finder->search_template[j].type == CKA_CLASS ||
+			    finder->search_template[j].type == CKA_ID ||
+			    finder->search_template[j].type == CKA_UNIQUE_ID ||
+			    finder->search_template[j].type == CKA_LABEL)
+			    continue;
 
-		if (i >= ulMaxObjectCount)
-			break;
-	} while (hse_intl_hasnext());
+			dyn_attr_hdr = get_key_dyn_attr_hdr_handle(key->dyn_attrs_handle,
+								finder->search_template[j].type);
+
+			if (dyn_attr_hdr == NULL ||
+				dyn_attr_hdr->ulLen != finder->search_template[j].ulValueLen)
+				continue;
+
+			if (memcmp(finder->search_template[j].pValue,
+			    (void *)hse_get_node_mem_addr(dyn_attr_hdr->attr_handle, true),
+				dyn_attr_hdr->ulLen))
+				continue;
+			found++;
+		}
+
+		if (found != finder->ulCount)
+			continue;
+
+		/* found a match */
+		phObject[i++] = key->attrs.key_handle;
+	} while (hse_intl_hasnext() && i < ulMaxObjectCount);
 
 	*pulObjectCount = i;
 

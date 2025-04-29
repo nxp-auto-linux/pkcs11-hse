@@ -97,7 +97,7 @@ int hse_get_ec_curve_id(uint8_t channel, struct hse_keyObject *key, hseEccCurveI
 	if (info_handle < 0) 
 		return ENOMEM;
 
-	err = hse_get_key_info(channel, key->key_handle, info_handle);
+	err = hse_get_key_info(channel, key->attrs.key_handle, info_handle);
 	if (err) {
 		hse_mem_free(info_handle);
 		return err;
@@ -551,7 +551,7 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	if (key_info_handle < 0) 
 		return CKR_HOST_MEMORY;
 	
-	err = hse_get_key_info(channel, key->key_handle, key_info_handle);
+	err = hse_get_key_info(channel, key->attrs.key_handle, key_info_handle);
 	if (err) {
 		goto out_free_key_info;
 	}
@@ -560,12 +560,12 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	/* get the key size */
 	key_bit_length = key_info.keyBitLen;
 
-	if (key->key_type == CKK_RSA) {
+	if (key->attrs.key_type == CKK_RSA) {
 		/* RSA public modulus n */
 		pkey_length[0] = key_bit_length >> 3;
 		/* RSA public exponent e */
 		pkey_length[1] = key_info.specific.pubExponentSize;
-	} else if (key->key_type == CKK_EC) {
+	} else if (key->attrs.key_type == CKK_EC) {
 		/* Length of Q: todo */
 		/* depends on the key format
      	 *  - Weierstrass curve keys:
@@ -617,7 +617,7 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	}
 
 	key_value1_handle = hse_mem_alloc(pkey_length[1]);
-	if ((key_value1_handle < 0) && (key->key_type == CKK_RSA)) {
+	if ((key_value1_handle < 0) && (key->attrs.key_type == CKK_RSA)) {
 		err = CKR_HOST_MEMORY;
 		goto out_free_pkey0;
 	}
@@ -633,7 +633,7 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	srv_desc.srvId = HSE_SRV_ID_EXPORT_KEY;
 	
 	export_key_srv = &srv_desc.hseSrv.exportKeyReq;
-	export_key_srv->targetKeyHandle = key->key_handle;
+	export_key_srv->targetKeyHandle = key->attrs.key_handle;
 	export_key_srv->pKey[0] = hse_virt_to_dma(key_value0_handle, 0);
 	export_key_srv->pKey[1] = hse_virt_to_dma(key_value1_handle, 0);
 	export_key_srv->pKeyLen[0] = hse_virt_to_dma(hse_pkey_length_handle, 0);
@@ -679,9 +679,9 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	}
 #endif
 
-	if ((NULL != pkey1) && (key->key_type == CKK_RSA))
+	if ((NULL != pkey1) && (key->attrs.key_type == CKK_RSA))
 		hse_memcpy_from_dev(pkey1, key_value1_handle, pkey_length[1], 0);
-	if ((NULL != pkey1_len) && (key->key_type == CKK_RSA))
+	if ((NULL != pkey1_len) && (key->attrs.key_type == CKK_RSA))
 		*(pkey1_len) = pkey_length[1];
 
 out_free_pkey_len:
@@ -726,31 +726,222 @@ static void strcpy_pkcs11_nul_padding(unsigned char *dest, const char *source, s
 	}
 }
 
+static bool check_static_attr_type(CK_ATTRIBUTE_TYPE attr_type)
+{
+	if (attr_type == CKA_LABEL || attr_type == CKA_ID || attr_type == CKA_KEY_TYPE ||
+	    attr_type == CKA_CLASS || attr_type == CKA_MODULUS || attr_type == CKA_MODULUS_BITS ||
+	    attr_type == CKA_VALUE || attr_type == CKA_PUBLIC_EXPONENT || attr_type == CKA_VALUE_LEN ||
+	    attr_type == CKA_PRIVATE_EXPONENT || attr_type == CKA_EC_POINT ||
+		attr_type == CKA_EC_PARAMS)
+		return true;
+	return false;
+}
+
+static CK_RV check_attr_value(CK_OBJECT_CLASS class, CK_ATTRIBUTE_TYPE type,
+						CK_VOID_PTR pValue, CK_ULONG ulValueLen)
+{
+	if (pValue == NULL || ulValueLen == 0)
+		return CKR_ATTRIBUTE_VALUE_INVALID;
+
+	switch (class) {
+		case CKO_PUBLIC_KEY:
+			switch (type) {
+				case CKA_DECRYPT:
+				case CKA_SIGN:
+				case CKA_UNWRAP:
+					return CKR_ATTRIBUTE_TYPE_INVALID;
+				case CKA_ENCRYPT:
+				case CKA_VERIFY:
+				case CKA_WRAP:
+					if (ulValueLen != 1 || (*(CK_BBOOL *)pValue > CK_TRUE))
+						return CKR_ATTRIBUTE_VALUE_INVALID;
+					return CKR_OK;
+				default:
+					return CKR_OK;
+			}
+		case CKO_PRIVATE_KEY:
+			switch (type) {
+				case CKA_ENCRYPT:
+				case CKA_VERIFY:
+				case CKA_WRAP:
+					return CKR_ATTRIBUTE_TYPE_INVALID;
+				case CKA_DECRYPT:
+				case CKA_SIGN:
+				case CKA_UNWRAP:
+					if (ulValueLen != 1 || (*(CK_BBOOL *)pValue > CK_TRUE))
+						return CKR_ATTRIBUTE_VALUE_INVALID;
+					return CKR_OK;
+				default:
+					return CKR_OK;
+			}
+		case CKO_SECRET_KEY:
+			switch (type) {
+				case CKA_ENCRYPT:
+				case CKA_VERIFY:
+				case CKA_WRAP:
+				case CKA_DECRYPT:
+				case CKA_SIGN:
+				case CKA_UNWRAP:
+					if (ulValueLen != 1 || (*(CK_BBOOL *)pValue > CK_TRUE))
+						return CKR_ATTRIBUTE_VALUE_INVALID;
+					return CKR_OK;
+				default:
+					return CKR_OK;
+			}
+		default:
+			return CKR_OK;
+	}
+}
+
+CK_RV hse_add_dyn_attr(struct hse_keyObject *key, CK_ATTRIBUTE attr)
+{
+	int attr_lhead_handle = key->dyn_attrs_handle;
+	struct dyn_attrHdrObject *attr_header;
+	void *attr_buf;
+	CK_RV rc;
+
+	rc = check_attr_value(key->attrs.key_class, attr.type, attr.pValue, attr.ulValueLen);
+	if (rc)
+		return rc;
+
+	key->dyn_attrs_handle = hse_intl_mem_alloc(sizeof(*attr_header), HSE_ATTR_HDR_OBJ);
+	if (key->dyn_attrs_handle < 0) {
+		hse_free_dyn_attr_list(attr_lhead_handle);
+		return CKR_HOST_MEMORY;
+	}
+	attr_header = (struct dyn_attrHdrObject *)hse_get_node_mem_addr(key->dyn_attrs_handle, true);
+
+	attr_header->type = attr.type;
+	attr_header->ulLen = attr.ulValueLen;
+	attr_header->next_attr_hdr_handle = attr_lhead_handle;
+
+	attr_header->attr_handle = hse_intl_mem_alloc(attr_header->ulLen, HSE_ATTR_BUF_OBJ);
+	if (attr_header->attr_handle < 0) {
+		hse_free_dyn_attr_list(attr_lhead_handle);
+		hse_intl_mem_free(key->dyn_attrs_handle);
+		return CKR_HOST_MEMORY;
+	}
+	attr_buf = (void *)hse_get_node_mem_addr(attr_header->attr_handle, true);
+
+	memcpy(attr_buf, attr.pValue, attr_header->ulLen);
+	return CKR_OK;
+}
+
+CK_RV hse_add_dyn_attr_list(struct hse_keyObject *key, CK_ATTRIBUTE_PTR pTemplate,
+				CK_ULONG ulCount)
+{
+	int i, ret;
+
+	for (i = 0; i < ulCount; i++) {
+		if (check_static_attr_type(pTemplate[i].type))
+			continue;
+
+		ret = hse_add_dyn_attr(key, pTemplate[i]);
+		if (ret)
+			return ret;
+	}
+	return CKR_OK;
+}
+
+void hse_free_dyn_attr(struct hse_keyObject *key, CK_ATTRIBUTE_TYPE type)
+{
+	struct dyn_attrHdrObject *curr_attr_header = NULL, *prev_attr_header = NULL;
+	int curr_attr_handle = key->dyn_attrs_handle;
+
+	if (curr_attr_handle == -1)
+		return;
+
+	curr_attr_header = (struct dyn_attrHdrObject *)hse_get_node_mem_addr(curr_attr_handle, true);
+	if (curr_attr_header->type == type) {
+		hse_intl_mem_free(curr_attr_header->attr_handle);
+		key->dyn_attrs_handle = curr_attr_header->next_attr_hdr_handle;
+		hse_intl_mem_free(curr_attr_handle);
+		return;
+	}
+
+	while (curr_attr_handle != -1 && curr_attr_header->type != type) {
+		prev_attr_header = curr_attr_header;
+		curr_attr_handle = curr_attr_header->next_attr_hdr_handle;
+		curr_attr_header = (struct dyn_attrHdrObject *)hse_get_node_mem_addr(curr_attr_handle, true);
+	}
+
+	if (curr_attr_handle == -1)
+		return;
+
+	prev_attr_header->next_attr_hdr_handle = curr_attr_header->next_attr_hdr_handle;
+	hse_intl_mem_free(curr_attr_header->attr_handle);
+	hse_intl_mem_free(curr_attr_handle);
+}
+
+void hse_free_dyn_attr_list(int dyn_attr_head_handle)
+{
+	struct dyn_attrHdrObject *attr_header;
+	int free_attr_handle, curr_attr_handle = dyn_attr_head_handle;
+
+	while (curr_attr_handle != -1) {
+		free_attr_handle = curr_attr_handle;
+
+		attr_header = (struct dyn_attrHdrObject *)hse_get_node_mem_addr(curr_attr_handle, true);
+		hse_intl_mem_free(attr_header->attr_handle);
+
+		curr_attr_handle = attr_header->next_attr_hdr_handle;
+		hse_intl_mem_free(free_attr_handle);
+	}
+}
+
 int32_t hse_key_object_write(struct hse_keyObject *key)
 {
-	int ret;
 	FILE *key_file;
+	void *attr_buf;
+	int ret, attr_handle;
 	char key_file_path[64] = {0};
 	struct hse_keyObject serialized;
+	struct dyn_attrHdrObject *attr_header;
 
 	if (!key)
 		return EINVAL;
 
-	sprintf(key_file_path, "%s/0x%06lx.bin", PKCS_OBJ_DIR, key->key_handle);
+	sprintf(key_file_path, "%s/0x%06lx.bin", PKCS_OBJ_DIR, key->attrs.key_handle);
 	key_file = fopen(key_file_path, "wb");
 	if (!key_file)
 		return EBADF;
 
-	strcpy_pkcs11_padding((unsigned char *)serialized.key_label, key->key_label, MAX_LABEL_LEN);
-	serialized.key_uid = key->key_uid;
-	serialized.key_handle = key->key_handle;
-	serialized.key_type = key->key_type;
-	serialized.key_class = key->key_class;
+	strcpy_pkcs11_padding((unsigned char *)serialized.attrs.key_label,
+					key->attrs.key_label, MAX_LABEL_LEN);
+	serialized.attrs.key_uid = key->attrs.key_uid;
+	serialized.attrs.key_handle = key->attrs.key_handle;
+	serialized.attrs.key_type = key->attrs.key_type;
+	serialized.attrs.key_class = key->attrs.key_class;
 
-	ret = fwrite(&serialized, sizeof(serialized), 1, key_file);
+	ret = fwrite(&serialized.attrs, sizeof(serialized.attrs), 1, key_file);
 	if (ret != 1) {
 		ret = EIO;
 		goto err_close_file;
+	}
+
+	attr_handle = key->dyn_attrs_handle;
+	while (attr_handle != -1) {
+		attr_header = (struct dyn_attrHdrObject *)hse_get_node_mem_addr(attr_handle, true);
+
+		ret = fwrite(&attr_header->type, sizeof(attr_header->type), 1, key_file);
+		if (ret != 1) {
+			ret = EIO;
+			goto err_close_file;
+		}
+
+		ret = fwrite(&attr_header->ulLen, sizeof(attr_header->ulLen), 1, key_file);
+		if (ret != 1) {
+			ret = EIO;
+			goto err_close_file;
+		}
+
+		attr_buf = (void *)hse_get_node_mem_addr(attr_header->attr_handle, true);
+		ret = fwrite(attr_buf, attr_header->ulLen, 1, key_file);
+		if (ret != 1) {
+			ret = EIO;
+			goto err_close_file;
+		}
+		attr_handle = attr_header->next_attr_hdr_handle;
 	}
 	ret = 0;
 
@@ -765,7 +956,8 @@ int32_t hse_key_object_remove(struct hse_keyObject *key)
 
 	if (!key)
 		return EINVAL;
-	sprintf(key_file_path, "%s/0x%06lx.bin", PKCS_OBJ_DIR, key->key_handle);
+	sprintf(key_file_path, "%s/0x%06lx.bin", PKCS_OBJ_DIR, key->attrs.key_handle);
+	hse_free_dyn_attr_list(key->dyn_attrs_handle);
 	
 	return remove(key_file_path);
 }
@@ -773,9 +965,12 @@ int32_t hse_key_object_remove(struct hse_keyObject *key)
 int32_t hse_key_obj_read(char *key_name)
 {
 	FILE *key_file;
-	int ret, key_obj_handle;
 	char key_file_path[64] = {0};
+	struct dyn_attrHdrObject *attr_header;
+	int ret, key_obj_handle, attr_lhead_handle;
 	struct hse_keyObject *key_obj, tmp_key_obj;
+	void *attr_buf;
+	long size = 0;
 
 	if (!key_name)
 		return EINVAL;
@@ -785,7 +980,11 @@ int32_t hse_key_obj_read(char *key_name)
 	if (!key_file)
 		return EBADF;
 
-	ret = fread(&tmp_key_obj, sizeof(tmp_key_obj), 1, key_file);
+	fseek(key_file, 0, SEEK_END);
+	size = ftell(key_file);
+	fseek(key_file, 0, SEEK_SET);
+
+	ret = fread(&tmp_key_obj.attrs, sizeof(tmp_key_obj.attrs), 1, key_file);
 	if (ret != 1) {
 		ret = EIO;
 		goto err_close_file;
@@ -798,12 +997,53 @@ int32_t hse_key_obj_read(char *key_name)
 	}
 	key_obj = (struct hse_keyObject *)hse_get_node_mem_addr(key_obj_handle, true);
 
-	strcpy_pkcs11_nul_padding((unsigned char *)key_obj->key_label,
-				tmp_key_obj.key_label, MAX_LABEL_LEN);
-	key_obj->key_uid = tmp_key_obj.key_uid;
-	key_obj->key_handle = tmp_key_obj.key_handle;
-	key_obj->key_type = tmp_key_obj.key_type;
-	key_obj->key_class = tmp_key_obj.key_class;
+	strcpy_pkcs11_nul_padding((unsigned char *)key_obj->attrs.key_label,
+				tmp_key_obj.attrs.key_label, MAX_LABEL_LEN);
+	key_obj->attrs.key_uid = tmp_key_obj.attrs.key_uid;
+	key_obj->attrs.key_handle = tmp_key_obj.attrs.key_handle;
+	key_obj->attrs.key_type = tmp_key_obj.attrs.key_type;
+	key_obj->attrs.key_class = tmp_key_obj.attrs.key_class;
+	key_obj->dyn_attrs_handle = -1;
+
+	while (size - ftell(key_file)) {
+		attr_lhead_handle = key_obj->dyn_attrs_handle;
+		
+		key_obj->dyn_attrs_handle = hse_intl_mem_alloc(sizeof(*attr_header), HSE_ATTR_HDR_OBJ);
+		if (key_obj->dyn_attrs_handle < 0) {
+			hse_free_dyn_attr_list(attr_lhead_handle);
+			return -ENOMEM;
+		}
+		attr_header = (struct dyn_attrHdrObject *)hse_get_node_mem_addr(key_obj->dyn_attrs_handle, true);
+
+		ret = fread(&attr_header->type, sizeof(attr_header->type), 1, key_file);
+		if (ret != 1) {
+			ret = EIO;
+			goto err_close_file;
+		}
+
+		ret = fread(&attr_header->ulLen, sizeof(attr_header->ulLen), 1, key_file);
+		if (ret != 1) {
+			ret = EIO;
+			goto err_close_file;
+		}
+
+		attr_header->next_attr_hdr_handle = attr_lhead_handle;
+		
+		attr_header->attr_handle = hse_intl_mem_alloc(attr_header->ulLen, HSE_ATTR_BUF_OBJ);
+		if (attr_header->attr_handle < 0) {
+			hse_intl_mem_free(key_obj->dyn_attrs_handle);
+			hse_free_dyn_attr_list(attr_lhead_handle);
+			return -ENOMEM;
+		}
+		attr_buf = (void *)hse_get_node_mem_addr(attr_header->attr_handle, true);
+		
+		ret = fread(attr_buf, attr_header->ulLen, 1, key_file);
+		if (ret != 1) {
+			ret = EIO;
+			goto err_close_file;
+		}
+	}
+
 	ret = 0;
 
 err_close_file:
@@ -847,7 +1087,7 @@ int get_key_object_handle(CK_OBJECT_HANDLE handle)
             continue;
 
         key = (struct hse_keyObject *)hse_get_node_mem_addr(curr_handle, true);
-        if (key->key_handle == handle) {
+        if (key->attrs.key_handle == handle) {
             hse_intl_iterstop();
             return curr_handle;
         }
@@ -855,4 +1095,21 @@ int get_key_object_handle(CK_OBJECT_HANDLE handle)
 
     hse_intl_iterstop();
     return -1;
+}
+
+struct dyn_attrHdrObject *get_key_dyn_attr_hdr_handle(int attr_head_handle, CK_ATTRIBUTE_TYPE type)
+{
+	int curr_attr_hdr_handle = attr_head_handle;
+	struct dyn_attrHdrObject *attr_header;
+
+	while (curr_attr_hdr_handle != -1) {
+		attr_header = (struct dyn_attrHdrObject *)hse_get_node_mem_addr(curr_attr_hdr_handle, true);
+
+		if (attr_header->type != type) {
+			curr_attr_hdr_handle = attr_header->next_attr_hdr_handle;
+			continue;
+		}
+		return attr_header;
+	}
+	return NULL;
 }

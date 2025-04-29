@@ -87,8 +87,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 	memset(key, 0, sizeof(*key));
 
 	/* key handles are unique in HSE; use them for UID */
-	key->key_handle = obj;
-	key->key_uid = obj;
+	key->attrs.key_handle = obj;
+	key->attrs.key_uid = obj;
+	key->dyn_attrs_handle = -1;
 
 	label = (char *)getattr_pval(pPrivateKeyTemplate, CKA_LABEL, ulPrivateKeyAttributeCount);
 	if (label != NULL) {
@@ -98,17 +99,25 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
             goto err_free_key_intl;
         }
 
-		memcpy(key->key_label, label, getattr_len(pPrivateKeyTemplate, CKA_LABEL, ulPrivateKeyAttributeCount));
+		memcpy(key->attrs.key_label, label, getattr_len(pPrivateKeyTemplate, CKA_LABEL, ulPrivateKeyAttributeCount));
 	}
 
 	/* key class and key type */
 	if (getattr_pval(pPrivateKeyTemplate, CKA_CLASS, ulPrivateKeyAttributeCount))
-		key->key_class = *(CK_OBJECT_CLASS *)getattr_pval(pPrivateKeyTemplate, CKA_CLASS, ulPrivateKeyAttributeCount);
+		key->attrs.key_class = *(CK_OBJECT_CLASS *)getattr_pval(pPrivateKeyTemplate, CKA_CLASS, ulPrivateKeyAttributeCount);
 	if (getattr_pval(pPrivateKeyTemplate, CKA_KEY_TYPE, ulPrivateKeyAttributeCount))
-		key->key_type = *(CK_KEY_TYPE *)getattr_pval(pPrivateKeyTemplate, CKA_KEY_TYPE, ulPrivateKeyAttributeCount);
+		key->attrs.key_type = *(CK_KEY_TYPE *)getattr_pval(pPrivateKeyTemplate, CKA_KEY_TYPE, ulPrivateKeyAttributeCount);
+
+	rc = hse_add_dyn_attr_list(key, pPrivateKeyTemplate, ulPrivateKeyAttributeCount);
+	if (rc)
+		goto err_free_key_intl;
+
+	rc = hse_add_dyn_attr_list(key, pPublicKeyTemplate, ulPublicKeyAttributeCount);
+	if (rc)
+		goto err_free_key_intl;
 
 	srv_desc.srvId = HSE_SRV_ID_KEY_GENERATE;
-	keyGenReq->targetKeyHandle = key->key_handle;
+	keyGenReq->targetKeyHandle = key->attrs.key_handle;
 	keyGenReq->keyInfo.keyCounter = 0u;
 	keyGenReq->keyInfo.smrFlags = 0u;
 
@@ -116,7 +125,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 		case CKM_RSA_PKCS_KEY_PAIR_GEN:
 
 			if ((getattr_pval(pPrivateKeyTemplate, CKA_KEY_TYPE, ulPrivateKeyAttributeCount)) &&
-				(key->key_type != CKK_RSA)) {
+				(key->attrs.key_type != CKK_RSA)) {
 				rc = CKR_TEMPLATE_INCONSISTENT;
 				goto err_free_key_intl;
 			}
@@ -203,8 +212,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 	}
 
 	/* private and public key are stored in the same slot in HSE */
-	*phPrivateKey = key->key_handle;
-	*phPublicKey = key->key_handle;
+	*phPrivateKey = key->attrs.key_handle;
+	*phPublicKey = key->attrs.key_handle;
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	hse_key_object_write(key);
@@ -217,6 +226,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 err_free_key_data:
 	hse_mem_free(pubExp_handle);
 err_free_key_intl:
+	hse_free_dyn_attr_list(key->dyn_attrs_handle);
 	hse_intl_mem_free(key_handle);
 	return rc;
 }
@@ -306,20 +316,21 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	memset(key, 0, sizeof(*key));
 
 	/* key handles are unique in HSE; use them for UID */
-	key->key_handle = obj;
-	key->key_uid = obj;
+	key->attrs.key_handle = obj;
+	key->attrs.key_uid = obj;
+	key->dyn_attrs_handle = -1;
 
 	/* key class and key type */
 	if (getattr_pval(pTemplate, CKA_CLASS, ulCount)) {
-		key->key_class = *(CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
-		if (key->key_class != CKO_SECRET_KEY) {
+		key->attrs.key_class = *(CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
+		if (key->attrs.key_class != CKO_SECRET_KEY) {
 			rc = CKR_TEMPLATE_INCONSISTENT;
 			goto err_free_key_intl;
 		}
 	}
 	if (getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount)) {
-		key->key_type = *(CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount);
-		if (key->key_type != CKK_AES) {
+		key->attrs.key_type = *(CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount);
+		if (key->attrs.key_type != CKK_AES) {
 			rc = CKR_TEMPLATE_INCONSISTENT;
 			goto err_free_key_intl;
 		}
@@ -327,15 +338,19 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
 	if (label != NULL)
-		memcpy(key->key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
+		memcpy(key->attrs.key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
 
 	if (!(keyBitsLen = (uint16_t *)getattr_pval(pTemplate, CKA_VALUE_LEN, ulCount))) {
 		rc = CKR_ARGUMENTS_BAD;
 		goto err_free_key_intl;
 	}
 
+	rc = hse_add_dyn_attr_list(key, pTemplate, ulCount);
+	if (rc)
+		goto err_free_key_intl;
+
 	srv_desc.srvId = HSE_SRV_ID_KEY_GENERATE;
-	keyGenReq->targetKeyHandle = key->key_handle;
+	keyGenReq->targetKeyHandle = key->attrs.key_handle;
 	keyGenReq->keyInfo.keyCounter = 0u;
 	keyGenReq->keyInfo.smrFlags = 0u;
 
@@ -374,7 +389,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 		goto err_free_key_intl;
 	}
 
-	*phKey = key->key_handle;
+	*phKey = key->attrs.key_handle;
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	hse_key_object_write(key);
@@ -383,6 +398,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	return CKR_OK;
 
 err_free_key_intl:
+	hse_free_dyn_attr_list(key->dyn_attrs_handle);
 	hse_intl_mem_free(key_handle);
 	return rc;
 }
