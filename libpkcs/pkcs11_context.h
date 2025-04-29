@@ -41,6 +41,8 @@
 
 enum hse_intl_obj_type {
 	HSE_KEY_OBJ = 1,
+	HSE_ATTR_HDR_OBJ,
+	HSE_ATTR_BUF_OBJ,
 };
 
 /*
@@ -118,10 +120,12 @@ struct hse_findCtx {
 	CK_ULONG *obj_uid;
 	CK_UTF8CHAR *label;
 	CK_BYTE *key_id;
+	CK_ATTRIBUTE_PTR search_template;
+	CK_ULONG ulCount;
 };
 
 /*
- * struct hse_keyObject - internal key object
+ * struct static_attrs - default key attributes
  *
  * @key_label:  user-provided identifier for the object
  * @key_uid:    read-only unique object ID
@@ -129,12 +133,38 @@ struct hse_findCtx {
  * @key_type:   private/pair or public key
  * @key_class:  rsa or ecc
  */
-struct hse_keyObject {
+struct static_attrs {
 	char key_label[MAX_LABEL_LEN];
 	CK_ULONG key_uid;
 	CK_OBJECT_HANDLE key_handle;
 	CK_KEY_TYPE key_type;
 	CK_OBJECT_CLASS key_class;
+};
+
+/*
+ * struct hse_keyObject - internal key object
+ *
+ * @attrs: default attributes for key object
+ * @dyn_attrs_handle: memory handle to dynamic attrs list
+ */
+struct hse_keyObject {
+	struct static_attrs attrs;
+	int dyn_attrs_handle;
+};
+
+/*
+ * struct dyn_attrHdrObject - internal dynamic attr hdr object
+ *
+ * @type:  attribute type
+ * @ulLen: length of the attribute buffer
+ * @attr_handle: memory handle to the attribute buffer
+ * @next_attr_hdr_handle: next header of a dynamic attr
+ */
+struct dyn_attrHdrObject {
+	CK_ATTRIBUTE_TYPE type;
+	CK_ULONG ulLen;
+	int attr_handle;
+	int next_attr_hdr_handle;
 };
 
 /* struct mutexFns - function pointers to mutex operations

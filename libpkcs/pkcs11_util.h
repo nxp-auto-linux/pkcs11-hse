@@ -34,10 +34,15 @@ uint8_t ecparam2curveid(char *oid, uint8_t len);
 const uint8_t* curveid2ecparam(hseEccCurveId_t curve_id, uint8_t *len);
 
 void strcpy_pkcs11_padding(unsigned char *dest, const char *source, size_t dest_len);
+CK_RV hse_add_dyn_attr(struct hse_keyObject *key, CK_ATTRIBUTE attr);
+CK_RV hse_add_dyn_attr_list(struct hse_keyObject *key, CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount);
+void hse_free_dyn_attr(struct hse_keyObject *key, CK_ATTRIBUTE_TYPE type);
+void hse_free_dyn_attr_list(int dyn_attr_head_handle);
 int32_t hse_key_object_write(struct hse_keyObject *key);
 int32_t hse_key_object_remove(struct hse_keyObject *key);
 int32_t hse_pkcs_read_objs_dir(void);
 
 int get_key_object_handle(CK_OBJECT_HANDLE handle);
+struct dyn_attrHdrObject *get_key_dyn_attr_hdr_handle(int attr_head_handle, CK_ATTRIBUTE_TYPE type);
 
 #endif
