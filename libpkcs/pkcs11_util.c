@@ -543,7 +543,6 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	hseExportKeySrv_t *export_key_srv;
 	uint16_t key_bit_length;
 	uint16_t pkey_length[2] = {0, 0};
-	uint8_t *key_value0 = NULL, *key_value1 = NULL;
 	hseKeyInfo_t key_info;
 	hseEccCurveId_t ecc_curve_id;
 	bool Weierstrass_curve = FALSE;
@@ -612,13 +611,13 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	}
 
 	key_value0_handle = hse_mem_alloc(pkey_length[0]);
-	if (NULL == key_value0) {
+	if (key_value0_handle < 0) {
 		err = CKR_HOST_MEMORY;
 		goto out_free_key_info;
 	}
 
 	key_value1_handle = hse_mem_alloc(pkey_length[1]);
-	if ((NULL == key_value1) && (key->key_type == CKK_RSA)) {
+	if ((key_value1_handle < 0) && (key->key_type == CKK_RSA)) {
 		err = CKR_HOST_MEMORY;
 		goto out_free_pkey0;
 	}

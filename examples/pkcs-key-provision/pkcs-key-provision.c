@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2022-2024 NXP
+ * Copyright 2022-2025 NXP
  */
 
 #include <stdio.h>
@@ -377,6 +377,7 @@ int main(int argc, char *argv[])
 		template[1].pValue = pExponent;
 		/* template[1].ulValueLen was set by C_GetAttributeValue */
 	} else {
+		ERROR("Failed to get attribute lengths for the provided template\n");
 		goto err_free_rsa_pub_exponent;
 	}
 
@@ -407,6 +408,8 @@ int main(int argc, char *argv[])
 		} else {
 			INFO("RSA Public Key Exponent successfully exported\n");
 		}
+	} else {
+		ERROR("Failed to export RSA Public Key Modulus and Exponent\n");
 	}
 
 	INFO("Deleting Key Object with handle %06lx\n", key_match);
