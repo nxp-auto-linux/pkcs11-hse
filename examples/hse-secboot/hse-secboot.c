@@ -306,7 +306,7 @@ int hse_mus_enable()
 	srv_desc.hseSrv.setAttrReq.attrLen = sizeof(mu_config);
 	srv_desc.hseSrv.setAttrReq.pAttr = hse_virt_to_dma(mu_config_handle, 0);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to enable MUs\n");
 	hse_mem_free(mu_config_handle);
@@ -331,7 +331,7 @@ int hse_get_fw_size(uint32_t *fw_size)
 	srv_desc.hseSrv.getAttrReq.attrLen = sizeof(hseAttrHseFwSize_t);
 	srv_desc.hseSrv.getAttrReq.pAttr = hse_virt_to_dma(hse_fw_size_handle, 0);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret) {
 		ERROR("Failed to get HSE Firmware Size\n");
 		goto err_free_fw_size;
@@ -348,6 +348,7 @@ int hse_update_fw(void *new_fw, uint32_t size)
 {
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	int hse_fw_size_handle, hse_new_fw_handle;
+	uint32_t srv_rsp;
 	int ret = 0;
 
 	if (!new_fw)
@@ -371,9 +372,9 @@ int hse_update_fw(void *new_fw, uint32_t size)
 	srv_desc.hseSrv.firmwareUpdateReq.pFwBufferLength = hse_virt_to_dma(hse_fw_size_handle, 0);
 	srv_desc.hseSrv.firmwareUpdateReq.pOutFwBuffer = hse_virt_to_dma(hse_new_fw_handle, 0);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ADM, &srv_desc, sizeof(srv_desc), &srv_rsp);
 	if (ret) {
-		ERROR("Failed to update HSE Firmware\n");
+		ERROR("Failed to update HSE Firmware, error 0x%08X\n", srv_rsp);
 		goto err_free_hse_new_fw;
 	}
 	hse_memcpy_from_dev(new_fw, hse_new_fw_handle, size, 0);
@@ -554,7 +555,7 @@ int hse_key_format()
 	srv_desc.hseSrv.formatKeyCatalogsReq.pNvmKeyCatalogCfg = hse_virt_to_dma(nvm_catalog_handle, 0);
 	srv_desc.hseSrv.formatKeyCatalogsReq.pRamKeyCatalogCfg = hse_virt_to_dma(ram_catalog_handle, 0);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to format key catalogs!\n");
 
@@ -589,7 +590,7 @@ int hse_set_and_publish_cnt_table(void)
 	srv_desc.hseSrv.configSecCounter.counterIndex = HSE_MONOTONIC_CNT_NUM;
 	srv_desc.hseSrv.configSecCounter.RPBitSize = 32;
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret) {
 		ERROR("Failed to configure monotonic counter table\n");
 		goto err_free_hse_cnt_table;
@@ -601,7 +602,7 @@ int hse_set_and_publish_cnt_table(void)
 	srv_desc.hseSrv.publishLoadCntTblReq.action = HSE_NVM_CNT_TBL_ACTION_PUBLISH;
 	srv_desc.hseSrv.publishLoadCntTblReq.pNvmContainerCntTbl = hse_virt_to_dma(hse_cnt_table_handle, 0);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret) {
 		ERROR("Failed to publish monotonic counter table\n");
 		goto err_free_hse_cnt_table;
@@ -659,7 +660,7 @@ int hse_ecc_key_import(int xy_handle, int xy_size, char *curve_name, uint32_t ha
 	srv_desc.hseSrv.importKeyReq.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	srv_desc.hseSrv.importKeyReq.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to import RSA Public Key\n");
 	hse_mem_free(key_info_handle);
@@ -697,7 +698,7 @@ int hse_rsa_key_import(int rsa_modulus_handle, int rsa_modulus_size,
 	srv_desc.hseSrv.importKeyReq.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	srv_desc.hseSrv.importKeyReq.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to import RSA Public Key\n");
 	hse_mem_free(key_info_handle);
@@ -762,7 +763,7 @@ int hse_extract_and_import_sym_key(const char *keypath, uint32_t handle)
 	srv_desc.hseSrv.importKeyReq.cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	srv_desc.hseSrv.importKeyReq.keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to import Symmetric Key\n");
 
@@ -1222,7 +1223,7 @@ int hse_ecc_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[0] = bl2_sign_size / 2;
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[1] = bl2_sign_size / 2;
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to install SMR Entry\n");
 	hse_mem_free(smr_entry_handle);
@@ -1289,7 +1290,7 @@ int hse_rsa_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	srv_desc.hseSrv.smrEntryInstallReq.pAuthTag[0] = hse_virt_to_dma(bl2_sign_handle, 0);
 	srv_desc.hseSrv.smrEntryInstallReq.authTagLength[0] = bl2_sign_size;
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to install SMR Entry\n");
 	hse_mem_free(smr_entry_handle);
@@ -1325,7 +1326,7 @@ int hse_cr_install(struct app_boot_hdr *app_boot)
 	srv_desc.hseSrv.crEntryInstallReq.crEntryIndex = 1u;
 	srv_desc.hseSrv.crEntryInstallReq.pCrEntry = hse_virt_to_dma(cr_entry_handle, 0);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to install Core Reset Entry\n");
 
@@ -1341,7 +1342,7 @@ int hse_sysimg_getsize(int sysimg_size_handle)
 	srv_desc.srvId = HSE_SRV_ID_GET_SYS_IMAGE_SIZE;
 	srv_desc.hseSrv.getSysImageSizeReq.pSysImageSize = hse_virt_to_dma(sysimg_size_handle, 0);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to get SYSIMG size\n");
 
@@ -1370,7 +1371,7 @@ int hse_sysimg_publish(int sysimg_handle, int sysimg_size_handle)
 	publish_sysimg_req->pBuffLength = hse_virt_to_dma(sysimg_size_handle, 0);
 	publish_sysimg_req->pBuff = hse_virt_to_dma(sysimg_handle, 0);
 
-	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	ret = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (ret)
 		ERROR("Failed to publish SYS_IMG\n");
 

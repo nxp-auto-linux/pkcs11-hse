@@ -371,7 +371,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 			goto out_free_paad;
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_paad;
@@ -733,7 +733,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			goto out_free_paad;
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_paad;
@@ -1032,7 +1032,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 		mac_srv->pTag = hse_virt_to_dma(sign0_handle, 0);
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_sign0;
@@ -1347,7 +1347,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 		mac_srv->pTag = hse_virt_to_dma(sign0_handle, 0);
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (!err) {
 		rc = CKR_OK;
 	} else if (err == EBADMSG) {
@@ -1525,7 +1525,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			goto out_free_piv;
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_piv;
@@ -1682,7 +1682,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 			goto out_free_output;
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_output;
@@ -1866,7 +1866,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 			goto out_free_piv;
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_piv;
@@ -2009,7 +2009,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 			goto out_free_output;
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_output;
@@ -2185,7 +2185,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 		mac_srv->pInput = hse_virt_to_dma(input_handle, 0);
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err)
 		rc = CKR_FUNCTION_FAILED;
 
@@ -2359,7 +2359,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 		mac_srv->pTag = hse_virt_to_dma(sign0_handle, 0);
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 
@@ -2594,7 +2594,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 		mac_srv->pInput = hse_virt_to_dma(input_handle, 0);
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err)
 		rc = CKR_FUNCTION_FAILED;
 
@@ -2770,7 +2770,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 		mac_srv->pTag = hse_virt_to_dma(sign0_handle, 0);
 	}
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 

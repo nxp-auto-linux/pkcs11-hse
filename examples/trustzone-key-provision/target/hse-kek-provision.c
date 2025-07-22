@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
 	INFO("Importing KEK into NVM Catalog\n");
 
 	/* Issue key import service request */
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		ERROR("Key Import service request failed: error %d\n", err);
 		goto out_free_key;

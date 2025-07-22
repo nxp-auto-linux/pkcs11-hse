@@ -29,7 +29,7 @@ int hse_erase_key(uint32_t key_handle)
 	srv_desc.hseSrv.eraseKeyReq.keyHandle = key_handle;
 	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = HSE_ERASE_NOT_USED;
 
-	return hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	return hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 }
 
 int main(int argc, char *argv[])
@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
 	srv_desc.hseSrv.keyGenReq.keyGenScheme = HSE_KEY_GEN_SYM_RANDOM_KEY;
 
 	/* issue key generation service request */
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		printf("DEMO: generate key request failed: error %d\n", err);
 		goto out_dev_close;
@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
 	srv_desc.hseSrv.symCipherReq.pOutput = hse_virt_to_dma(ciphertext_handle, 0);
 
 	/* issue encrypt service request */
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		printf("DEMO: encrypt request failed: error %d\n", err);
 		goto out_free_output;
@@ -150,7 +150,7 @@ int main(int argc, char *argv[])
 	srv_desc.hseSrv.symCipherReq.pOutput = hse_virt_to_dma(ciphertext_handle, 0);
 
 	/* issue decrypt service request */
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		printf("DEMO: decrypt request failed: error %d\n", err);
 		goto out_free_output;

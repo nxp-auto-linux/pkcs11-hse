@@ -57,8 +57,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateRandom)(
 
 	while (ulRandomLen > rng_max_len) {
 		rng_req->randomNumLength = rng_max_len;
-		
-		err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+
+		err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 		if (err) {
 			rc = CKR_FUNCTION_FAILED;
 			goto out_free_output;
@@ -73,7 +73,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateRandom)(
 	if (ulRandomLen > 0) {
 		rng_req->randomNumLength = ulRandomLen;
 
-		err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+		err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 		if (err) {
 			rc = CKR_FUNCTION_FAILED;
 			goto out_free_output;

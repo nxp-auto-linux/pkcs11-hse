@@ -61,7 +61,7 @@ static int hse_get_key_info(uint8_t channel, hseKeyHandle_t key_handle, int info
 	get_key_info_srv->keyHandle = key_handle;
 	get_key_info_srv->pKeyInfo = hse_virt_to_dma(info_handle, 0);
 
-	return hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc));
+	return hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc), NULL);
 }
 
 uint16_t hse_get_key_bit_length(uint8_t channel, CK_OBJECT_HANDLE key_handle)
@@ -651,7 +651,7 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	/* HSE FW for S32G2 (FW 1.x.x) doesn't support `keyFormat` parameter */
 	/* Only raw format is supported */
 #endif
-	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc), NULL);
 	if (err)
 		goto out_free_pkey_len;
 	hse_memcpy_from_dev(pkey_length, hse_pkey_length_handle, sizeof(uint16_t) * 2, 0);

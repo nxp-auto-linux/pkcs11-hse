@@ -301,7 +301,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	hse_memcpy_to_dev(key_info_handle, (void *)&key_info, sizeof(key_info), 0);
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
@@ -363,7 +363,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
 
 	gCtx->mtxFns.lock(gCtx->keyMtx);
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (err)
 		return CKR_FUNCTION_FAILED;

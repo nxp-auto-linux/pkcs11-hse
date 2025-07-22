@@ -196,7 +196,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Digest)(
 	hash_req->pHashLength = hse_virt_to_dma(output_len_handle, 0);
 	hash_req->pHash = hse_virt_to_dma(output_handle, 0);
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_output;
@@ -295,7 +295,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestUpdate)(
 	hash_req->pHashLength = 0;
 	hash_req->pHash = 0;
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_input;
@@ -393,7 +393,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestFinal)(
 	hash_req->pHashLength = hse_virt_to_dma(output_len_handle, 0);
 	hash_req->pHash = hse_virt_to_dma(output_handle, 0);
 
-	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc));
+	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto out_free_input;

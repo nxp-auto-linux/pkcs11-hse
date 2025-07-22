@@ -294,15 +294,20 @@ static int hse_mu_msg_send(uint8_t channel, uint32_t msg)
 /**
  * hse_mu_msg_recv - receive a message over MU (blocking)
  * @channel: channel index
+ * @msg: output message
  *
- * Return: 0 on success, ENODEV for device not initialized or disabled due to
- *         fatal error or tamper detection, ECHRNG for channel index out of
- *         range, EFAULT for polling error, ETIMEDOUT for response timed out
+ * Return: 0 on success, EINVAL for invalid parameter, ENODEV for device not
+ *         initialized or disabled due to fatal error or tamper detection,
+ *         ECHRNG for channel index out of range, EFAULT for polling error,
+ *         ETIMEDOUT for message waiting time exceeding HSE_UIO_REQ_TIMEOUT
  */
-static int hse_mu_msg_recv(uint8_t channel)
+static int hse_mu_msg_recv(uint8_t channel, uint32_t *msg)
 {
 	struct pollfd pfd;
 	int ret, err = 0;
+
+	if (!msg)
+		return EINVAL;
 
 	if (!priv.init || priv.intl->event)
 		return ENODEV;
@@ -333,11 +338,8 @@ static int hse_mu_msg_recv(uint8_t channel)
 		}
 	} while (priv.intl->channel_ready[channel] == 0);
 
-	err = hse_err_decode(priv.intl->channel_reply[channel]);
-	if (err) {
-		printf("libhse: service response 0x%08X on channel %d\n",
-		       priv.intl->channel_reply[channel], channel);
-	}
+	/* return reply */
+	*msg = priv.intl->channel_reply[channel];
 
 	priv.intl->channel_ready[channel] = 0;
 	priv.intl->channel_reply[channel] = 0;
@@ -350,21 +352,34 @@ static int hse_mu_msg_recv(uint8_t channel)
  * @channel: service channel index
  * @srv_desc: service descriptor
  * @size: service descriptor size
+ * @srv_rsp: service response (can be NULL)
  *
  * Send a HSE service descriptor on the selected channel and block until the
  * HSE response has become available on the selected channel (or a timeout has
  * occured since the last reply received from firmware), then read the reply.
  *
+ * Service response parameter can be used to retrieve the original HSE reply
+ * code for parsing it directly in the application (mainly for custom firmware
+ * extensions). If not required, it can be left NULL and will just be ignored.
+ * In case of MU message send / receive error, it will be left untouched.
+ *
  * Return: 0 on success, EINVAL for invalid parameter, ENODEV for device not
  *         initialized or disabled due to fatal error or tamper detection,
  *         ECHRNG for channel index out of range, EBUSY for channel busy, none
- *         available or firmware on stand-by, -ENOTRECOVERABLE for firmware in
- *         shutdown state, ENOMSG for failure to read service request response
+ *         available or firmware on stand-by, ENOTRECOVERABLE for firmware in
+ *         shutdown state, ENOMSG for failure to read service request response,
+ *         EBADMSG for verification failed, EBADR for invalid descriptor,
+ *         EOPNOTSUPP for operation not supported, EPERM for operation not
+ *         allowed, ENOMEM for not enough space, ENOKEY for key empty or not
+ *         available, EKEYREJECTED for invalid key or write / update error,
+ *         ECANCELED for request canceled, EFAULT for other request errors
  */
-int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size)
+int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size,
+		     uint32_t *srv_rsp)
 {
 	size_t offset;
 	int i, err = 0;
+	uint32_t reply;
 
 	if (!srv_desc || !size)
 		return EINVAL;
@@ -416,11 +431,23 @@ int hse_srv_req_sync(uint8_t channel, const void *srv_desc, const size_t size)
 	}
 
 	/* wait for reply */
-	err = hse_mu_msg_recv(channel);
+	err = hse_mu_msg_recv(channel, &reply);
 	if (err) {
 		printf("libhse: read reply failed on channel %d\n", channel);
 		goto exit;
 	}
+
+	/* return original service response, if required */
+	if (srv_rsp)
+		*srv_rsp = reply;
+
+	/* translate reply to error code */
+	err = hse_err_decode(reply);
+	if (err) {
+		printf("libhse: service response 0x%08X on channel %d\n",
+		       reply, channel);
+	}
+
 exit:
 	priv.intl->channel_busy[channel] = false;
 	return err;
