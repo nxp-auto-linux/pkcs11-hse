@@ -153,6 +153,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 	/* Check the output length */
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_OFB) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CFB128) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
 		/* For AES, the output length is equal to the input length  */
 		output_len = ulDataLen;
@@ -291,6 +293,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 		case CKM_AES_ECB:
 		case CKM_AES_CTR:
 		case CKM_AES_CBC:
+		case CKM_AES_OFB:
+		case CKM_AES_CFB128:
 		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
@@ -550,6 +554,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_OFB) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CFB128) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
 		/* For AES, the output length is equal to the input length  */
 		output_len = ulEncryptedDataLen;
@@ -656,6 +662,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 		case CKM_AES_ECB:
 		case CKM_AES_CTR:
 		case CKM_AES_CBC:
+		case CKM_AES_OFB:
+		case CKM_AES_CFB128:
 		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
@@ -1415,6 +1423,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_OFB) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CFB128) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD)) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
 		goto out_uninit;
@@ -1500,6 +1510,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		case CKM_AES_ECB:
 		case CKM_AES_CTR:
 		case CKM_AES_CBC:
+		case CKM_AES_OFB:
+		case CKM_AES_CFB128:
 		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
@@ -1591,6 +1603,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 	/* Check the output length */
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_OFB) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CFB128) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
 		/* For AES, the output length is equal to the input length  */
 		if (*pulLastEncryptedPartLen < sCtx->cryptCtx.cache_idx) {
@@ -1658,6 +1672,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 		case CKM_AES_ECB:
 		case CKM_AES_CTR:
 		case CKM_AES_CBC:
+		case CKM_AES_OFB:
+		case CKM_AES_CFB128:
 		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
@@ -1756,6 +1772,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 	if ((sCtx->cryptCtx.mechanism->mechanism != CKM_AES_ECB) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_OFB) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CFB128) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD)) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
 		goto out_uninit;
@@ -1841,6 +1859,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		case CKM_AES_ECB:
 		case CKM_AES_CTR:
 		case CKM_AES_CBC:
+		case CKM_AES_OFB:
+		case CKM_AES_CFB128:
 		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;
@@ -1932,6 +1952,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 	/* Check the output length */
 	if ((sCtx->cryptCtx.mechanism->mechanism == CKM_AES_ECB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_OFB) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CFB128) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
 		/* For AES, the output length is equal to the input length  */
 		if (*pulLastPartLen < sCtx->cryptCtx.cache_idx) {
@@ -1985,6 +2007,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 		case CKM_AES_ECB:
 		case CKM_AES_CTR:
 		case CKM_AES_CBC:
+		case CKM_AES_OFB:
+		case CKM_AES_CFB128:
 		case CKM_AES_CBC_PAD:
 
 			sym_cipher_srv = &srv_desc.hseSrv.symCipherReq;

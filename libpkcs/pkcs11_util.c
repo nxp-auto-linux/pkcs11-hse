@@ -382,6 +382,12 @@ hseCipherBlockMode_t hse_pkcs_cb_alg_translate(CK_MECHANISM_TYPE mechanism)
 		case CKM_AES_CTR:
 			cb_mode = HSE_CIPHER_BLOCK_MODE_CTR;
 			break;
+		case CKM_AES_OFB:
+			cb_mode = HSE_CIPHER_BLOCK_MODE_OFB;
+			break;
+		case CKM_AES_CFB128:
+			cb_mode = HSE_CIPHER_BLOCK_MODE_CFB;
+			break;
 		default:
 			cb_mode = HSE_CIPHER_BLOCK_MODE_NULL;
 			break;
