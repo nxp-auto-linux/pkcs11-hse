@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2025 NXP
  */
 
 #include <stdio.h>
@@ -555,6 +555,36 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 		INFO("Stream CKM_AES_CTR Done!\n");
 	else 
 		INFO("Stream CKM_AES_CTR Fail!\n");
+
+	mechanism.mechanism = CKM_AES_OFB;
+	mechanism.ulParameterLen = sizeof(iv);
+	mechanism.pParameter = iv;
+	ret = block_ciphering(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("CKM_AES_OFB Done!\n");
+	else
+		INFO("CKM_AES_OFB Fail!\n");
+
+	ret = block_ciphering_parts(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("Stream CKM_AES_OFB Done!\n");
+	else
+		INFO("Stream CKM_AES_OFB Fail!\n");
+
+	mechanism.mechanism = CKM_AES_CFB128;
+	mechanism.ulParameterLen = sizeof(iv);
+	mechanism.pParameter = iv;
+	ret = block_ciphering(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("CKM_AES_CFB128 Done!\n");
+	else
+		INFO("CKM_AES_CFB128 Fail!\n");
+
+	ret = block_ciphering_parts(flist, session, key, &mechanism);
+	if (ret == 0)
+		INFO("Stream CKM_AES_CFB128 Done!\n");
+	else
+		INFO("Stream CKM_AES_CFB128 Fail!\n");
 
 	gcm_params.ulAADLen = sizeof(iv);
 	gcm_params.pAAD = iv;
