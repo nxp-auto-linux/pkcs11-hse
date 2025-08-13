@@ -995,6 +995,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
+		case CKM_ECDSA_SHA3_224:
+		case CKM_ECDSA_SHA3_256:
+		case CKM_ECDSA_SHA3_384:
+		case CKM_ECDSA_SHA3_512:
 			/* we only get one output length, which has to hold (r,s)
 			 * (r,s) are both the length of the used curve in bytes - equal
 			 * as such, assume it is doubled, and halve it */
@@ -1091,6 +1095,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
+		case CKM_ECDSA_SHA3_224:
+		case CKM_ECDSA_SHA3_256:
+		case CKM_ECDSA_SHA3_384:
+		case CKM_ECDSA_SHA3_512:
 
 			/* restore actual length */
 			hse_memcpy_from_dev(pulSignatureLen, output_len_handle, sizeof(output_len), 0);
@@ -1311,6 +1319,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
+		case CKM_ECDSA_SHA3_224:
+		case CKM_ECDSA_SHA3_256:
+		case CKM_ECDSA_SHA3_384:
+		case CKM_ECDSA_SHA3_512:
 			/* we only get one signature input and length
 			 * (r,s) are the same length
 			 * assume the signature contains both, one after the other
@@ -2187,6 +2199,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
+		case CKM_ECDSA_SHA3_224:
+		case CKM_ECDSA_SHA3_256:
+		case CKM_ECDSA_SHA3_384:
+		case CKM_ECDSA_SHA3_512:
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
 			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
 			break;
@@ -2355,6 +2371,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
+		case CKM_ECDSA_SHA3_224:
+		case CKM_ECDSA_SHA3_256:
+		case CKM_ECDSA_SHA3_384:
+		case CKM_ECDSA_SHA3_512:
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
 			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
 			sig_len = sig_len / 2;
@@ -2443,6 +2463,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
+		case CKM_ECDSA_SHA3_224:
+		case CKM_ECDSA_SHA3_256:
+		case CKM_ECDSA_SHA3_384:
+		case CKM_ECDSA_SHA3_512:
 
 			/* restore actual length */
 			hse_memcpy_from_dev(pulSignatureLen, sig_len_handle, sizeof(sig_len), 0);
@@ -2602,6 +2626,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
+		case CKM_ECDSA_SHA3_224:
+		case CKM_ECDSA_SHA3_256:
+		case CKM_ECDSA_SHA3_384:
+		case CKM_ECDSA_SHA3_512:
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
 			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
 			break;
@@ -2771,6 +2799,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 		case CKM_ECDSA_SHA256:
 		case CKM_ECDSA_SHA384:
 		case CKM_ECDSA_SHA512:
+		case CKM_ECDSA_SHA3_224:
+		case CKM_ECDSA_SHA3_256:
+		case CKM_ECDSA_SHA3_384:
+		case CKM_ECDSA_SHA3_512:
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
 			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
 
