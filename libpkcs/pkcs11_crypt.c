@@ -944,6 +944,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 	switch (sCtx->signCtx.mechanism->mechanism) {
 		case CKM_RSA_PKCS:
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
@@ -964,6 +965,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 			break;
 		case CKM_RSA_PKCS_PSS:
 		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
@@ -1062,11 +1064,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 	switch (sCtx->signCtx.mechanism->mechanism) {
 		case CKM_RSA_PKCS:
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
 		case CKM_RSA_PKCS_PSS:
 		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
@@ -1255,6 +1259,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 	switch (sCtx->signCtx.mechanism->mechanism) {
 		case CKM_RSA_PKCS:
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
@@ -1276,6 +1281,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 			break;
 		case CKM_RSA_PKCS_PSS:
 		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
@@ -2155,6 +2161,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 
 	switch (sCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
@@ -2162,6 +2169,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 			sign_scheme->sch.rsaPkcs1v15.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
 			break;
 		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
@@ -2323,6 +2331,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 
 	switch (sCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
@@ -2332,6 +2341,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 			sign_srv->pSignature[1] = 0u;
 			break;
 		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
@@ -2408,10 +2418,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 
 	switch (sCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
 		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
@@ -2564,6 +2576,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 
 	switch (sCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
@@ -2571,6 +2584,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 			sign_scheme->sch.rsaPkcs1v15.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
 			break;
 		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
@@ -2733,6 +2747,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 
 	switch (sCtx->signCtx.mechanism->mechanism) {
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
@@ -2742,6 +2757,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 			sign_srv->pSignature[1] = 0u;
 			break;
 		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:

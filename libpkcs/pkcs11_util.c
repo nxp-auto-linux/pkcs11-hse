@@ -154,24 +154,24 @@ int hse_get_hash_block_size(CK_MECHANISM_TYPE mechanism, uint32_t *block_size)
 		case HSE_HASH_ALGO_SHA2_256:
 			block_s = 64;
 			break;
-		case HSE_HASH_ALGO_SHA3_512:
-			block_s = 72;
-			break;
-		case HSE_HASH_ALGO_SHA3_384:
-			block_s = 104;
-			break;
-		case HSE_HASH_ALGO_SHA2_384:
 		case HSE_HASH_ALGO_NULL:
+		case HSE_HASH_ALGO_SHA2_384:
 		case HSE_HASH_ALGO_SHA2_512:
 		case HSE_HASH_ALGO_SHA2_512_224:
 		case HSE_HASH_ALGO_SHA2_512_256:
 			block_s = 128;
 			break;
+		case HSE_HASH_ALGO_SHA3_224:
+			block_s = 144;
+			break;
 		case HSE_HASH_ALGO_SHA3_256:
 			block_s = 136;
 			break;
-		case HSE_HASH_ALGO_SHA3_224:
-			block_s = 144;
+		case HSE_HASH_ALGO_SHA3_384:
+			block_s = 104;
+			break;
+		case HSE_HASH_ALGO_SHA3_512:
+			block_s = 72;
 			break;
 		default:
 			ret = EINVAL;
@@ -442,6 +442,8 @@ hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism)
 		case CKM_SHA_1_HMAC:
 			hash = HSE_HASH_ALGO_SHA_1;
 			break;
+		case CKM_SHA224_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_ECDSA_SHA224:
 		case CKM_SHA224_HMAC:
 			hash = HSE_HASH_ALGO_SHA2_224;
@@ -479,11 +481,13 @@ uint32_t sig_get_out_length(uint8_t channel, CK_OBJECT_HANDLE key_handle, CK_MEC
 	switch (mechanism_type) {
 		case CKM_RSA_PKCS_OAEP:
 		case CKM_SHA1_RSA_PKCS:
+		case CKM_SHA224_RSA_PKCS:
 		case CKM_SHA256_RSA_PKCS:
 		case CKM_SHA384_RSA_PKCS:
 		case CKM_SHA512_RSA_PKCS:
 		case CKM_RSA_PKCS_PSS:
 		case CKM_SHA1_RSA_PKCS_PSS:
+		case CKM_SHA224_RSA_PKCS_PSS:
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
