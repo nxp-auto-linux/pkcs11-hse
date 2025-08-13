@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2024 NXP
+ * Copyright 2025 NXP
  */
 
 #include <stdio.h>
@@ -731,6 +731,22 @@ static int ec_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJE
 	mechanism.mechanism = CKM_ECDSA_SHA512;
 	util_lib_ec_sig(flist, session, &mechanism, priv_key, pub_key);
 
+	INFO("CKM_ECDSA_SHA3_224 ...\n");
+	mechanism.mechanism = CKM_ECDSA_SHA3_224;
+	util_lib_ec_sig(flist, session, &mechanism, priv_key, pub_key);
+
+	INFO("CKM_ECDSA_SHA3_256 ...\n");
+	mechanism.mechanism = CKM_ECDSA_SHA3_256;
+	util_lib_ec_sig(flist, session, &mechanism, priv_key, pub_key);
+
+	INFO("CKM_ECDSA_SHA3_384 ...\n");
+	mechanism.mechanism = CKM_ECDSA_SHA3_384;
+	util_lib_ec_sig(flist, session, &mechanism, priv_key, pub_key);
+
+	INFO("CKM_ECDSA_SHA3_512 ...\n");
+	mechanism.mechanism = CKM_ECDSA_SHA3_512;
+	util_lib_ec_sig(flist, session, &mechanism, priv_key, pub_key);
+
 	INFO("CKM_ECDSA ...\n");
 	mechanism.mechanism = CKM_ECDSA;
 	util_lib_ec_pre_hash_sig(flist, session, &mechanism, priv_key, pub_key);
@@ -751,11 +767,15 @@ static int rsa_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJ
 	mechanism.mechanism = CKM_SHA1_RSA_PKCS;
 	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
 
+	INFO("CKM_SHA224_RSA_PKCS ...\n");
+	mechanism.mechanism = CKM_SHA224_RSA_PKCS;
+	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
+
 	INFO("CKM_SHA256_RSA_PKCS ...\n");
 	mechanism.mechanism = CKM_SHA256_RSA_PKCS;
 	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
 
-	INFO("CKM_SHA256_RSA_PKCS ...\n");
+	INFO("CKM_SHA384_RSA_PKCS ...\n");
 	mechanism.mechanism = CKM_SHA384_RSA_PKCS;
 	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
 
@@ -776,6 +796,14 @@ static int rsa_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJ
 	mechanism.pParameter = &param;
 	mechanism.ulParameterLen = sizeof(CK_RSA_PKCS_PSS_PARAMS);
 	param.hashAlg = CKM_SHA_1;
+	param.sLen = 10;
+	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
+
+	INFO("CKM_SHA224_RSA_PKCS_PSS ...\n");
+	mechanism.mechanism = CKM_SHA224_RSA_PKCS_PSS;
+	mechanism.pParameter = &param;
+	mechanism.ulParameterLen = sizeof(CK_RSA_PKCS_PSS_PARAMS);
+	param.hashAlg = CKM_SHA224;
 	param.sLen = 10;
 	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
 
