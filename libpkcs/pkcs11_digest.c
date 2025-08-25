@@ -9,21 +9,6 @@
 
 #include "pkcs11_context.h"
 
-#define SHA1_DIGEST_SIZE 20
-#define SHA1_BLOCK_SIZE  64
-
-#define SHA224_DIGEST_SIZE 28
-#define SHA224_BLOCK_SIZE  64
-
-#define SHA256_DIGEST_SIZE 32
-#define SHA256_BLOCK_SIZE  64
-
-#define SHA384_DIGEST_SIZE 48
-#define SHA384_BLOCK_SIZE  128
-
-#define SHA512_DIGEST_SIZE 64
-#define SHA512_BLOCK_SIZE  128
-
 CK_RV check_init(CK_SESSION_HANDLE hSession, CK_BBOOL digestInit)
 {
 	struct globalCtx *gCtx = getCtx();

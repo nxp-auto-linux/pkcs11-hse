@@ -11,6 +11,31 @@
 #include "hse-internal.h"
 #include "pkcs11_util.h"
 
+
+int is_valid_key_length(CK_KEY_TYPE type, uint32_t key_bit_len) {
+	switch (type) {
+		case CKK_RSA:
+			return !(key_bit_len < HSE_MIN_RSA_KEY_BITS_LEN || key_bit_len > HSE_MAX_RSA_KEY_BITS_LEN);
+		case CKK_EC:
+			return !(key_bit_len < HSE_MIN_ECC_KEY_BITS_LEN || key_bit_len > HSE_MAX_ECC_KEY_BITS_LEN);
+		case CKK_AES_XTS:
+			return (key_bit_len == 256 || key_bit_len == 512);
+		case CKK_AES:
+			return (key_bit_len == 128 || key_bit_len == 192 || key_bit_len == 256);
+		case CKK_SHA_1_HMAC:
+		case CKK_SHA224_HMAC:
+		case CKK_SHA256_HMAC:
+			return !(key_bit_len < HSE_MIN_HMAC_KEY_BITS_LEN ||
+					(key_bit_len > HSE_MAX_HMAC_KEY_BITS_LEN && key_bit_len < HSE_BYTES_TO_BITS(SHA256_BLOCK_SIZE)));
+		case CKK_SHA384_HMAC:
+		case CKK_SHA512_HMAC:
+			return !(key_bit_len < HSE_MIN_HMAC_KEY_BITS_LEN ||
+					(key_bit_len > HSE_MAX_HMAC_KEY_BITS_LEN && key_bit_len < HSE_BYTES_TO_BITS(SHA512_BLOCK_SIZE)));
+		default:
+			return 0;
+	}
+}
+
 CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 		CK_SESSION_HANDLE hSession,
 		CK_ATTRIBUTE_PTR pTemplate,
@@ -33,6 +58,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	CK_RV rc = CKR_OK;
 	int err, key_info_handle = -1, key_handle = -1;
 	int pkey0_handle = -1, pkey1_handle = -1, pkey2_handle = -1;
+	uint32_t key_bit_len;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -134,7 +160,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 		case CKK_RSA:
 
 			pkey0_len = getattr_len(pTemplate, CKA_MODULUS, ulCount);
-			if (!pkey0_len) {
+			key_bit_len = HSE_BYTES_TO_BITS(pkey0_len);
+			if (!is_valid_key_length(key->attrs.key_type, key_bit_len)) {
 				rc = CKR_ARGUMENTS_BAD;
 				goto err_free_key_intl;
 			}
@@ -237,7 +264,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			if (key->attrs.key_class == CKO_PRIVATE_KEY) {
 
 				pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
-				if (!pkey2_len) {
+				key_bit_len = HSE_BYTES_TO_BITS(pkey2_len);
+				if (!is_valid_key_length(key->attrs.key_type, key_bit_len)) {
 					rc = CKR_ARGUMENTS_BAD;
 					goto err_free_pkey0;
 				}
@@ -257,13 +285,15 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 
 			break;
 		case CKK_AES:
+		case CKK_SHA_1_HMAC:
 		case CKK_SHA224_HMAC:
 		case CKK_SHA256_HMAC:
 		case CKK_SHA384_HMAC:
 		case CKK_SHA512_HMAC:
 
 			pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
-			if (!pkey2_len) {
+			key_bit_len = HSE_BYTES_TO_BITS(pkey2_len);
+			if (!is_valid_key_length(key->attrs.key_type, key_bit_len)) {
 				rc = CKR_ARGUMENTS_BAD;
 				goto err_free_key_intl;
 			}
