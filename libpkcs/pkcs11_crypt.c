@@ -821,6 +821,19 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
+	if (gCtx->fwTypeId == 0) {  /* 0 - STANDARD */
+		switch (pMechanism->mechanism) {
+			case CKM_ECDSA_SHA3_224:
+			case CKM_ECDSA_SHA3_256:
+			case CKM_ECDSA_SHA3_384:
+			case CKM_ECDSA_SHA3_512:
+				printf("ERROR: ECDSA SHA3 mechanism not supported for standard firmware\n");
+				return CKR_MECHANISM_INVALID;
+			default:
+				break;
+		}
+	}
+
 	gCtx->mtxFns.lock(gCtx->keyMtx);
 	if (get_key_object_handle(hKey) < 0) {
 		gCtx->mtxFns.unlock(gCtx->keyMtx);
