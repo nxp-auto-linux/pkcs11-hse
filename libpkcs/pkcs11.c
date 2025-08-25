@@ -253,6 +253,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 	CK_TOKEN_INFO_PTR pToken = &gCtx->token;
 	CK_SLOT_INFO_PTR pSlot = &gCtx->slot;
 	CK_C_INITIALIZE_ARGS_PTR initArgs = pInitArgs;
+	hseAttrFwVersion_t fw_version;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	int fw_version_handle, err;
 	CK_RV rv;
 
 	if (gCtx->cryptokiInit)
@@ -343,6 +346,29 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 
 	if (hse_dev_open())
 		return CKR_HOST_MEMORY;
+
+	/* get firmware version*/
+	fw_version_handle = hse_mem_alloc(sizeof(hseAttrFwVersion_t));
+	if (fw_version_handle < 0) {
+		return CKR_HOST_MEMORY;
+	}
+
+	srv_desc.srvId = HSE_SRV_ID_GET_ATTR;
+	srv_desc.hseSrv.getAttrReq.attrId = HSE_FW_VERSION_ATTR_ID;
+	srv_desc.hseSrv.getAttrReq.attrLen = sizeof(hseAttrFwVersion_t);
+	srv_desc.hseSrv.getAttrReq.pAttr = hse_virt_to_dma(fw_version_handle, 0);
+
+	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
+	if (err) {
+		printf("ERROR: Failed to get firmware version: %d\n", err);
+		hse_mem_free(fw_version_handle);
+		return CKR_FUNCTION_FAILED;
+	}
+
+	hse_memcpy_from_dev(&fw_version, fw_version_handle, sizeof(hseAttrFwVersion_t), 0);
+	hse_mem_free(fw_version_handle);
+
+	gCtx->fwTypeId = fw_version.fwTypeId;
 
 	/* start iteration through mem contents */
 	hse_intl_iterstart();

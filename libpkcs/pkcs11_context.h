@@ -196,6 +196,7 @@ struct globalCtx {
 	CK_TOKEN_INFO token;
 	struct mutexFns mtxFns;
 	CK_VOID_PTR keyMtx;
+	uint16_t fwTypeId;
 };
 
 /*
