@@ -48,7 +48,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseImportKeySrv_t *import_key_req;
 	hseKeyInfo_t key_info;
-	uint32_t pkey0_len, pkey1_len, pkey2_len;
+	uint32_t pkey0_len, pkey1_len, pkey2_len, fullkey_len, tweakkey_len;
 	void *ecc_oid, *ec_point;
 	struct hse_keyObject *key;
 	CK_BYTE *idtemp;
@@ -59,6 +59,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	int err, key_info_handle = -1, key_handle = -1;
 	int pkey0_handle = -1, pkey1_handle = -1, pkey2_handle = -1;
 	uint32_t key_bit_len;
+	int tweakmem_handle = -1;
+	CK_BYTE *fullKey, *tweakKey;
+	CK_BYTE *tweak_id;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -111,6 +114,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 		goto err_free_key_info;
 	}
 	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
+	memset(key, 0, sizeof(*key));
 
 	/* get key handle for CKA_ID */
 	key->attrs.key_handle = search_obj;
@@ -284,6 +288,91 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			}
 
 			break;
+		/*
+		 * CKK_AES_XTS case:
+		 * - AES-XTS requires two keys: one for encryption/decryption and one for tweak.
+		 * - CKA_VALUE is expected to contain both keys concatenated: [cipher_key || tweak_key].
+		 * - The tweak key is extracted and imported separately using either
+		 *   HSE_KF_USAGE_XTS_TWEAK or HSE_KF_USAGE_ENCRYPT depending on the hse firmware version.
+		 * - After importing the tweak key, we fall through to CKK_AES to import the cipher key.
+		 */
+		case CKK_AES_XTS:
+
+			/* Get full key */
+			fullKey = (CK_BYTE *)getattr_pval(pTemplate, CKA_VALUE, ulCount);
+			fullkey_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
+			if (!fullKey || !fullkey_len) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_key_intl;
+			}
+
+			/* Extract tweak key */
+			tweakKey = fullKey + (fullkey_len / 2);
+			tweakkey_len = fullkey_len / 2;
+
+			tweakmem_handle = hse_mem_alloc(tweakkey_len);
+			if (tweakmem_handle < 0) {
+				rc = CKR_HOST_MEMORY;
+				goto err_free_tweakmem;
+			}
+
+			hse_memcpy_to_dev(tweakmem_handle, tweakKey, tweakkey_len, 0);
+
+			tweak_id = (CK_BYTE *)getattr_pval(pTemplate, CKA_XTS_TWEAK_HANDLE, ulCount);
+			if (tweak_id == NULL || getattr_len(pTemplate, CKA_XTS_TWEAK_HANDLE, ulCount) != 3) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_tweakmem;
+			}
+
+/*
+ * HSE_KF_USAGE_XTS_TWEAK flag is only supported starting with
+ * HSE firmware version 2.x.x.
+ * For older versions, encryption flag is used.
+ */
+#if HSE_FW_VERSION_MAJOR >= 2
+			key_info.keyFlags = HSE_KF_USAGE_XTS_TWEAK;
+#else
+			key_info.keyFlags |= HSE_KF_USAGE_ENCRYPT;
+#endif /* HSE_FW_VERSION_MAJOR >= 2 */
+
+			key_info.keyType = HSE_KEY_TYPE_AES;
+			key_info.keyBitLen = tweakkey_len * 8;
+
+			import_key_req->pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
+			import_key_req->targetKeyHandle = GET_KEY_HANDLE(tweak_id[2], tweak_id[1], tweak_id[0]);
+			import_key_req->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
+			import_key_req->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
+
+			import_key_req->pKey[0] = 0u;
+			import_key_req->pKey[1] = 0u;
+			import_key_req->pKey[2] = hse_virt_to_dma(tweakmem_handle, 0);
+			import_key_req->keyLen[0] = 0u;
+			import_key_req->keyLen[1] = 0u;
+			import_key_req->keyLen[2] = tweakkey_len;
+
+
+			hse_memcpy_to_dev(key_info_handle, (void *)&key_info, sizeof(key_info), 0);
+
+			err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
+			if (err) {
+				rc = CKR_FUNCTION_FAILED;
+				goto err_free_tweakmem;
+			}
+
+			hse_mem_free(tweakmem_handle);
+
+			/* Reset the service descriptor for the cipher key */
+			memset(&srv_desc, 0, sizeof(srv_desc));
+			memset(&key_info, 0, sizeof(key_info));
+
+			srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
+			import_key_req = &srv_desc.hseSrv.importKeyReq;
+			import_key_req->pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
+			import_key_req->targetKeyHandle = key->attrs.key_handle;
+			import_key_req->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
+			import_key_req->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
+
+		/* Fallthrough to CKK_AES to import cipher key */
 		case CKK_AES:
 		case CKK_SHA_1_HMAC:
 		case CKK_SHA224_HMAC:
@@ -297,6 +386,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				rc = CKR_ARGUMENTS_BAD;
 				goto err_free_key_intl;
 			}
+
+			if (key->attrs.key_type == CKK_AES_XTS)
+				pkey2_len /= 2;
+
 			pkey2_handle = hse_mem_alloc(pkey2_len);
 			if (pkey2_handle < 0) {
 				rc = CKR_HOST_MEMORY;
@@ -304,7 +397,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			}
 			hse_memcpy_to_dev(pkey2_handle, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len, 0);
 
-			if (key->attrs.key_type == CKK_AES) {
+			if (key->attrs.key_type == CKK_AES || key->attrs.key_type == CKK_AES_XTS) {
 				/* aes keys can only be used for encrypt/decrypt */
 				key_info.keyFlags = (HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
 				key_info.keyType = HSE_KEY_TYPE_AES;
@@ -348,6 +441,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 
 	return CKR_OK;
 
+err_free_tweakmem:
+	hse_mem_free(tweakmem_handle);
 err_free_pkey2:
 	hse_mem_free(pkey2_handle);
 err_free_pkey1:
