@@ -28,8 +28,19 @@ static unsigned char key_value_AES_128[] = {
 	0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF
 };
 
+static unsigned char xts_key_value_AES[32] = {
+	/* cipher key */
+    0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF,
+	/*tweak key */
+    0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99
+};
+
 static unsigned char iv[] = {
 	0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0x12
+};
+
+unsigned char xts_tweak[16] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 void usage(const char* progname)
@@ -144,6 +155,40 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
 		{ CKA_ID, &key_id, sizeof(key_id) },
+		{ CKA_VALUE, (CK_BYTE_PTR)key_value, aes_key_len }
+	};
+
+	rv = flist->C_CreateObject(session, keyTemplate, ARRAY_SIZE(keyTemplate), &key);
+	if (rv != CKR_OK)
+		return -EKEYREJECTED;
+
+	return key;
+}
+
+static CK_OBJECT_HANDLE util_lib_create_object_xts(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
+					       int aes_key_len, uint8_t *key_value)
+{
+	CK_OBJECT_HANDLE key;
+	CK_RV rv;
+
+	/* define key template
+	 *
+	 * key_id represent the HSE key slot in the key catalog
+	 *     - key_id[0] - slot ID
+	 *     - key_id[1] - group ID
+	 *     - key_id[2] - catalog ID
+	 */
+	CK_OBJECT_CLASS key_class = CKO_SECRET_KEY;
+	CK_KEY_TYPE key_type = CKK_AES_XTS;
+	CK_UTF8CHAR label[] = {"HSE-AES-XTS"};
+	CK_BYTE key_id[] = { 0x09, 0x01, 0x01 };
+	CK_BYTE tweak_key_id[] = { 0x08, 0x01, 0x01 };
+	CK_ATTRIBUTE keyTemplate[] = {
+		{ CKA_LABEL, label, sizeof(label)-1 },
+		{ CKA_CLASS, &key_class, sizeof(key_class) },
+		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
+		{ CKA_ID, &key_id, sizeof(key_id) },
+		{ CKA_XTS_TWEAK_HANDLE, &tweak_key_id, sizeof(tweak_key_id)},
 		{ CKA_VALUE, (CK_BYTE_PTR)key_value, aes_key_len }
 	};
 
@@ -489,7 +534,7 @@ static int block_ciphering_parts(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE s
 	return 0;
 }
 
-static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key)
+static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE key, CK_OBJECT_HANDLE xts_key)
 {
 	int ret;
 	CK_MECHANISM mechanism;
@@ -585,6 +630,16 @@ static int util_lib_block_ciphering(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDL
 		INFO("Stream CKM_AES_CFB128 Done!\n");
 	else
 		INFO("Stream CKM_AES_CFB128 Fail!\n");
+
+	mechanism.mechanism = CKM_AES_XTS;
+	mechanism.pParameter = xts_tweak;
+	mechanism.ulParameterLen = sizeof(xts_tweak);
+
+	ret = block_ciphering(flist, session, xts_key, &mechanism);
+	if (ret == 0)
+		INFO("CKM_AES_XTS Done!\n");
+	else
+		INFO("CKM_AES_XTS Fail!\n");
 
 	gcm_params.ulAADLen = sizeof(iv);
 	gcm_params.pAAD = iv;
@@ -720,7 +775,7 @@ int main(int argc, char *argv[])
 	
 	CK_SLOT_ID slot;
 	CK_SESSION_HANDLE session;
-	CK_OBJECT_HANDLE aes_key, key, rsa_pub_key, rsa_priv_key;
+	CK_OBJECT_HANDLE aes_key, key, aes_xts_key, xts_key, rsa_pub_key, rsa_priv_key;
 
 	if (argc == 2 && !strncmp(argv[1], arg_help, sizeof(*arg_help))) {
 		usage(argv[0]);
@@ -788,6 +843,13 @@ int main(int argc, char *argv[])
 		goto err_close_session;
 	}
 
+	xts_key = util_lib_create_object_xts(flist, session, 32, xts_key_value_AES);
+	if (!xts_key) {
+		ERROR("Failed to create xts key object\n");
+		ret = -EKEYREJECTED;
+		goto err_close_session;
+	}
+
 	INFO("Calling C_FindObjects...\n");
 
 	aes_key = util_lib_find_objects(flist, session, "HSE-AES-128");
@@ -799,9 +861,18 @@ int main(int argc, char *argv[])
 
 	INFO("Found Key Object with handle %06lx\n", aes_key);
 
+	aes_xts_key = util_lib_find_objects(flist, session, "HSE-AES-XTS");
+	if (!aes_key) {
+		ERROR("Failed to find xts key object with Class CKO_SECRET_KEY\n");
+		ret = -ENOKEY;
+		goto err_remove_aes;
+	}
+
+	INFO("Found XTS Key Object with handle %06lx\n", aes_xts_key);
+
 	INFO("Block ciphering...\n");
 	/* block ciphering */
-	util_lib_block_ciphering(flist, session, aes_key);
+	util_lib_block_ciphering(flist, session, aes_key, aes_xts_key);
 
 	INFO("RSA ciphering...\n");
 	/* RSA ciphering */
@@ -809,7 +880,7 @@ int main(int argc, char *argv[])
 	if (!rsa_pub_key) {
 		ERROR("Failed to find key object with Class CKO_PUBLIC_KEY\n");
 		ret = -ENOKEY;
-		goto err_remove_aes;
+		goto err_remove_aes_xts;
 	}
 
 	INFO("Found Key Object with handle %06lx\n", rsa_pub_key);
@@ -818,7 +889,7 @@ int main(int argc, char *argv[])
 	if (!rsa_priv_key) {
 		ERROR("Failed to find key object with Class CKO_PRIVATE_KEY\n");
 		ret = -ENOKEY;
-		goto err_remove_aes;
+		goto err_remove_aes_xts;
 	}
 
 	INFO("Found Key Object with handle %06lx\n", rsa_priv_key);
@@ -827,6 +898,10 @@ int main(int argc, char *argv[])
 
 	INFO("Cleaning up and calling C_Finalize...\n");
 
+err_remove_aes_xts:
+	INFO("Deleting Key Object with handle %06lx\n", aes_xts_key);
+	if (util_lib_destroy_object(flist, session, aes_xts_key))
+		ERROR("Failed to destroy xts key object\n");
 err_remove_aes:
 	INFO("Deleting Key Object with handle %06lx\n", aes_key);
 	if (util_lib_destroy_object(flist, session, aes_key))
