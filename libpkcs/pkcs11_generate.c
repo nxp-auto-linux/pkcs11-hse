@@ -251,6 +251,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	char *label = NULL;
 	CK_RV rc = CKR_OK;
 	int err, key_handle;
+	CK_BYTE *tweak_id;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -263,6 +264,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 
 	switch (pMechanism->mechanism) {
 		case CKM_AES_KEY_GEN:
+		case CKM_AES_XTS_KEY_GEN:
 			keyType = HSE_KEY_TYPE_AES;
 			break;
 		case CKM_SHA_1_KEY_GEN:
@@ -348,9 +350,51 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 		goto err_free_key_intl;
 
 	srv_desc.srvId = HSE_SRV_ID_KEY_GENERATE;
+
+	if (pMechanism->mechanism == CKM_AES_XTS_KEY_GEN) {
+		/* This block handles the generation of the tweak key required by AES-XTS */
+
+		/* Extract tweak handle */
+		tweak_id = (CK_BYTE *)getattr_pval(pTemplate, CKA_XTS_TWEAK_HANDLE, ulCount);
+		if (tweak_id == NULL || getattr_len(pTemplate, CKA_XTS_TWEAK_HANDLE, ulCount) != 3) {
+			rc = CKR_ARGUMENTS_BAD;
+			goto err_free_key_intl;
+		}
+
+		keyGenReq->targetKeyHandle = GET_KEY_HANDLE(tweak_id[2], tweak_id[1], tweak_id[0]);
+
+/*
+ * HSE_KF_USAGE_XTS_TWEAK flag is only supported starting with
+ * HSE firmware version 2.x.x.
+ * For older versions, encryption flag is used.
+ */
+#if HSE_FW_VERSION_MAJOR >= 2
+		keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_XTS_TWEAK;
+		if (keyType == HSE_KEY_TYPE_AES)
+			keyGenReq->keyInfo.specific.aesBlockModeMask = 0u;
+#else
+		keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_ENCRYPT;
+#endif /* HSE_FW_VERSION_MAJOR >= 2 */
+		keyGenReq->keyInfo.keyType = keyType;
+		keyGenReq->keyInfo.keyBitLen = *keyBitsLen;
+		keyGenReq->keyInfo.keyCounter = 0u;
+		keyGenReq->keyInfo.smrFlags = 0u;
+		keyGenReq->sch.symKey = 0u;
+		keyGenReq->keyGenScheme = HSE_KEY_GEN_SYM_RANDOM_KEY;
+
+		err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
+		if (err) {
+			rc = CKR_FUNCTION_FAILED;
+			goto err_free_key_intl;
+		}
+
+		/* Reset the service descriptor for the cipher key */
+		memset(&srv_desc, 0, sizeof(srv_desc));
+		srv_desc.srvId = HSE_SRV_ID_KEY_GENERATE;
+		keyGenReq = &srv_desc.hseSrv.keyGenReq;
+	}
+
 	keyGenReq->targetKeyHandle = key->attrs.key_handle;
-	keyGenReq->keyInfo.keyCounter = 0u;
-	keyGenReq->keyInfo.smrFlags = 0u;
 
 	/* only AES slot keys can be used for encrypt/decrypt ops */
 	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_ENCRYPT, ulCount)) && (*keyFlag_val)) {
