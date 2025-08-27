@@ -1136,3 +1136,37 @@ struct dyn_attrHdrObject *get_key_dyn_attr_hdr_handle(int attr_head_handle, CK_A
 	}
 	return NULL;
 }
+
+void *get_attr_handle_from_key(CK_OBJECT_HANDLE key_handle, CK_ATTRIBUTE_TYPE attr_type)
+{
+	int key_obj_handle;
+	struct hse_keyObject *key;
+	struct dyn_attrHdrObject *attr_hdr;
+	void *value;
+
+	key_obj_handle = get_key_object_handle(key_handle);
+	if (key_obj_handle == -1) {
+		printf("[libpkcs] key object handle not found for CK_OBJECT_HANDLE = 0x%lx\n", key_handle);
+		return NULL;
+	}
+	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_obj_handle, true);
+	if (!key) {
+		printf("[libpkcs] key object memory is NULL.\n");
+		return NULL;
+	}
+
+	attr_hdr = get_key_dyn_attr_hdr_handle(key->dyn_attrs_handle, attr_type);
+
+	if (!attr_hdr || attr_hdr->ulLen != 3) {
+		printf("[libpkcs] attribute type not found or attribute length invalid.\n");
+		return NULL;
+	}
+
+	value = (void *)(uintptr_t)hse_get_node_mem_addr(attr_hdr->attr_handle, true);
+	if (!value) {
+		printf("[libpkcs] failed to get attribute value buffer.\n");
+		return NULL;
+	}
+
+	return value;
+}

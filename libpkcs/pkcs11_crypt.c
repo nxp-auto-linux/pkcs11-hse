@@ -85,6 +85,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
+	hseXtsAesCipherSrv_t *xts_cipher_srv;
 	hseRsaCipherSrv_t *rsa_cipher_srv;
 	hseAeadSrv_t *aead_srv;
 	CK_RV rc = CKR_OK;
@@ -95,6 +96,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 	CK_RSA_PKCS_OAEP_PARAMS *oaep_params = NULL;
 	CK_CCM_PARAMS *ccm_params = NULL;
 	CK_GCM_PARAMS *gcm_params = NULL;
+	CK_BYTE *attr;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -155,6 +157,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_OFB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CFB128) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_XTS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
 		/* For AES, the output length is equal to the input length  */
 		output_len = ulDataLen;
@@ -319,6 +322,29 @@ CK_DECLARE_FUNCTION(CK_RV, C_Encrypt)(
 
 			break;
 
+		case CKM_AES_XTS:
+
+			xts_cipher_srv = &srv_desc.hseSrv.xtsAesCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_XTS_AES_CIPHER;
+			xts_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			xts_cipher_srv->cipherKeyHandle = sCtx->cryptCtx.keyHandle;
+
+			attr = get_attr_handle_from_key(sCtx->cryptCtx.keyHandle, CKA_XTS_TWEAK_HANDLE);
+			xts_cipher_srv->tweakKeyHandle = attr ?
+				GET_KEY_HANDLE(attr[2], attr[1], attr[0]) :
+				HSE_INVALID_KEY_HANDLE;
+
+#if HSE_FW_VERSION_MAJOR >= 2
+			xts_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+#endif /* HSE_FW_VERSION_MAJOR >= 2*/
+			xts_cipher_srv->sectorSize = ulDataLen;
+			xts_cipher_srv->inputLength = ulDataLen;
+			xts_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
+			xts_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
+
+			break;
+
 		case CKM_AES_GCM:
 		case CKM_AES_CCM:
 
@@ -479,6 +505,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
+	hseXtsAesCipherSrv_t *xts_cipher_srv;
 	hseRsaCipherSrv_t *rsa_cipher_srv;
 	hseAeadSrv_t *aead_srv;
 	CK_RV rc = CKR_OK;
@@ -489,6 +516,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 	CK_RSA_PKCS_OAEP_PARAMS *oaep_params = NULL;
 	CK_CCM_PARAMS *ccm_params = NULL;
 	CK_GCM_PARAMS *gcm_params = NULL;
+	CK_BYTE *attr;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -556,6 +584,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_OFB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CFB128) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_XTS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
 		/* For AES, the output length is equal to the input length  */
 		output_len = ulEncryptedDataLen;
@@ -682,6 +711,29 @@ CK_DECLARE_FUNCTION(CK_RV, C_Decrypt)(
 			sym_cipher_srv->inputLength = ulEncryptedDataLen;
 			sym_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
+
+			break;
+
+		case CKM_AES_XTS:
+
+			xts_cipher_srv = &srv_desc.hseSrv.xtsAesCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_XTS_AES_CIPHER;
+			xts_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			xts_cipher_srv->cipherKeyHandle = sCtx->cryptCtx.keyHandle;
+
+			attr = get_attr_handle_from_key(sCtx->cryptCtx.keyHandle, CKA_XTS_TWEAK_HANDLE);
+			xts_cipher_srv->tweakKeyHandle = attr ?
+				GET_KEY_HANDLE(attr[2], attr[1], attr[0]) :
+				HSE_INVALID_KEY_HANDLE;
+
+#if HSE_FW_VERSION_MAJOR >= 2
+			xts_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+#endif /* HSE_FW_VERSION_MAJOR >= 2*/
+			xts_cipher_srv->sectorSize = ulEncryptedDataLen;
+			xts_cipher_srv->inputLength = ulEncryptedDataLen;
+			xts_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
+			xts_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
 			break;
 
@@ -1423,10 +1475,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
+	hseXtsAesCipherSrv_t *xts_cipher_srv;
 	CK_RV rc = CKR_OK;
 	int err, input_handle = -1, output_handle = -1, pIV_handle = -1;
 	uint32_t bytes_left, full_blocks;
 	hseAccessMode_t access_mode;
+	CK_BYTE *attr;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -1456,6 +1510,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_OFB) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CFB128) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_XTS) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD)) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
 		goto out_uninit;
@@ -1563,6 +1618,29 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptUpdate)(
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
 			break;
+
+		case CKM_AES_XTS:
+
+			xts_cipher_srv = &srv_desc.hseSrv.xtsAesCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_XTS_AES_CIPHER;
+			xts_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			xts_cipher_srv->cipherKeyHandle = sCtx->cryptCtx.keyHandle;
+
+			attr = get_attr_handle_from_key(sCtx->cryptCtx.keyHandle, CKA_XTS_TWEAK_HANDLE);
+			xts_cipher_srv->tweakKeyHandle = attr ?
+				GET_KEY_HANDLE(attr[2], attr[1], attr[0]) :
+				HSE_INVALID_KEY_HANDLE;
+
+#if HSE_FW_VERSION_MAJOR >= 2
+			xts_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+#endif /* HSE_FW_VERSION_MAJOR >= 2*/
+			xts_cipher_srv->sectorSize = full_blocks;
+			xts_cipher_srv->inputLength = full_blocks;
+			xts_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
+			xts_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
+
+			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
 			goto out_free_piv;
@@ -1607,9 +1685,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
+	hseXtsAesCipherSrv_t *xts_cipher_srv;
 	uint8_t input_len = 0, pad_value = 0, pad_len = 0;
 	CK_RV rc = CKR_OK;
 	int err, input_handle = -1, output_handle = -1;
+	CK_BYTE *attr;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -1636,6 +1716,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_OFB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CFB128) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_XTS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
 		/* For AES, the output length is equal to the input length  */
 		if (*pulLastEncryptedPartLen < sCtx->cryptCtx.cache_idx) {
@@ -1724,6 +1805,30 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptFinal)(
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
 			break;
+
+		case CKM_AES_XTS:
+
+			xts_cipher_srv = &srv_desc.hseSrv.xtsAesCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_XTS_AES_CIPHER;
+			xts_cipher_srv->cipherDir = HSE_CIPHER_DIR_ENCRYPT;
+			xts_cipher_srv->cipherKeyHandle = sCtx->cryptCtx.keyHandle;
+
+			attr = get_attr_handle_from_key(sCtx->cryptCtx.keyHandle, CKA_XTS_TWEAK_HANDLE);
+			xts_cipher_srv->tweakKeyHandle = attr ?
+				GET_KEY_HANDLE(attr[2], attr[1], attr[0]) :
+				HSE_INVALID_KEY_HANDLE;
+
+#if HSE_FW_VERSION_MAJOR >= 2
+			xts_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+#endif /* HSE_FW_VERSION_MAJOR >= 2*/
+			xts_cipher_srv->sectorSize = input_len;
+			xts_cipher_srv->inputLength = input_len;
+			xts_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
+			xts_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
+
+			break;
+
 		default:
 			rc = CKR_ARGUMENTS_BAD;
 			goto out_free_output;
@@ -1772,10 +1877,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
+	hseXtsAesCipherSrv_t *xts_cipher_srv;
 	CK_RV rc = CKR_OK;
 	int err, input_handle = -1, output_handle = -1, pIV_handle = -1;
 	uint32_t bytes_left, full_blocks;
 	hseAccessMode_t access_mode;
+	CK_BYTE *attr;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -1805,6 +1912,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CTR) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_OFB) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CFB128) &&
+		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_XTS) &&
 		(sCtx->cryptCtx.mechanism->mechanism != CKM_AES_CBC_PAD)) {
 		rc = CKR_FUNCTION_NOT_SUPPORTED;
 		goto out_uninit;
@@ -1912,6 +2020,30 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptUpdate)(
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
 			break;
+
+		case CKM_AES_XTS:
+
+			xts_cipher_srv = &srv_desc.hseSrv.xtsAesCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_XTS_AES_CIPHER;
+			xts_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			xts_cipher_srv->cipherKeyHandle = sCtx->cryptCtx.keyHandle;
+
+			attr = get_attr_handle_from_key(sCtx->cryptCtx.keyHandle, CKA_XTS_TWEAK_HANDLE);
+			xts_cipher_srv->tweakKeyHandle = attr ?
+				GET_KEY_HANDLE(attr[2], attr[1], attr[0]) :
+				HSE_INVALID_KEY_HANDLE;
+
+#if HSE_FW_VERSION_MAJOR >= 2
+			xts_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+#endif /* HSE_FW_VERSION_MAJOR >= 2*/
+			xts_cipher_srv->sectorSize = full_blocks;
+			xts_cipher_srv->inputLength = full_blocks;
+			xts_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
+			xts_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
+
+			break;
+
 		default:
 			rc = CKR_ARGUMENTS_BAD;
 			goto out_free_piv;
@@ -1956,9 +2088,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseSymCipherSrv_t *sym_cipher_srv;
+	hseXtsAesCipherSrv_t *xts_cipher_srv;
 	uint8_t input_len = 0;
 	CK_RV rc = CKR_OK;
 	int err, input_handle = -1, output_handle = -1;
+	CK_BYTE *attr;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -1985,6 +2119,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CBC) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_OFB) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CFB128) ||
+		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_XTS) ||
 		(sCtx->cryptCtx.mechanism->mechanism == CKM_AES_CTR)) {
 		/* For AES, the output length is equal to the input length  */
 		if (*pulLastPartLen < sCtx->cryptCtx.cache_idx) {
@@ -2059,6 +2194,30 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptFinal)(
 			sym_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
 
 			break;
+
+		case CKM_AES_XTS:
+
+			xts_cipher_srv = &srv_desc.hseSrv.xtsAesCipherReq;
+
+			srv_desc.srvId = HSE_SRV_ID_XTS_AES_CIPHER;
+			xts_cipher_srv->cipherDir = HSE_CIPHER_DIR_DECRYPT;
+			xts_cipher_srv->cipherKeyHandle = sCtx->cryptCtx.keyHandle;
+
+			attr = get_attr_handle_from_key(sCtx->cryptCtx.keyHandle, CKA_XTS_TWEAK_HANDLE);
+			xts_cipher_srv->tweakKeyHandle = attr ?
+				GET_KEY_HANDLE(attr[2], attr[1], attr[0]) :
+				HSE_INVALID_KEY_HANDLE;
+
+#if HSE_FW_VERSION_MAJOR >= 2
+			xts_cipher_srv->sgtOption = HSE_SGT_OPTION_NONE;
+#endif /* HSE_FW_VERSION_MAJOR >= 2*/
+			xts_cipher_srv->sectorSize = input_len;
+			xts_cipher_srv->inputLength = input_len;
+			xts_cipher_srv->pInput = hse_virt_to_dma(input_handle, 0);
+			xts_cipher_srv->pOutput= hse_virt_to_dma(output_handle, 0);
+
+			break;
+
 		default:
 			rc = CKR_ARGUMENTS_BAD;
 			goto out_free_output;

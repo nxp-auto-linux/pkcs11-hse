@@ -44,5 +44,6 @@ int32_t hse_pkcs_read_objs_dir(void);
 
 int get_key_object_handle(CK_OBJECT_HANDLE handle);
 struct dyn_attrHdrObject *get_key_dyn_attr_hdr_handle(int attr_head_handle, CK_ATTRIBUTE_TYPE type);
+void *get_attr_handle_from_key(CK_OBJECT_HANDLE key_handle, CK_ATTRIBUTE_TYPE attr_type);
 
 #endif

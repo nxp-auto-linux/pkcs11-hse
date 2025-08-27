@@ -32,6 +32,7 @@ static const CK_MECHANISM_TYPE mechanismList[] = {
 	CKM_AES_CTR,
 	CKM_AES_OFB,
 	CKM_AES_CFB128,
+	CKM_AES_XTS,
 	CKM_AES_CCM,
 	CKM_AES_GCM,
 	CKM_AES_CMAC,
@@ -688,6 +689,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetMechanismInfo)(
 		case CKM_AES_CTR:
 		case CKM_AES_OFB:
 		case CKM_AES_CFB128:
+		case CKM_AES_XTS:
 		case CKM_AES_CCM:
 		case CKM_AES_GCM:
 			pInfo->ulMinKeySize = HSE_MIN_AES_KEY_BITS_LEN / BITS_PER_BYTE;
