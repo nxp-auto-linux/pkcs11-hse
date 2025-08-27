@@ -18,4 +18,7 @@
 
 #include "pkcs11.h"
 
+/* Vendor-specific standard extension for NXP token on S32 platforms */
+#define CKA_XTS_TWEAK_HANDLE        (CKA_VENDOR_DEFINED | 0x00F5C1A2UL)
+
 #endif /* ___PKCS11_DEFINES_H___ */
