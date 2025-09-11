@@ -260,6 +260,19 @@ static int util_msg_digest_test(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE se
 			INFO("CKM_SHA256 Fail\n");
 	}
 
+	/* SHA384 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA384;
+	ret = util_lib_msg_digest_onepass(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result */
+		SHA384(msg, msg_length, digest_openssl);
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA384 Pass\n");
+		else
+			INFO("CKM_SHA384 Fail\n");
+	}
+
 	/* SHA512 test */
 	digest_length = 64;
 	mach_digest.mechanism = CKM_SHA512;
@@ -309,6 +322,19 @@ static int util_msg_digest_test(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE se
 			INFO("CKM_SHA256 Pass\n");
 		else
 			INFO("CKM_SHA256 Fail\n");
+	}
+
+	/* SHA384 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA384;
+	ret = util_lib_msg_digest_update(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result */
+		SHA384(msg, msg_length, digest_openssl);
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA384 Pass\n");
+		else
+			INFO("CKM_SHA384 Fail\n");
 	}
 
 	/* SHA512 test */
