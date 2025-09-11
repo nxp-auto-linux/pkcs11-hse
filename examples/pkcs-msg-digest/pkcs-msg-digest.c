@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2025 NXP
  */
 
 #include <stdio.h>
@@ -286,6 +286,78 @@ static int util_msg_digest_test(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE se
 			INFO("CKM_SHA512 Fail\n");
 	}
 
+	/* SHA3_224 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA3_224;
+	ret = util_lib_msg_digest_onepass(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result using EVP */
+		EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+		EVP_DigestInit_ex(mdctx, EVP_sha3_224(), NULL);
+		EVP_DigestUpdate(mdctx, msg, msg_length);
+		EVP_DigestFinal_ex(mdctx, digest_openssl, NULL);
+		EVP_MD_CTX_free(mdctx);
+
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA3_224 Pass\n");
+		else
+			INFO("CKM_SHA3_224 Fail\n");
+	}
+
+	/* SHA3_256 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA3_256;
+	ret = util_lib_msg_digest_onepass(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result using EVP */
+		EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+		EVP_DigestInit_ex(mdctx, EVP_sha3_256(), NULL);
+		EVP_DigestUpdate(mdctx, msg, msg_length);
+		EVP_DigestFinal_ex(mdctx, digest_openssl, NULL);
+		EVP_MD_CTX_free(mdctx);
+			
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA3_256 Pass\n");
+		else
+			INFO("CKM_SHA3_256 Fail\n");
+	}
+
+	/* SHA3_384 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA3_384;
+	ret = util_lib_msg_digest_onepass(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result using EVP */
+		EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+		EVP_DigestInit_ex(mdctx, EVP_sha3_384(), NULL);
+		EVP_DigestUpdate(mdctx, msg, msg_length);
+		EVP_DigestFinal_ex(mdctx, digest_openssl, NULL);
+		EVP_MD_CTX_free(mdctx);
+			
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA3_384 Pass\n");
+		else
+			INFO("CKM_SHA3_384 Fail\n");
+	}
+
+	/* SHA3_512 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA3_512;
+	ret = util_lib_msg_digest_onepass(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result using EVP */
+		EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+		EVP_DigestInit_ex(mdctx, EVP_sha3_512(), NULL);
+		EVP_DigestUpdate(mdctx, msg, msg_length);
+		EVP_DigestFinal_ex(mdctx, digest_openssl, NULL);
+		EVP_MD_CTX_free(mdctx);
+			
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA3_512 Pass\n");
+		else
+			INFO("CKM_SHA3_512 Fail\n");
+	}
+
 	/* SHA1 test */
 	mach_digest.mechanism = CKM_SHA_1;
 	ret = util_lib_msg_digest_update(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
@@ -348,6 +420,78 @@ static int util_msg_digest_test(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE se
 			INFO("CKM_SHA512 Pass\n");
 		else
 			INFO("CKM_SHA512 Fail\n");
+	}
+
+	/* SHA3_224 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA3_224;
+	ret = util_lib_msg_digest_update(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result using EVP */
+		EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+		EVP_DigestInit_ex(mdctx, EVP_sha3_224(), NULL);
+		EVP_DigestUpdate(mdctx, msg, msg_length);
+		EVP_DigestFinal_ex(mdctx, digest_openssl, NULL);
+		EVP_MD_CTX_free(mdctx);
+
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA3_224 Pass\n");
+		else
+			INFO("CKM_SHA3_224 Fail\n");
+	}
+
+	/* SHA3_256 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA3_256;
+	ret = util_lib_msg_digest_update(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result using EVP */
+		EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+		EVP_DigestInit_ex(mdctx, EVP_sha3_256(), NULL);
+		EVP_DigestUpdate(mdctx, msg, msg_length);
+		EVP_DigestFinal_ex(mdctx, digest_openssl, NULL);
+		EVP_MD_CTX_free(mdctx);
+
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA3_256 Pass\n");
+		else
+			INFO("CKM_SHA3_256 Fail\n");
+	}
+
+	/* SHA3_384 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA3_384;
+	ret = util_lib_msg_digest_update(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result using EVP */
+		EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+		EVP_DigestInit_ex(mdctx, EVP_sha3_384(), NULL);
+		EVP_DigestUpdate(mdctx, msg, msg_length);
+		EVP_DigestFinal_ex(mdctx, digest_openssl, NULL);
+		EVP_MD_CTX_free(mdctx);
+
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA3_384 Pass\n");
+		else
+			INFO("CKM_SHA3_384 Fail\n");
+	}
+
+	/* SHA3_512 test */
+	digest_length = 64;
+	mach_digest.mechanism = CKM_SHA3_512;
+	ret = util_lib_msg_digest_update(flist, session, &mach_digest, msg, msg_length, digest, &digest_length);
+	if (!ret) {
+		/* compare with openssl result using EVP */
+		EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+		EVP_DigestInit_ex(mdctx, EVP_sha3_512(), NULL);
+		EVP_DigestUpdate(mdctx, msg, msg_length);
+		EVP_DigestFinal_ex(mdctx, digest_openssl, NULL);
+		EVP_MD_CTX_free(mdctx);
+
+		if (!output_compare(digest, digest_openssl, digest_length))
+			INFO("CKM_SHA3_512 Pass\n");
+		else
+			INFO("CKM_SHA3_512 Fail\n");
 	}
 
 	return 0;
