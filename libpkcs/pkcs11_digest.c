@@ -35,6 +35,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestInit)(
 		CK_MECHANISM_PTR pMechanism
 )
 {
+	struct globalCtx *gCtx = getCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	CK_RV rc = CKR_OK;
 
@@ -56,6 +57,19 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestInit)(
 	/* special case: cancels in progress op, but return CKR_OK if no op active */
 	if (pMechanism == NULL)
 		return CKR_OK;
+
+	if (gCtx->fwTypeId == 0) {  /* 0 - STANDARD */
+		switch (pMechanism->mechanism) {
+			case CKM_SHA3_224:
+			case CKM_SHA3_256:
+			case CKM_SHA3_384:
+			case CKM_SHA3_512:
+				printf("ERROR: SHA3 mechanisms not supported for standard firmware\n");
+				return CKR_MECHANISM_INVALID;
+			default:
+				break;
+		}
+	}
 
 	switch (pMechanism->mechanism) {
 		case CKM_SHA_1:
