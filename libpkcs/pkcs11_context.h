@@ -54,6 +54,18 @@
 #define SHA512_DIGEST_SIZE 64
 #define SHA512_BLOCK_SIZE  128
 
+#define SHA3_224_DIGEST_SIZE   28
+#define SHA3_224_BLOCK_SIZE    144
+
+#define SHA3_256_DIGEST_SIZE   32
+#define SHA3_256_BLOCK_SIZE    136
+
+#define SHA3_384_DIGEST_SIZE   48
+#define SHA3_384_BLOCK_SIZE    104
+
+#define SHA3_512_DIGEST_SIZE   64
+#define SHA3_512_BLOCK_SIZE    72
+
 enum hse_intl_obj_type {
 	HSE_KEY_OBJ = 1,
 	HSE_ATTR_HDR_OBJ,

@@ -72,6 +72,10 @@ static const CK_MECHANISM_TYPE mechanismList[] = {
 	CKM_SHA512,
 	CKM_SHA512_224,
 	CKM_SHA512_256,
+	CKM_SHA3_224,
+	CKM_SHA3_256,
+	CKM_SHA3_384,
+	CKM_SHA3_512,
 	/* HMAC mechanisms */
 	CKM_SHA_1_HMAC,
 	CKM_SHA224_HMAC,
@@ -703,6 +707,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetMechanismInfo)(
 		case CKM_SHA512:
 		case CKM_SHA512_224:
 		case CKM_SHA512_256:
+		case CKM_SHA3_224:
+		case CKM_SHA3_256:
+		case CKM_SHA3_384:
+		case CKM_SHA3_512:
 			pInfo->flags = CKF_HW | CKF_DIGEST;
 			break;
 		case CKM_SHA_1_HMAC:

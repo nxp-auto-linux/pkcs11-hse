@@ -93,6 +93,26 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestInit)(
 			sCtx->digestCtx.blockSize = SHA512_BLOCK_SIZE;
 			sCtx->digestCtx.digestSize = SHA256_DIGEST_SIZE;
 			break;
+		case CKM_SHA3_224:
+			sCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA3_224;
+			sCtx->digestCtx.blockSize = SHA3_224_BLOCK_SIZE;
+			sCtx->digestCtx.digestSize = SHA3_224_DIGEST_SIZE;
+			break;
+		case CKM_SHA3_256:
+			sCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA3_256;
+			sCtx->digestCtx.blockSize = SHA3_256_BLOCK_SIZE;
+			sCtx->digestCtx.digestSize = SHA3_256_DIGEST_SIZE;
+			break;
+		case CKM_SHA3_384:
+			sCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA3_384;
+			sCtx->digestCtx.blockSize = SHA3_384_BLOCK_SIZE;
+			sCtx->digestCtx.digestSize = SHA3_384_DIGEST_SIZE;
+			break;
+		case CKM_SHA3_512:
+			sCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA3_512;
+			sCtx->digestCtx.blockSize = SHA3_512_BLOCK_SIZE;
+			sCtx->digestCtx.digestSize = SHA3_512_DIGEST_SIZE;
+			break;
 		default:
 			return CKR_MECHANISM_INVALID;
 	}
