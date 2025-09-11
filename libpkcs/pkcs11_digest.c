@@ -73,6 +73,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestInit)(
 			sCtx->digestCtx.blockSize = SHA256_BLOCK_SIZE;
 			sCtx->digestCtx.digestSize = SHA256_DIGEST_SIZE;
 			break;
+		case CKM_SHA384:
+			sCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA2_384;
+			sCtx->digestCtx.blockSize = SHA384_BLOCK_SIZE;
+			sCtx->digestCtx.digestSize = SHA384_DIGEST_SIZE;
+			break;
 		case CKM_SHA512:
 			sCtx->digestCtx.mechanism = HSE_HASH_ALGO_SHA2_512;
 			sCtx->digestCtx.blockSize = SHA512_BLOCK_SIZE;
