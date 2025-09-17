@@ -203,9 +203,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 			goto err_free_key_intl;
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_key_data;
@@ -381,9 +379,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	keyGenReq->sch.symKey = 0u;
 	keyGenReq->keyGenScheme = HSE_KEY_GEN_SYM_RANDOM_KEY;
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
 	if (err) {
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_key_intl;
