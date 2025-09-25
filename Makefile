@@ -13,6 +13,8 @@ include common.mk
 CFLAGS += -fPIC
 LDFLAGS ?=
 
+HOSTCC ?= gcc
+
 PKCS_LIB ?= libpkcs-hse.so
 PKCS_LIBVER_MAJOR = 1
 PKCS_LIBVER_MINOR = 0
@@ -43,6 +45,19 @@ INCL_PKCS = -I$(PKCS_SDIR)/redist \
 
 DEFS := -DUIO_DEV=$(UIO_DEV) -DHSE_LIBVER_MAJOR=$(HSE_LIBVER_MAJOR)
 
+# Firmware version-major extraction logic
+ifneq ($(MAKECMDGOALS),clean)
+	HSE_FW_VERSION_MAJOR ?= $(shell \
+		$(HOSTCC) $(INCL) -o tools/hse_fw_version_parser tools/hse_fw_version_parser.c && \
+		./tools/hse_fw_version_parser && rm -f tools/hse_fw_version_parser || echo 0)
+
+	ifeq ($(HSE_FW_VERSION_MAJOR),0)
+		$(error "Invalid firmware version major")
+	endif
+
+	DEFS += -DHSE_FW_VERSION_MAJOR=$(HSE_FW_VERSION_MAJOR)
+endif
+
 all: $(PKCS_LIB).$(PKCS_LIBVER) examples
 
 $(PKCS_LIB).$(PKCS_LIBVER): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
@@ -50,7 +65,7 @@ $(PKCS_LIB).$(PKCS_LIBVER): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
 	$(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
 
 $(PKCS_ODIR)/%.o: $(PKCS_SDIR)/%.c $(PKCS_ODIR)
-	$(CC) -c $(CFLAGS) $(INCL_PKCS) $(INCL) $(LDFLAGS) $< -o $@
+	$(CC) -c $(CFLAGS) $(DEFS) $(INCL_PKCS) $(INCL) $(LDFLAGS) $< -o $@
 
 $(PKCS_ODIR):
 	mkdir -p $@

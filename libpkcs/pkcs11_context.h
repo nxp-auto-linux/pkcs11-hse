@@ -28,6 +28,10 @@
 #define MAX_SESSIONS    (HSE_NUM_CHANNELS - 1)
 #define MAX_LABEL_LEN   32
 
+#if (HSE_FW_VERSION_MAJOR == 0)
+#error "Invalid firmware version major"
+#endif
+
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif
