@@ -372,10 +372,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 
 	keyGenReq->keyInfo.keyType = keyType;
 	keyGenReq->keyInfo.keyBitLen = *keyBitsLen;
-#if (HSE_PLATFORM == HSE_S32G3XX)
+#if HSE_FW_VERSION_MAJOR >= 2
 	if (keyType == HSE_KEY_TYPE_AES)
 		keyGenReq->keyInfo.specific.aesBlockModeMask = 0u;
-#endif
+#endif /* HSE_FW_VERSION_MAJOR >= 2 */
 	keyGenReq->sch.symKey = 0u;
 	keyGenReq->keyGenScheme = HSE_KEY_GEN_SYM_RANDOM_KEY;
 

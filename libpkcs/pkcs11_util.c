@@ -666,28 +666,25 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 	export_key_srv->pKeyLen[1] = hse_virt_to_dma(hse_pkey_length_handle, sizeof(uint16_t));
 	export_key_srv->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 	export_key_srv->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
-	/* TODO: better to use HSE FW interface version */
-#if (HSE_PLATFORM == HSE_S32G3XX)
+
+#if HSE_FW_VERSION_MAJOR >= 2
 	/* The Montgomery and Twisted Edward public keys can be exported only in raw format */
 	if (Weierstrass_curve)
 		export_key_srv->keyFormat.eccKeyFormat = HSE_KEY_FORMAT_ECC_PUB_UNCOMPRESSED;
 	else 
 		export_key_srv->keyFormat.eccKeyFormat = HSE_KEY_FORMAT_ECC_PUB_RAW;
-#elif ((HSE_PLATFORM == HSE_S32G2XX) || (HSE_PLATFORM == HSE_S32R45X))
-	/* HSE FW for S32G2 (FW 1.x.x) doesn't support `keyFormat` parameter */
-	/* Only raw format is supported */
-#endif
+#endif /* HSE_FW_VERSION_MAJOR >= 2 */
 	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc), NULL);
 	if (err)
 		goto out_free_pkey_len;
 	hse_memcpy_from_dev(pkey_length, hse_pkey_length_handle, sizeof(uint16_t) * 2, 0);
 
-#if (HSE_PLATFORM == HSE_S32G3XX)
+#if HSE_FW_VERSION_MAJOR >= 2
 	if (NULL != pkey0) 
 		hse_memcpy_from_dev(pkey0, key_value0_handle, pkey_length[0], 0);
 	if (NULL != pkey0_len)
 		*(pkey0_len) = pkey_length[0];
-#elif ((HSE_PLATFORM == HSE_S32G2XX) || (HSE_PLATFORM == HSE_S32R45X))
+#else
 	/* In case Weierstrass curve, convert raw format to uncompressed format: 0x04 || X || Y, in big endian; */
 	if (NULL != pkey0) {
 		if (Weierstrass_curve) {
@@ -703,7 +700,7 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 		else 
 			*(pkey0_len) = pkey_length[0];
 	}
-#endif
+#endif /* HSE_FW_VERSION_MAJOR >= 2 */
 
 	if ((NULL != pkey1) && (key->attrs.key_type == CKK_RSA))
 		hse_memcpy_from_dev(pkey1, key_value1_handle, pkey_length[1], 0);

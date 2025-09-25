@@ -31,11 +31,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateRandom)(
 	hseGetRandomNumSrv_t *rng_req;
 	int err, rng_output_handle = -1;
 	CK_RV rc = CKR_OK;
-#if (HSE_PLATFORM == HSE_S32G3XX)
+#if HSE_FW_VERSION_MAJOR >= 2
 	CK_ULONG rng_max_len = 512;
 #else
 	CK_ULONG rng_max_len = 2048;
-#endif
+#endif /* HSE_FW_VERSION_MAJOR >= 2 */
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
