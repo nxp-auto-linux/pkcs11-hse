@@ -1,12 +1,3 @@
-#
-# Copyright 2021 NXP
-#
-
-PLATFORM ?= S32G2
-FWTYPE ?= 0
-FWMAJOR ?= 1
-FWMINOR ?= 0
-FWPATCH ?= 9
 
 include common.mk
 
