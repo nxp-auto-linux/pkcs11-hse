@@ -4,8 +4,6 @@ include common.mk
 CFLAGS += -fPIC
 LDFLAGS ?=
 
-HOSTCC ?= gcc
-
 PKCS_LIB ?= libpkcs-hse.so
 PKCS_LIBVER_MAJOR = 1
 PKCS_LIBVER_MINOR = 0
@@ -25,22 +23,13 @@ HSE_ODIR = $(HSE_SDIR)/obj
 HSE_SRCS = $(wildcard $(HSE_SDIR)/*.c)
 HSE_OBJS = $(patsubst $(HSE_SDIR)/%.c,$(HSE_ODIR)/%.o,$(HSE_SRCS))
 
-INCL = -I$(HSE_FWDIR)/interface                                                \
-       -I$(HSE_FWDIR)/interface/inc_common                                     \
-       -I$(HSE_FWDIR)/interface/inc_custom                                     \
-       -I$(HSE_FWDIR)/interface/inc_services                                   \
-       -I$(HSE_FWDIR)/interface/config                                         \
-       -I$(HSE_SDIR)
-INCL_PKCS = -I$(PKCS_SDIR)/redist \
-            -I$(PKCS_SDIR)/include
-
 DEFS := -DUIO_DEV=$(UIO_DEV) -DHSE_LIBVER_MAJOR=$(HSE_LIBVER_MAJOR)
 
 # Firmware version-major extraction logic
 ifneq ($(MAKECMDGOALS),clean)
 	HSE_FW_VERSION_MAJOR ?= $(shell \
-		$(HOSTCC) $(INCL) -o tools/hse_fw_version_parser tools/hse_fw_version_parser.c && \
-		./tools/hse_fw_version_parser && rm -f tools/hse_fw_version_parser || echo 0)
+		$(HOSTCC) $(INCLUDE_LIBHSE) -o $(FW_PARSER_BIN) $(FW_PARSER_SRC) && \
+		$(FW_PARSER_BIN) --fw-version-major && rm -f $(FW_PARSER_BIN) || echo 0)
 
 	ifeq ($(HSE_FW_VERSION_MAJOR),0)
 		$(error "Invalid firmware version major")
@@ -56,7 +45,7 @@ $(PKCS_LIB).$(PKCS_LIBVER): $(HSE_LIB).$(HSE_LIBVER) $(PKCS_OBJS)
 	$(LDFLAGS) $(PKCS_OBJS) -o $@ -lhse
 
 $(PKCS_ODIR)/%.o: $(PKCS_SDIR)/%.c $(PKCS_ODIR)
-	$(CC) -c $(CFLAGS) $(DEFS) $(INCL_PKCS) $(INCL) $(LDFLAGS) $< -o $@
+	$(CC) -c $(CFLAGS) $(DEFS) $(INCLUDE_LIBPKCS) $(INCLUDE_LIBHSE) $(LDFLAGS) $< -o $@
 
 $(PKCS_ODIR):
 	mkdir -p $@
@@ -66,7 +55,7 @@ $(HSE_LIB).$(HSE_LIBVER): $(HSE_OBJS)
 	ln -sf $@ $(HSE_LIB)
 
 $(HSE_ODIR)/%.o: $(HSE_SDIR)/%.c $(HSE_ODIR)
-	$(CC) -c $(CFLAGS) $(INCL) $(DEFS) $(LDFLAGS) $< -o $@
+	$(CC) -c $(CFLAGS) $(INCLUDE_LIBHSE) $(DEFS) $(LDFLAGS) $< -o $@
 
 $(HSE_ODIR):
 	mkdir -p $@

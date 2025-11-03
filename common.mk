@@ -50,10 +50,11 @@ INSTALL_INCLUDEDIR := $(INSTALL_DIR)/include
 INSTALL_LIBDIR := $(INSTALL_DIR)/lib
 INSTALL_BINDIR := $(INSTALL_DIR)/bin
 
+HOSTCC ?= gcc
 CC = $(CROSS_COMPILE)gcc
 LD = $(CROSS_COMPILE)ld
 
-PKCS11HSE_DIR ?= $(HOME)/pkcs11-hse
+PKCS11HSE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 LIBHSE_SRCDIR ?= $(PKCS11HSE_DIR)/libhse
 LIBHSE_DIR ?= $(PKCS11HSE_DIR)
@@ -67,6 +68,27 @@ INCLUDE_LIBHSE := -I$(LIBHSE_SRCDIR) \
 		  -I$(HSE_FWDIR)/interface/config \
 		  -I$(HSE_FWDIR)/interface/inc_common \
 		  -I$(HSE_FWDIR)/interface/inc_services
+
+# Firmware type id extraction logic
+TOOLS_DIR := $(PKCS11HSE_DIR)/tools
+FW_PARSER_SRC := $(TOOLS_DIR)/hse_fw_version_parser.c
+FW_PARSER_BIN := $(TOOLS_DIR)/hse_fw_version_parser
+
+ifneq ($(MAKECMDGOALS),clean)
+
+    HSE_FW_TYPE_ID ?= $(shell \
+        $(HOSTCC) $(INCLUDE_LIBHSE) -o $(FW_PARSER_BIN) $(FW_PARSER_SRC) && \
+        $(FW_PARSER_BIN) --fw-type-id || echo -1; \
+        rm -f $(FW_PARSER_BIN) )
+
+    ifneq ($(HSE_FW_TYPE_ID),-1)
+        ifneq ($(shell [ $(HSE_FW_TYPE_ID) -ge 8 ] && echo y),)
+            INCLUDE_LIBHSE += -I$(HSE_FWDIR)/interface/inc_custom
+        endif
+    else
+        $(warning Unable to determine HSE_FW_TYPE_ID)
+    endif
+endif
 
 INCLUDE_LIBPKCS := -I$(OPENSSL_DIR)/include \
 		   -I$(LIBPKCS_SRCDIR) \

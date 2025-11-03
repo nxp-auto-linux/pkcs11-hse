@@ -4,9 +4,13 @@
  */
 
 /*
- * Firmware version (major component) extraction
+ * Firmware version (major component) and type-id extraction
  *
- * Enables firmware-version-based compilation, ensuring feature enablement
+ * Usage:
+ *   --fw-version-major : prints the version-major
+ *   --fw-type-id       : prints the HSE FW type id
+ *
+ * Enables firmware-version/type-based compilation, ensuring feature enablement
  * regardless of SoC platform.
  *
  * Extracts the major number from the HSE firmware header,
@@ -17,14 +21,21 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "hse_target.h"
 #include "hse_srv_attr.h"
 
-int main(void) {
+int main(int argc, char *argv[]) {
     hseAttrFwVersion_t fw_version = HSE_FW_VERSION;
-
-    printf("%u\n", fw_version.majorVersion);
+    if (argc != 2)
+        return -1;
+    if (!strcmp(argv[1], "--fw-version-major"))
+        printf("%u\n", fw_version.majorVersion);
+    else if (!strcmp(argv[1], "--fw-type-id"))
+        printf("%u\n", fw_version.fwTypeId);
+    else
+        return -1;
 
     return 0;
 }
