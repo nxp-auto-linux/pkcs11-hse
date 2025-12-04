@@ -466,15 +466,19 @@ hseHashAlgo_t hse_get_hash_alg(CK_MECHANISM_TYPE mechanism)
 		case CKM_SHA512_HMAC:
 			hash = HSE_HASH_ALGO_SHA2_512;
 			break;
+		case CKM_SHA3_224_RSA_PKCS_PSS:
 		case CKM_ECDSA_SHA3_224:
 			hash = HSE_HASH_ALGO_SHA3_224;
 			break;
+		case CKM_SHA3_256_RSA_PKCS_PSS:
 		case CKM_ECDSA_SHA3_256:
 			hash = HSE_HASH_ALGO_SHA3_256;
 			break;
+		case CKM_SHA3_384_RSA_PKCS_PSS:
 		case CKM_ECDSA_SHA3_384:
 			hash = HSE_HASH_ALGO_SHA3_384;
 			break;
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 		case CKM_ECDSA_SHA3_512:
 			hash = HSE_HASH_ALGO_SHA3_512;
 			break;
@@ -503,6 +507,10 @@ uint32_t sig_get_out_length(uint8_t channel, CK_OBJECT_HANDLE key_handle, CK_MEC
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_SHA3_224_RSA_PKCS_PSS:
+		case CKM_SHA3_256_RSA_PKCS_PSS:
+		case CKM_SHA3_384_RSA_PKCS_PSS:
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 			sig_len = hse_get_key_bit_length(channel, key_handle) >> 3;
 			break;
 		case CKM_ECDSA:

@@ -881,6 +881,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignInit)(
 			case CKM_ECDSA_SHA3_512:
 				printf("ERROR: ECDSA SHA3 mechanism not supported for standard firmware\n");
 				return CKR_MECHANISM_INVALID;
+			case CKM_SHA3_224_RSA_PKCS_PSS:
+			case CKM_SHA3_256_RSA_PKCS_PSS:
+			case CKM_SHA3_384_RSA_PKCS_PSS:
+			case CKM_SHA3_512_RSA_PKCS_PSS:
+				printf("ERROR: SHA3 RSA PSS mechanism not supported for standard firmware\n");
+				return CKR_MECHANISM_INVALID;
 			default:
 				break;
 		}
@@ -1021,6 +1027,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_SHA3_224_RSA_PKCS_PSS:
+		case CKM_SHA3_256_RSA_PKCS_PSS:
+		case CKM_SHA3_384_RSA_PKCS_PSS:
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)sCtx->signCtx.mechanism->pParameter;
 			if (rsa_pss_param == NULL) {
 				rc = CKR_ARGUMENTS_BAD;
@@ -1130,6 +1140,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_SHA3_224_RSA_PKCS_PSS:
+		case CKM_SHA3_256_RSA_PKCS_PSS:
+		case CKM_SHA3_384_RSA_PKCS_PSS:
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 		case CKM_AES_CMAC:
 		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
@@ -1345,6 +1359,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_SHA3_224_RSA_PKCS_PSS:
+		case CKM_SHA3_256_RSA_PKCS_PSS:
+		case CKM_SHA3_384_RSA_PKCS_PSS:
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)sCtx->signCtx.mechanism->pParameter;
 			if (rsa_pss_param == NULL) {
 				rc = CKR_ARGUMENTS_BAD;
@@ -2344,6 +2362,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_SHA3_224_RSA_PKCS_PSS:
+		case CKM_SHA3_256_RSA_PKCS_PSS:
+		case CKM_SHA3_384_RSA_PKCS_PSS:
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)sCtx->signCtx.mechanism->pParameter;
 			if (rsa_pss_param == NULL) {
 				rc = CKR_ARGUMENTS_BAD;
@@ -2520,6 +2542,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_SHA3_224_RSA_PKCS_PSS:
+		case CKM_SHA3_256_RSA_PKCS_PSS:
+		case CKM_SHA3_384_RSA_PKCS_PSS:
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 			sign_srv->pSignatureLength[0] = hse_virt_to_dma(sig_len_handle, 0);
 			sign_srv->pSignatureLength[1] = 0u;
 			sign_srv->pSignature[0] = hse_virt_to_dma(sign0_handle, 0);
@@ -2606,6 +2632,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignFinal)(
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_SHA3_224_RSA_PKCS_PSS:
+		case CKM_SHA3_256_RSA_PKCS_PSS:
+		case CKM_SHA3_384_RSA_PKCS_PSS:
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 		case CKM_AES_CMAC:
 		case CKM_SHA_1_HMAC:
 		case CKM_SHA224_HMAC:
@@ -2771,6 +2801,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_SHA3_224_RSA_PKCS_PSS:
+		case CKM_SHA3_256_RSA_PKCS_PSS:
+		case CKM_SHA3_384_RSA_PKCS_PSS:
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 			rsa_pss_param = (CK_RSA_PKCS_PSS_PARAMS *)sCtx->signCtx.mechanism->pParameter;
 			if (rsa_pss_param == NULL) {
 				rc = CKR_ARGUMENTS_BAD;
@@ -2948,6 +2982,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyFinal)(
 		case CKM_SHA256_RSA_PKCS_PSS:
 		case CKM_SHA384_RSA_PKCS_PSS:
 		case CKM_SHA512_RSA_PKCS_PSS:
+		case CKM_SHA3_224_RSA_PKCS_PSS:
+		case CKM_SHA3_256_RSA_PKCS_PSS:
+		case CKM_SHA3_384_RSA_PKCS_PSS:
+		case CKM_SHA3_512_RSA_PKCS_PSS:
 			sign_srv->pSignatureLength[0] = hse_virt_to_dma(sig_len_handle, 0);
 			sign_srv->pSignatureLength[1] = 0u;
 			sign_srv->pSignature[0] = hse_virt_to_dma(sign0_handle, 0);
