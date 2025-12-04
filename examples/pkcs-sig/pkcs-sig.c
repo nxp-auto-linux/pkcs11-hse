@@ -831,6 +831,38 @@ static int rsa_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJ
 	param.sLen = 10;
 	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
 
+	INFO("CKM_SHA3_224_RSA_PKCS_PSS ...\n");
+	mechanism.mechanism = CKM_SHA3_224_RSA_PKCS_PSS;
+	mechanism.pParameter = &param;
+	mechanism.ulParameterLen = sizeof(CK_RSA_PKCS_PSS_PARAMS);
+	param.hashAlg = CKM_SHA3_224;
+	param.sLen = 10;
+	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
+
+	INFO("CKM_SHA3_256_RSA_PKCS_PSS ...\n");
+	mechanism.mechanism = CKM_SHA3_256_RSA_PKCS_PSS;
+	mechanism.pParameter = &param;
+	mechanism.ulParameterLen = sizeof(CK_RSA_PKCS_PSS_PARAMS);
+	param.hashAlg = CKM_SHA3_256;
+	param.sLen = 10;
+	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
+
+	INFO("CKM_SHA3_384_RSA_PKCS_PSS ...\n");
+	mechanism.mechanism = CKM_SHA3_384_RSA_PKCS_PSS;
+	mechanism.pParameter = &param;
+	mechanism.ulParameterLen = sizeof(CK_RSA_PKCS_PSS_PARAMS);
+	param.hashAlg = CKM_SHA3_384;
+	param.sLen = 10;
+	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
+
+	INFO("CKM_SHA3_512_RSA_PKCS_PSS ...\n");
+	mechanism.mechanism = CKM_SHA3_512_RSA_PKCS_PSS;
+	mechanism.pParameter = &param;
+	mechanism.ulParameterLen = sizeof(CK_RSA_PKCS_PSS_PARAMS);
+	param.hashAlg = CKM_SHA3_512;
+	param.sLen = 10;
+	util_lib_rsa_sig(flist, session, &mechanism, priv_key, pub_key);
+
 	return 0;
 }
 
