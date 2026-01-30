@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023-2025 NXP
+ * Copyright 2023-2026 NXP
  */
 
 #include <stdio.h>
@@ -196,6 +196,40 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 			keyGenReq->keyInfo.keyBitLen = hse_get_ec_key_bitlen(keyGenReq->keyInfo.specific.eccCurveId);
 			keyGenReq->keyGenScheme = HSE_KEY_GEN_ECC_KEY_PAIR;
 			keyGenReq->sch.eccKey.pPubKey = 0u;
+			break;
+		case CKM_EC_EDWARDS_KEY_PAIR_GEN:
+			ecc_oid = getattr_pval(pPublicKeyTemplate, CKA_EC_PARAMS, ulPublicKeyAttributeCount);
+			if (!ecc_oid) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_key_intl;
+			}
+
+			if ((getattr_pval(pPrivateKeyTemplate, CKA_KEY_TYPE, ulPrivateKeyAttributeCount)) &&
+				(key->attrs.key_type != CKK_EC_EDWARDS)) {
+				rc = CKR_TEMPLATE_INCONSISTENT;
+				goto err_free_key_intl;
+			}
+
+			/* Set key flags based on template */
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPublicKeyTemplate, CKA_VERIFY, ulPublicKeyAttributeCount)) && (*keyFlag_val))
+				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_VERIFY;
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPrivateKeyTemplate, CKA_SIGN, ulPrivateKeyAttributeCount)) && (*keyFlag_val))
+				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_SIGN;
+
+			keyGenReq->keyInfo.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
+
+			/* EdDSA uses HSE_KEY_TYPE_ECC_PAIR key type */
+			keyGenReq->keyInfo.keyType = HSE_KEY_TYPE_ECC_PAIR;
+
+			keyGenReq->keyInfo.specific.eccCurveId = ecparam2curveid((char *)ecc_oid,
+				(uint8_t)getattr_len(pPublicKeyTemplate, CKA_EC_PARAMS, ulPublicKeyAttributeCount));
+
+			keyGenReq->keyInfo.keyBitLen = hse_get_ec_key_bitlen(keyGenReq->keyInfo.specific.eccCurveId);
+
+			/* Use ECC key pair generation scheme */
+			keyGenReq->keyGenScheme = HSE_KEY_GEN_ECC_KEY_PAIR;
+			keyGenReq->sch.eccKey.pPubKey = 0u;
+
 			break;
 		default:
 
