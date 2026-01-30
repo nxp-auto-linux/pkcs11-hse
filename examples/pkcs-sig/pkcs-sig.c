@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2025 NXP
+ * Copyright 2025-2026 NXP
  */
 
 #include <stdio.h>
@@ -192,14 +192,14 @@ static CK_OBJECT_HANDLE install_ecc_private_key(CK_FUNCTION_LIST_PTR flist, CK_S
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
 		{ CKA_ID, &key_id, sizeof(key_id) },
-		{CKA_EC_POINT, key_pub, sizeof(key_pub)},
-		{CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid)},
-		{ CKA_VALUE, key_priv, sizeof(key_priv)}
+		{ CKA_EC_POINT, key_pub, sizeof(key_pub) },
+		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
+		{ CKA_VALUE, key_priv, sizeof(key_priv) }
 	};
 
 	rv = flist->C_CreateObject(session, keyTemplate, ARRAY_SIZE(keyTemplate), &key);
 	if (rv != CKR_OK)
-		return -EKEYREJECTED;
+		return CK_INVALID_HANDLE;
 
 	return key;
 }
@@ -235,14 +235,106 @@ static CK_OBJECT_HANDLE install_ecc_public_key(CK_FUNCTION_LIST_PTR flist, CK_SE
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
 		{ CKA_ID, &key_id, sizeof(key_id) },
-		{CKA_EC_POINT, key_pub, sizeof(key_pub)},
-		{CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid)}
+		{ CKA_EC_POINT, key_pub, sizeof(key_pub) },
+		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) }
 	};
 
 	rv = flist->C_CreateObject(session, keyTemplate, ARRAY_SIZE(keyTemplate), &key);
 	if (rv != CKR_OK)
-		return -EKEYREJECTED;
+		return CK_INVALID_HANDLE;
 
+	return key;
+}
+
+static CK_OBJECT_HANDLE install_ed25519_private_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session)
+{
+	CK_OBJECT_HANDLE key = 0;
+	CK_RV rv;
+
+	/* define key template
+	 *
+	 * key_id represent the HSE key slot in the key catalog
+	 *     - key_id[0] - slot ID
+	 *     - key_id[1] - group ID
+	 *     - key_id[2] - catalog ID
+	 */
+	CK_OBJECT_CLASS key_class = CKO_PRIVATE_KEY;
+	CK_KEY_TYPE key_type = CKK_EC_EDWARDS;
+	CK_UTF8CHAR label[] = {"HSE-Ed25519-PRIV"};
+	CK_BYTE key_id[] = { 0x00, 0x0A, 0x01 };
+
+	/* Ed25519 private key (32 bytes in little-endian as per RFC 8032) */
+	CK_BYTE key_priv[] = {
+		0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c, 0xc4,
+		0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae, 0x7f, 0x60
+	};
+
+	/* DER-encoded ASN.1 OCTET STRING wrapping the 32-byte Ed25519 public key. */
+	CK_BYTE key_pub[] = {
+		0x04, 0x20,
+		0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07, 0x3a,
+		0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a
+	};
+	char *ec_param_oid = "\x06\x03\x2B\x65\x70"; /* id-Ed25519 */
+
+	CK_ATTRIBUTE keyTemplate[] = {
+		{ CKA_LABEL,     label,      sizeof(label)-1 },
+		{ CKA_CLASS,     &key_class, sizeof(key_class) },
+		{ CKA_KEY_TYPE,  &key_type,  sizeof(key_type) },
+		{ CKA_ID,        key_id,     sizeof(key_id) },
+		{ CKA_EC_POINT,  key_pub,    sizeof(key_pub) },
+		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
+		{ CKA_VALUE,     key_priv,       sizeof(key_priv) }
+	};
+
+	rv = flist->C_CreateObject(session, keyTemplate, ARRAY_SIZE(keyTemplate), &key);
+	if (rv != CKR_OK) {
+		printf("[ERROR] C_CreateObject(PRIV) failed: 0x%lX\n", (unsigned long)rv);
+		return CK_INVALID_HANDLE;
+	}
+
+	return key;
+}
+
+static CK_OBJECT_HANDLE install_ed25519_public_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session)
+{
+	CK_OBJECT_HANDLE key;
+	CK_RV rv;
+
+	/* define key template
+	 *
+	 * key_id represent the HSE key slot in the key catalog
+	 *     - key_id[0] - slot ID
+	 *     - key_id[1] - group ID
+	 *     - key_id[2] - catalog ID
+	 */
+	CK_OBJECT_CLASS key_class = CKO_PUBLIC_KEY;
+	CK_KEY_TYPE     key_type  = CKK_EC_EDWARDS;
+	CK_UTF8CHAR     label[]   = {"HSE-Ed25519-PUB"};
+	CK_BYTE         key_id[]  = { 0x00, 0x0B, 0x01 };
+
+	/* DER-encoded ASN.1 OCTET STRING wrapping the 32-byte Ed25519 public key. */
+	CK_BYTE key_pub[] = {
+		0x04, 0x20,
+		0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07, 0x3a,
+		0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a
+	};
+	char *ec_param_oid = "\x06\x03\x2B\x65\x70"; /* id-Ed25519 */
+
+	CK_ATTRIBUTE keyTemplate[] = {
+		{ CKA_LABEL, label, sizeof(label)-1 },
+		{ CKA_CLASS, &key_class, sizeof(key_class) },
+		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
+		{ CKA_ID, &key_id, sizeof(key_id) },
+		{ CKA_EC_POINT, key_pub, sizeof(key_pub) },
+		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) }
+	};
+
+	rv = flist->C_CreateObject(session, keyTemplate, ARRAY_SIZE(keyTemplate), &key);
+	if (rv != CKR_OK) {
+		printf("[ERROR] C_CreateObject(PUB) failed: 0x%lX\n", (unsigned long)rv);
+		return CK_INVALID_HANDLE;
+	}
 	return key;
 }
 
@@ -647,6 +739,45 @@ static int util_lib_ec_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session
 	return 0;
 }
 
+static int util_lib_eddsa_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE priv_key, CK_OBJECT_HANDLE pub_key)
+{
+	CK_RV rv;
+	char *tobe_sign = "Lorem ipsum dolor sit amet, consectetur adipiscing elit."\
+					  "Fusce lacinia mollis porta. In lacus eros, imperdiet eu magna"\
+					  "id, aliquet porta neque. Morbi tincidunt libero diam, accumsan"\
+					  "placerat est commodo eu. Duis lacinia erat quis nisl rutrum laoreet."\
+					  "Cras eget sagittis nisl. Vestibulum odio sapien, efficitur in sollicitudin"\
+					  "eu, posuere accumsan eu.";
+	CK_BYTE sig[64] = {0};
+	CK_ULONG sig_len = ARRAY_SIZE(sig);
+	INFO("\tGenerate signature ...\n");
+
+	rv = flist->C_SignInit(session, mechanism, priv_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_SignInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Sign(session, (CK_BYTE *)tobe_sign, strlen(tobe_sign), sig, &sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Sign returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	INFO("\tVerify signature ...\n");
+	rv = flist->C_VerifyInit(session, mechanism, pub_key);
+	if (rv != CKR_OK) {
+		ERROR("\tC_VerifyInit returns error 0x%lx\n", rv);
+		return -1;
+	}
+
+	rv = flist->C_Verify(session, (CK_BYTE *)tobe_sign, strlen(tobe_sign), sig, sig_len);
+	if (rv != CKR_OK) {
+		ERROR("\tC_Verify returns error 0x%lx\n", rv);
+		return -1;
+	}
+	return 0;
+}
 static int util_lib_ec_pre_hash_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE priv_key, CK_OBJECT_HANDLE pub_key)
 {
 	CK_RV rv;
@@ -750,6 +881,47 @@ static int ec_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJE
 	INFO("CKM_ECDSA ...\n");
 	mechanism.mechanism = CKM_ECDSA;
 	util_lib_ec_pre_hash_sig(flist, session, &mechanism, priv_key, pub_key);
+
+	return 0;
+}
+
+static int ec_edwards_sig(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE priv_key, CK_OBJECT_HANDLE pub_key)
+{
+	CK_MECHANISM mechanism;
+	CK_EDDSA_PARAMS eddsa_params;
+	CK_BYTE context_data[] = "test context";
+
+	/* Pure Ed25519 (no parameters) */
+	INFO("CKM_EDDSA (Pure Ed25519, no params) ...\n");
+	mechanism.mechanism = CKM_EDDSA;
+	mechanism.pParameter = NULL;
+	mechanism.ulParameterLen = 0;
+	if (util_lib_eddsa_sig(flist, session, &mechanism, priv_key, pub_key) != 0)
+		return -1;
+
+	/* Ed25519ctx (with context) */
+	INFO("CKM_EDDSA (Ed25519ctx with context) ...\n");
+	eddsa_params.phFlag = CK_FALSE;
+	eddsa_params.ulContextDataLen = sizeof(context_data) - 1;
+	eddsa_params.pContextData = context_data;
+
+	mechanism.mechanism = CKM_EDDSA;
+	mechanism.pParameter = &eddsa_params;
+	mechanism.ulParameterLen = sizeof(eddsa_params);
+	if (util_lib_eddsa_sig(flist, session, &mechanism, priv_key, pub_key) != 0)
+		return -1;
+
+	/* Ed25519ph (pre-hashed) */
+	INFO("CKM_EDDSA (Ed25519ph pre-hashed) ...\n");
+	eddsa_params.phFlag = CK_TRUE;
+	eddsa_params.ulContextDataLen = 0;
+	eddsa_params.pContextData = NULL;
+
+	mechanism.mechanism = CKM_EDDSA;
+	mechanism.pParameter = &eddsa_params;
+	mechanism.ulParameterLen = sizeof(eddsa_params);
+	if (util_lib_ec_pre_hash_sig(flist, session, &mechanism, priv_key, pub_key) != 0)
+		return -1;
 
 	return 0;
 }
@@ -1198,8 +1370,10 @@ int main(int argc, char *argv[])
 	CK_SLOT_ID slot;
 	CK_SESSION_HANDLE session;
 	CK_OBJECT_HANDLE rsa_pub_key, rsa_priv_key;
-	CK_OBJECT_HANDLE ec_pub_key = -EKEYREJECTED;
-	CK_OBJECT_HANDLE ec_priv_key = -EKEYREJECTED;
+	CK_OBJECT_HANDLE ec_pub_key = CK_INVALID_HANDLE;
+	CK_OBJECT_HANDLE ec_priv_key = CK_INVALID_HANDLE;
+	CK_OBJECT_HANDLE ed25519_priv_key = CK_INVALID_HANDLE;
+	CK_OBJECT_HANDLE ed25519_pub_key = CK_INVALID_HANDLE;
 	CK_OBJECT_HANDLE aes128_key, hmac_key_1, hmac_key_2;
 	uint8_t key_id[3];
 
@@ -1295,6 +1469,20 @@ int main(int argc, char *argv[])
 	/* ECC signature */
 	ec_sig(flist, session, ec_priv_key, ec_pub_key);
 
+	/* Test Ed25519 (Import) */
+	INFO("=== Testing Ed25519 ===\n");
+
+	INFO("Install Ed25519 private key ...\n");
+	ed25519_priv_key = install_ed25519_private_key(flist, session);
+	INFO("Created Key Object with handle %06lx\n", ed25519_priv_key);
+
+	INFO("Install Ed25519 public key ...\n");
+	ed25519_pub_key = install_ed25519_public_key(flist, session);
+	INFO("Created Key Object with handle %06lx\n", ed25519_pub_key);
+
+	/* Test Ed25519 signatures */
+	ec_edwards_sig(flist, session, ed25519_priv_key, ed25519_pub_key);
+
 	/* CMAC */
 	INFO("Install AES key ...\n");
 	 /* key_id represent the HSE key slot in the key catalog
@@ -1339,10 +1527,10 @@ int main(int argc, char *argv[])
 
 	hmac_sig(flist, session, hmac_key_1);
 	hmac_sig(flist, session, hmac_key_2);
-	
+
 	INFO("Deleting Key Objects ...\n");
 
-	if (ec_priv_key != (CK_OBJECT_HANDLE)(-EKEYREJECTED)) {
+	if (ec_priv_key != CK_INVALID_HANDLE) {
 		ret = util_lib_destroy_object(flist, session, ec_priv_key);
 		if (ret) {
 			ERROR("Failed to destroy key object\n");
@@ -1350,10 +1538,26 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (ec_pub_key != (CK_OBJECT_HANDLE)(-EKEYREJECTED)) {
+	if (ec_pub_key != CK_INVALID_HANDLE) {
 		ret = util_lib_destroy_object(flist, session, ec_pub_key);
 		if (ret) {
 			ERROR("Failed to destroy key object\n");
+			goto err_close_session;
+		}
+	}
+
+	if (ed25519_priv_key != CK_INVALID_HANDLE) {
+		ret = util_lib_destroy_object(flist, session, ed25519_priv_key);
+		if (ret) {
+			ERROR("Failed to destroy EdDSA private key object\n");
+			goto err_close_session;
+		}
+	}
+
+	if (ed25519_pub_key != CK_INVALID_HANDLE) {
+		ret = util_lib_destroy_object(flist, session, ed25519_pub_key);
+		if (ret) {
+			ERROR("Failed to destroy EdDSA public key object\n");
 			goto err_close_session;
 		}
 	}
