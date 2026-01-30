@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2025 NXP
+ * Copyright 2021-2026 NXP
  */
 
 #include <stdio.h>
@@ -18,6 +18,8 @@ int is_valid_key_length(CK_KEY_TYPE type, uint32_t key_bit_len) {
 			return !(key_bit_len < HSE_MIN_RSA_KEY_BITS_LEN || key_bit_len > HSE_MAX_RSA_KEY_BITS_LEN);
 		case CKK_EC:
 			return !(key_bit_len < HSE_MIN_ECC_KEY_BITS_LEN || key_bit_len > HSE_MAX_ECC_KEY_BITS_LEN);
+		case CKK_EC_EDWARDS:
+			return key_bit_len == 256;
 		case CKK_AES_XTS:
 			return (key_bit_len == 256 || key_bit_len == 512);
 		case CKK_AES:
@@ -62,6 +64,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	int tweakmem_handle = -1;
 	CK_BYTE *fullKey, *tweakKey;
 	CK_BYTE *tweak_id;
+	uint8_t *pubkey, *privkey;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -284,6 +287,101 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				key_info.keyType = HSE_KEY_TYPE_ECC_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_dma(pkey2_handle, 0); /* ec private scalar/order */
+				import_key_req->keyLen[2] = pkey2_len;
+			}
+
+			break;
+		case CKK_EC_EDWARDS:
+			pkey0_len = getattr_len(pTemplate, CKA_EC_POINT, ulCount);
+			if (pkey0_len < 2) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_key_intl;
+			}
+
+			/* Bypass DER encoding header */
+			pkey0_len -= 2;
+			pubkey = (uint8_t *)getattr_pval(pTemplate, CKA_EC_POINT, ulCount);
+			pubkey = (uint8_t *)pubkey + 2;
+
+			/*
+			 * Convert to big-endian (required by HSE) from little-endian (imposed RFC 8032).
+			 * Byte width used for swapping (endianness conversion) is equal to the curve-specific
+			 * width, e.g. for Ed25519 byte width is 32 bytes.
+			 */
+			reverse_bytes(pubkey, pkey0_len);
+
+			pkey0_handle = hse_mem_alloc(pkey0_len);
+			if (pkey0_handle < 0) {
+				rc = CKR_HOST_MEMORY;
+				goto err_free_key_intl;
+			}
+
+			hse_memcpy_to_dev(pkey0_handle, pubkey, pkey0_len, 0);
+
+			ecc_oid = getattr_pval(pTemplate, CKA_EC_PARAMS, ulCount);
+			if (ecc_oid == NULL) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_pkey0;
+			}
+
+			key_info.specific.eccCurveId = ecparam2curveid((char *)ecc_oid,
+											(uint8_t)getattr_len(pTemplate, CKA_EC_PARAMS, ulCount));
+			key_info.keyBitLen = hse_get_ec_key_bitlen(key_info.specific.eccCurveId);
+			if (key_info.keyBitLen != 256) {
+				rc = CKR_ARGUMENTS_BAD;
+				goto err_free_pkey0;
+			}
+			key_info.keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_ACCESS_EXPORTABLE;
+			key_info.keyType  = HSE_KEY_TYPE_ECC_PUB;
+
+			import_key_req->pKey[0] = hse_virt_to_dma(pkey0_handle, 0);
+			import_key_req->pKey[1] = 0u;
+			import_key_req->pKey[2] = 0u;
+			import_key_req->keyLen[0] = pkey0_len;
+			import_key_req->keyLen[1] = 0u;
+			import_key_req->keyLen[2] = 0u;
+
+#if HSE_FW_VERSION_MAJOR >= 2
+			import_key_req->keyFormat.eccKeyFormat = HSE_KEY_FORMAT_ECC_PUB_RAW;
+#endif /* HSE_FW_VERSION_MAJOR >= 2 */
+
+			/* Private key import */
+			if (key->attrs.key_class == CKO_PRIVATE_KEY) {
+				pkey2_len = getattr_len(pTemplate, CKA_VALUE, ulCount);
+				if (pkey2_len != 32) {
+					rc = CKR_ARGUMENTS_BAD;
+					goto err_free_pkey0;
+				}
+
+				key_bit_len = HSE_BYTES_TO_BITS(pkey2_len);
+				if (!is_valid_key_length(key->attrs.key_type, key_bit_len)) {
+					rc = CKR_ARGUMENTS_BAD;
+					goto err_free_pkey0;
+				}
+
+				privkey = (uint8_t *)getattr_pval(pTemplate, CKA_VALUE, ulCount);
+
+				/* Convert to big-endian (required by HSE) from little-endian (imposed RFC 8032) */
+				/* byte width used for swapping (endianness conversion) is equal to the curve-specific
+				* width, e.g. for Ed25519 byte width is 32 bytes.*/
+				reverse_bytes(privkey, pkey2_len);
+
+				pkey2_handle = hse_mem_alloc(pkey2_len);
+				if (pkey2_handle < 0) {
+					rc = CKR_HOST_MEMORY;
+					goto err_free_pkey0;
+				}
+
+				hse_memcpy_to_dev(pkey2_handle, privkey, pkey2_len, 0);
+
+				key_info.keyFlags |= HSE_KF_USAGE_SIGN;
+				key_info.keyType = HSE_KEY_TYPE_ECC_PAIR;
+
+				import_key_req->pKey[0] = 0u;
+				import_key_req->pKey[1] = 0u;
+				import_key_req->pKey[2] = hse_virt_to_dma(pkey2_handle, 0);
+				import_key_req->keyLen[0] = 0u;
+				import_key_req->keyLen[1] = 0u;
 				import_key_req->keyLen[2] = pkey2_len;
 			}
 

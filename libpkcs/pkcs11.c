@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2025 NXP
+ * Copyright 2021-2026 NXP
  */
 
 #include <stdlib.h>
@@ -852,9 +852,20 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 
 						/* tlv+2 to leave 2 bytes room for TLV header (DER encoding) */
 						err = pkey_value_export(sCtx->sID, pkey, tlv + 2, NULL, NULL, NULL);
+
+						/*
+						 * EdDSA Endianness Conversion (from HSE BE to RFC 8032 LE)
+						 * HSE returns public key in big-endian format.
+						 * RFC 8032 requires little-endian format.
+						 * For Ed25519: Public key width - 32 bytes (reversed as one scalar)
+						 */
+						if (pkey->attrs.key_type == CKK_EC_EDWARDS)
+							reverse_bytes(tlv + 2, len);
+
 						/* Fill the TLV header */
 						*tlv++ = 0x04; /* 0x4 = OCTET_STRING */
 						*tlv = (uint8_t)len; /* length: should be less than 127 bytes */
+						pTemplate[i].ulValueLen = len + 2;
 					}
 				}
 				break;

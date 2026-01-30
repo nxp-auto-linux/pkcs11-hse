@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2024-2025 NXP
+ * Copyright 2024-2026 NXP
  */
 
 #include <stdlib.h>
@@ -525,6 +525,9 @@ uint32_t sig_get_out_length(uint8_t channel, CK_OBJECT_HANDLE key_handle, CK_MEC
 		case CKM_ECDSA_SHA3_512:
 			sig_len = (hse_get_key_bit_length(channel, key_handle) >> 3) * 2;
 			break;
+		case CKM_EDDSA:
+			sig_len = hse_get_key_bit_length(channel, key_handle) >> 2;
+			break;
 		case CKM_AES_CMAC:
 			sig_len = 16;
 			break;
@@ -624,11 +627,6 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 				Weierstrass_curve = TRUE;
 				pkey_length[0] = (key_bit_length >> 3) * 2 + 1;	/* plus 1 to add the format byte for uncompressed format */
 				break;
-			case HSE_EC_25519_ED25519:
-			case HSE_EC_448_ED448:
-				/* Twisted Edward form */
-				pkey_length[0] = key_bit_length >> 3;
-				break;
 			case HSE_EC_25519_CURVE25519:
 			case HSE_EC_448_CURVE448:
 				/* Montgomery form */
@@ -639,6 +637,10 @@ int32_t pkey_value_export(uint8_t channel, struct hse_keyObject *key, uint8_t *p
 		}
 
 		pkey_length[1] = 0;	/* pkey[1] is unused for ECC keys */
+	} else if (key->attrs.key_type == CKK_EC_EDWARDS) {
+		/* Twisted Edward form */
+		if (key_info.specific.eccCurveId == HSE_EC_25519_ED25519)
+			pkey_length[0] = key_bit_length >> 3;
 	} else {
 		err = CKR_ARGUMENTS_BAD;
 		goto out_free_key_info;
@@ -1177,4 +1179,16 @@ void *get_attr_handle_from_key(CK_OBJECT_HANDLE key_handle, CK_ATTRIBUTE_TYPE at
 	}
 
 	return value;
+}
+
+void reverse_bytes(uint8_t *data, size_t len)
+{
+    uint8_t tmp;
+    size_t i;
+
+    for (i = 0; i < len / 2; i++) {
+        tmp = data[i];
+        data[i] = data[len - 1 - i];
+        data[len - 1 - i] = tmp;
+    }
 }
