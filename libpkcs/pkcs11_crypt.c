@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2025 NXP
+ * Copyright 2021-2026 NXP
  */
 
 #include <stdio.h>
@@ -934,7 +934,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 	int err, input_handle = -1, sign0_handle = -1, output_len_handle = -1;
 	uint32_t output_len = 0;
 	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
+	CK_EDDSA_PARAMS *eddsa_params = NULL;
+	int eddsa_context_handle;
+	uint32_t component_len;
 	hseMacSrv_t *mac_srv = NULL;
+	hseEddsaSignScheme_t *eddsa_scheme = NULL;
+	uint8_t *sig_r, *sig_s;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -1080,6 +1085,61 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 				sign_srv->bInputIsHashed = 0u;
 
 			break;
+		case CKM_EDDSA:
+			component_len = HSE_BITS_TO_BYTES(hse_get_key_bit_length(sCtx->sID, sCtx->signCtx.keyHandle));
+			if(component_len != 32) {
+				rc = CKR_KEY_SIZE_RANGE;
+				goto out_free_sign0;
+			}
+
+			sign_scheme->signSch = HSE_SIGN_EDDSA;
+			eddsa_scheme = &sign_scheme->sch.eddsa;
+
+			/* Default: PureEdDSA */
+			eddsa_scheme->bHashEddsa = FALSE;	/* No pre-hashing */
+			eddsa_scheme->contextLength = 0;	/* No context */
+			eddsa_scheme->pContext = 0u;
+
+			/* Check if EDDSA parameters are provided */
+			if (sCtx->signCtx.mechanism->pParameter != NULL &&
+				sCtx->signCtx.mechanism->ulParameterLen == sizeof(CK_EDDSA_PARAMS)) {
+				eddsa_params = (CK_EDDSA_PARAMS *)sCtx->signCtx.mechanism->pParameter;
+
+				/* Ed25519ph: Check if input is pre-hashed */
+				if (eddsa_params->phFlag)
+					eddsa_scheme->bHashEddsa = TRUE;
+
+				if (eddsa_params->pContextData != NULL &&
+					eddsa_params->ulContextDataLen > 0) {
+					/* RFC 8032: Context must be at most 255 octets */
+					if (eddsa_params->ulContextDataLen > 255) {
+						rc = CKR_ARGUMENTS_BAD;
+						goto out_free_sign0;
+					}
+
+					eddsa_context_handle = hse_mem_alloc(eddsa_params->ulContextDataLen);
+					if (eddsa_context_handle < 0) {
+						rc = CKR_HOST_MEMORY;
+						goto out_free_sign0;
+					}
+
+					hse_memcpy_to_dev(eddsa_context_handle, eddsa_params->pContextData, eddsa_params->ulContextDataLen, 0);
+					eddsa_scheme->contextLength = eddsa_params->ulContextDataLen;
+					eddsa_scheme->pContext = hse_virt_to_dma(eddsa_context_handle, 0);
+				}
+			}
+			hse_memcpy_to_dev(output_len_handle, (void *)&component_len, sizeof(component_len), 0);
+
+			/* EdDSA signature = (R || S), each 32 bytes for Ed25519 */
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len_handle, 0);
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0_handle, 0); /* R component */
+			sign_srv->pSignatureLength[1] = hse_virt_to_dma(output_len_handle, 0);
+			sign_srv->pSignature[1] = hse_virt_to_dma(sign0_handle, component_len); /* S component */
+
+			/* bInputIsHashed indicates whether the input data is already hashed */
+			sign_srv->bInputIsHashed = (eddsa_params && eddsa_params->phFlag) ? TRUE : FALSE;
+			break;
+
 		case CKM_AES_CMAC:
 			mac_srv = &srv_desc.hseSrv.macReq;
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
@@ -1172,6 +1232,20 @@ CK_DECLARE_FUNCTION(CK_RV, C_Sign)(
 
 			hse_memcpy_from_dev(pSignature, sign0_handle, *pulSignatureLen, 0);
 
+			break;
+		case CKM_EDDSA:
+			sig_r = pSignature;
+			sig_s = pSignature + component_len;
+
+			/* Read signature from HSE */
+			hse_memcpy_from_dev(sig_r, sign0_handle, component_len, 0);
+			hse_memcpy_from_dev(sig_s, sign0_handle, component_len, component_len);
+
+			/* Convert to little endian (imposed by RFC 8032) from big endian (requested by HSE) */
+			reverse_bytes(sig_r, component_len);
+			reverse_bytes(sig_s, component_len);
+
+			*pulSignatureLen = component_len * 2;  /* R + S */
 			break;
 		default:
 			rc = CKR_ARGUMENTS_BAD;
@@ -1270,9 +1344,14 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 	hseSignScheme_t *sign_scheme;
 	CK_RV rc = CKR_OK;
 	int err, input_handle = -1, sign0_handle = -1, output_len_handle = -1;
+	int context_handle = -1;
 	uint32_t output_len = 0;
 	CK_RSA_PKCS_PSS_PARAMS *rsa_pss_param;
+	CK_EDDSA_PARAMS *eddsa_params;
+	hseEddsaSignScheme_t *eddsa_scheme = NULL;
 	hseMacSrv_t *mac_srv = NULL;
+	uint32_t component_len;
+	uint8_t sig_temp[64];
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -1415,6 +1494,66 @@ CK_DECLARE_FUNCTION(CK_RV, C_Verify)(
 				sign_srv->bInputIsHashed = 0u;
 
 			break;
+		case CKM_EDDSA: {
+			component_len = HSE_BITS_TO_BYTES(hse_get_key_bit_length(sCtx->sID, sCtx->signCtx.keyHandle));
+			if(component_len != 32) {
+				rc = CKR_KEY_SIZE_RANGE;
+				goto out_free_sign0;
+			}
+
+			eddsa_params = NULL;
+
+			sign_scheme->signSch = HSE_SIGN_EDDSA;
+			eddsa_scheme = &sign_scheme->sch.eddsa;
+
+			/* Default: PureEdDSA */
+			eddsa_scheme->bHashEddsa = FALSE;	/* No pre-hashing */
+			eddsa_scheme->contextLength = 0;	/* No context */
+			eddsa_scheme->pContext = 0u;
+
+			/* Check if CK_EDDSA_PARAMS is provided */
+			if (sCtx->signCtx.mechanism->pParameter != NULL &&
+				sCtx->signCtx.mechanism->ulParameterLen == sizeof(CK_EDDSA_PARAMS)) {
+
+				eddsa_params = (CK_EDDSA_PARAMS *)sCtx->signCtx.mechanism->pParameter;
+
+				/* Ed25519ph: Check if input is pre-hashed */
+				if (eddsa_params->phFlag)
+					eddsa_scheme->bHashEddsa = TRUE;
+
+				if (eddsa_params->pContextData != NULL &&
+					eddsa_params->ulContextDataLen > 0) {
+					context_handle = hse_mem_alloc(eddsa_params->ulContextDataLen);
+					if (context_handle < 0) {
+						rc = CKR_HOST_MEMORY;
+						goto out_free_sign0;
+					}
+
+					hse_memcpy_to_dev(context_handle, eddsa_params->pContextData, eddsa_params->ulContextDataLen, 0);
+					eddsa_scheme->contextLength = eddsa_params->ulContextDataLen;
+					eddsa_scheme->pContext = hse_virt_to_dma(context_handle, 0);
+				}
+			}
+			/* Convert to big endian (required by HSE) from little endian (imposed by RFC 8032) */
+			memcpy(sig_temp, pSignature, ulSignatureLen);
+			reverse_bytes(sig_temp, component_len);					/* Reverse R */
+			reverse_bytes(sig_temp + component_len, component_len);	/* Reverse S */
+
+			hse_memcpy_to_dev(sign0_handle, sig_temp, ulSignatureLen, 0);
+			hse_memcpy_to_dev(output_len_handle, &component_len, sizeof(component_len), 0);
+
+			/* EdDSA signature = (R || S), each 32 bytes for Ed25519 */
+			sign_srv->pSignatureLength[0] = hse_virt_to_dma(output_len_handle, 0);
+			sign_srv->pSignature[0] = hse_virt_to_dma(sign0_handle, 0); /* R component */
+			sign_srv->pSignatureLength[1] = hse_virt_to_dma(output_len_handle, 0);
+			sign_srv->pSignature[1] = hse_virt_to_dma(sign0_handle, component_len); /* S component */
+
+			/* bInputIsHashed indicates whether the input data is already hashed */
+			sign_srv->bInputIsHashed = (eddsa_params && eddsa_params->phFlag) ? TRUE : FALSE;
+
+			break;
+		}
+
 		case CKM_AES_CMAC:
 			mac_srv = &srv_desc.hseSrv.macReq;
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
@@ -2387,6 +2526,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignUpdate)(
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
 			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
 			break;
+		case CKM_EDDSA:
+			rc = CKR_FUNCTION_NOT_SUPPORTED;
+			goto out_free_input;
 		case CKM_AES_CMAC:
 			mac_srv = &srv_desc.hseSrv.macReq;
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
@@ -2826,6 +2968,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyUpdate)(
 			sign_scheme->signSch = HSE_SIGN_ECDSA;
 			sign_scheme->sch.ecdsa.hashAlgo = hse_get_hash_alg(sCtx->signCtx.mechanism->mechanism);
 			break;
+		case CKM_EDDSA:
+			rc = CKR_FUNCTION_NOT_SUPPORTED;
+			goto out_free_input;
 		case CKM_AES_CMAC:
 			mac_srv = &srv_desc.hseSrv.macReq;
 			mac_srv->macScheme.macAlgo = HSE_MAC_ALGO_CMAC;
