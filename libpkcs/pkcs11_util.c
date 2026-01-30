@@ -229,8 +229,8 @@ static const struct ec_param_oid ec_oid_param[] = {
 	},
 	{
 		.id = HSE_EC_25519_ED25519,
-		.oid_len = 11,
-		.oid_param = {"\x06\x09\x2B\x06\x01\x04\x01\xDA\x47\x0F\x01"}
+		.oid_len = 5,
+		.oid_param = {"\x06\x03\x2B\x65\x70"}
 	},
 	{
 		.id = HSE_EC_25519_CURVE25519,
