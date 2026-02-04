@@ -1192,3 +1192,29 @@ void reverse_bytes(uint8_t *data, size_t len)
         data[len - 1 - i] = tmp;
     }
 }
+
+int is_valid_key_length(CK_KEY_TYPE type, uint32_t key_bit_len) {
+	switch (type) {
+		case CKK_RSA:
+			return !(key_bit_len < HSE_MIN_RSA_KEY_BITS_LEN || key_bit_len > HSE_MAX_RSA_KEY_BITS_LEN);
+		case CKK_EC:
+			return !(key_bit_len < HSE_MIN_ECC_KEY_BITS_LEN || key_bit_len > HSE_MAX_ECC_KEY_BITS_LEN);
+		case CKK_EC_EDWARDS:
+			return key_bit_len == 256;
+		case CKK_AES_XTS:
+			return (key_bit_len == 256 || key_bit_len == 512);
+		case CKK_AES:
+			return (key_bit_len == 128 || key_bit_len == 192 || key_bit_len == 256);
+		case CKK_SHA_1_HMAC:
+		case CKK_SHA224_HMAC:
+		case CKK_SHA256_HMAC:
+			return !(key_bit_len < HSE_MIN_HMAC_KEY_BITS_LEN ||
+					(key_bit_len > HSE_MAX_HMAC_KEY_BITS_LEN && key_bit_len < HSE_BYTES_TO_BITS(SHA256_BLOCK_SIZE)));
+		case CKK_SHA384_HMAC:
+		case CKK_SHA512_HMAC:
+			return !(key_bit_len < HSE_MIN_HMAC_KEY_BITS_LEN ||
+					(key_bit_len > HSE_MAX_HMAC_KEY_BITS_LEN && key_bit_len < HSE_BYTES_TO_BITS(SHA512_BLOCK_SIZE)));
+		default:
+			return 0;
+	}
+}

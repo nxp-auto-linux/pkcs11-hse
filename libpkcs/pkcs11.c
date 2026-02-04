@@ -153,6 +153,7 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_DigestKey =                          C_DigestKey,
 	.C_GenerateKeyPair =                    C_GenerateKeyPair,
 	.C_GenerateKey =                        C_GenerateKey,
+	.C_DeriveKey =                          C_DeriveKey,
 };
 
 static CK_FUNCTION_LIST_3_0 gFunctionList_3_0 = {

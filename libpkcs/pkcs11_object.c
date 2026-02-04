@@ -11,33 +11,6 @@
 #include "hse-internal.h"
 #include "pkcs11_util.h"
 
-
-int is_valid_key_length(CK_KEY_TYPE type, uint32_t key_bit_len) {
-	switch (type) {
-		case CKK_RSA:
-			return !(key_bit_len < HSE_MIN_RSA_KEY_BITS_LEN || key_bit_len > HSE_MAX_RSA_KEY_BITS_LEN);
-		case CKK_EC:
-			return !(key_bit_len < HSE_MIN_ECC_KEY_BITS_LEN || key_bit_len > HSE_MAX_ECC_KEY_BITS_LEN);
-		case CKK_EC_EDWARDS:
-			return key_bit_len == 256;
-		case CKK_AES_XTS:
-			return (key_bit_len == 256 || key_bit_len == 512);
-		case CKK_AES:
-			return (key_bit_len == 128 || key_bit_len == 192 || key_bit_len == 256);
-		case CKK_SHA_1_HMAC:
-		case CKK_SHA224_HMAC:
-		case CKK_SHA256_HMAC:
-			return !(key_bit_len < HSE_MIN_HMAC_KEY_BITS_LEN ||
-					(key_bit_len > HSE_MAX_HMAC_KEY_BITS_LEN && key_bit_len < HSE_BYTES_TO_BITS(SHA256_BLOCK_SIZE)));
-		case CKK_SHA384_HMAC:
-		case CKK_SHA512_HMAC:
-			return !(key_bit_len < HSE_MIN_HMAC_KEY_BITS_LEN ||
-					(key_bit_len > HSE_MAX_HMAC_KEY_BITS_LEN && key_bit_len < HSE_BYTES_TO_BITS(SHA512_BLOCK_SIZE)));
-		default:
-			return 0;
-	}
-}
-
 CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 		CK_SESSION_HANDLE hSession,
 		CK_ATTRIBUTE_PTR pTemplate,
@@ -65,6 +38,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	CK_BYTE *fullKey, *tweakKey;
 	CK_BYTE *tweak_id;
 	uint8_t *pubkey, *privkey;
+	CK_BBOOL *keyFlag_val = NULL;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -519,6 +493,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_key_intl;
 	}
+
+	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_DERIVE, ulCount)) && (*keyFlag_val))
+					key_info.keyFlags |= HSE_KF_USAGE_DERIVE;
+
 	hse_memcpy_to_dev(key_info_handle, (void *)&key_info, sizeof(key_info), 0);
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);

@@ -46,5 +46,6 @@ int get_key_object_handle(CK_OBJECT_HANDLE handle);
 struct dyn_attrHdrObject *get_key_dyn_attr_hdr_handle(int attr_head_handle, CK_ATTRIBUTE_TYPE type);
 void *get_attr_handle_from_key(CK_OBJECT_HANDLE key_handle, CK_ATTRIBUTE_TYPE attr_type);
 void reverse_bytes(uint8_t *data, size_t len);
+int is_valid_key_length(CK_KEY_TYPE type, uint32_t key_bit_len);
 
 #endif
