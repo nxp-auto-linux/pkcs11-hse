@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2026 NXP
  *
  */
 
@@ -120,12 +120,13 @@ static CK_OBJECT_HANDLE util_lib_generate_aes(CK_FUNCTION_LIST_PTR flist, CK_SES
 	CK_UTF8CHAR label[] = {"HSE-AES-256-GEN"};
 	/* key length in bits required for AES keys */
 	CK_ULONG key_bits = 256;
-	int test = 1;
+	CK_BBOOL boolean = CK_TRUE;
+
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_ID, &key_id, sizeof(key_id) },
-		{ CKA_ENCRYPT, &test, sizeof(test) },
-		{ CKA_DECRYPT, &test, sizeof(test) },
+		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
+		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
 		{ CKA_VALUE_LEN, &key_bits, sizeof(key_bits) }
 	};
 
@@ -155,7 +156,7 @@ static CK_OBJECT_HANDLE util_lib_generate_rsapair(CK_FUNCTION_LIST_PTR flist, CK
 	CK_UTF8CHAR label[] = {"HSE-RSA2048-PRIV-GEN"};
 	CK_ULONG rsa_modulus_bits = 2048;
 	CK_BYTE rsa_pub_exponent[] = { 0x01, 0x00, 0x01 };
-	int test = 1;
+	CK_BBOOL boolean = CK_TRUE;
 	/*
 	 * when generating a key pair, only the private key template
 	 * contains the attributes necessary to generate the pair
@@ -166,15 +167,15 @@ static CK_OBJECT_HANDLE util_lib_generate_rsapair(CK_FUNCTION_LIST_PTR flist, CK
 	CK_ATTRIBUTE privateKeyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_ID, &key_id, sizeof(key_id) },
-		{ CKA_DECRYPT, &test, sizeof(test) },
-		{ CKA_SIGN, &test, sizeof(test) }
+		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
+		{ CKA_SIGN, &boolean, sizeof(boolean) }
 	};
 
 	CK_ATTRIBUTE publicKeyTemplate[] = {
 		{ CKA_MODULUS_BITS, &rsa_modulus_bits, sizeof(rsa_modulus_bits) },
 		{ CKA_PUBLIC_EXPONENT, rsa_pub_exponent, ARRAY_SIZE(rsa_pub_exponent) },
-		{ CKA_ENCRYPT, &test, sizeof(test) },
-		{ CKA_VERIFY, &test, sizeof(test) }
+		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
+		{ CKA_VERIFY, &boolean, sizeof(boolean) }
 	};
 
 	rv = flist->C_GenerateKeyPair(session, &mechanism, publicKeyTemplate, ARRAY_SIZE(publicKeyTemplate), privateKeyTemplate, ARRAY_SIZE(privateKeyTemplate), &pubkey, &prikey);
@@ -202,7 +203,7 @@ static CK_OBJECT_HANDLE util_lib_generate_eccpair(CK_FUNCTION_LIST_PTR flist, CK
 	CK_BYTE key_id[] = { 0x00, 0x03, 0x01 };
 	CK_UTF8CHAR label[] = {"HSE-EC-PRIV-GEN"};
 	CK_UTF8CHAR ecc_curve_oid[] = {"\x06\x08\x2A\x86\x48\xCE\x3D\x03\x01\x07"};
-	int test=1;
+	CK_BBOOL boolean = CK_TRUE;
 	/*
 	 * when generating a key pair, only the private key template
 	 * contains the attributes necessary to generate the pair
@@ -213,14 +214,14 @@ static CK_OBJECT_HANDLE util_lib_generate_eccpair(CK_FUNCTION_LIST_PTR flist, CK
 	CK_ATTRIBUTE privateKeyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_ID, &key_id, sizeof(key_id) },
-		{ CKA_DECRYPT, &test, sizeof(test) },
-		{ CKA_SIGN, &test, sizeof(test) }
+		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
+		{ CKA_SIGN, &boolean, sizeof(boolean) }
 	};
 
 	CK_ATTRIBUTE publicKeyTemplate[] = {
 		{ CKA_EC_PARAMS, ecc_curve_oid, sizeof(ecc_curve_oid)-1 },
-		{ CKA_ENCRYPT, &test, sizeof(test) },
-		{ CKA_VERIFY, &test, sizeof(test) }
+		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
+		{ CKA_VERIFY, &boolean, sizeof(boolean) }
 	};
 
 

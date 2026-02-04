@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2025 NXP
+ * Copyright 2026 NXP
  *
  */
 
@@ -119,12 +119,12 @@ static CK_OBJECT_HANDLE util_lib_generate_aes(CK_FUNCTION_LIST_PTR flist, CK_SES
 	/* key length in bits required for AES keys */
 	CK_ULONG key_bits = 256;
 	CK_BBOOL boolean = CK_TRUE;
-	int test = 1;
+
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_ID, &key_id, sizeof(key_id) },
-		{ CKA_ENCRYPT, &test, sizeof(test) },
-		{ CKA_DECRYPT, &test, sizeof(test) },
+		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
+		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
 		{ CKA_VALUE_LEN, &key_bits, sizeof(key_bits) },
 		{ CKA_VENDOR_DEFINED, new_label, sizeof(new_label) - 1 },
 		{ CKA_ALWAYS_SENSITIVE, &boolean, sizeof(boolean) },
