@@ -1,8 +1,13 @@
 #
-# Copyright 2023 NXP
+# Copyright 2023, 2026 NXP
 #
 
 include ../../common.mk
+
+KS_CONFIG_OPTEE_EN ?= false
+ifeq ($(KS_CONFIG_OPTEE_EN),true)
+CFLAGS += -DKS_CONFIG_OPTEE_EN
+endif
 
 all: hse-secboot
 

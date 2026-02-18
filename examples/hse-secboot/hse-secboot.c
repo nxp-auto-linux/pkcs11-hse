@@ -2,7 +2,7 @@
 /*
  * HSE advanced secure boot preparatory command demo
  *
- * Copyright 2022-2025 NXP
+ * Copyright 2022-2026 NXP
  */
 
 #include <stdio.h>
@@ -21,7 +21,13 @@
 #include <sys/ioctl.h>
 #include <mtd/mtd-user.h>
 #include "libhse.h"
-#include "keys-config.h"
+
+#ifndef KS_CONFIG_OPTEE_EN
+#include "default_ks_config.h"
+#else
+#include "optee_ks_config.h"
+#endif /* KS_CONFIG_OPTEE_EN */
+
 #include "hse_interface.h"
 
 #define BIT(n) (0x1u << (n))
@@ -38,11 +44,11 @@
 #define BL2_SIGN_ARG_ID 0x100
 #define BL2_BIN_ARG_ID 0x101
 #define RPMB_DEFAULT_KEY_HANDLE 0x010200
-#define DDRFW_DEFAULT_KEY_HANDLE 0x010700
-#define BL2_DEFAULT_KEY_HANDLE 0x010700
-#define BL31_DEFAULT_KEY_HANDLE 0x010700
-#define BL32_DEFAULT_KEY_HANDLE 0x010700
-#define BL33_DEFAULT_KEY_HANDLE 0x010700
+#define DDRFW_DEFAULT_KEY_HANDLE 0x010000
+#define BL2_DEFAULT_KEY_HANDLE 0x010000
+#define BL31_DEFAULT_KEY_HANDLE 0x010000
+#define BL32_DEFAULT_KEY_HANDLE 0x010000
+#define BL33_DEFAULT_KEY_HANDLE 0x010000
 
 #define HSE_MONOTONIC_CNT_NUM 4
 #define HSE_MONOTONIC_CNT_TABLE_PATH "/etc/keys/secboot/hse_cnt_table.bin"
@@ -535,13 +541,13 @@ int hse_key_format()
 	int nvm_catalog_handle, ram_catalog_handle;
 	int ret = 0;
 
-	nvm_catalog_handle = hse_mem_alloc(sizeof(hseKeyGroupCfgEntry_t) * NUM_NVM_GROUPS);
+	nvm_catalog_handle = hse_mem_alloc(sizeof(hseKeyGroupCfgEntry_t) * ARRAY_SIZE(nvm_cat));
 	if (nvm_catalog_handle < 0) {
 		ERROR("Failed to allocate space for NVM Key Group in reserved memory\n");
 		return -ENOMEM;
 	}
 
-	ram_catalog_handle = hse_mem_alloc(sizeof(hseKeyGroupCfgEntry_t) * NUM_RAM_GROUPS);
+	ram_catalog_handle = hse_mem_alloc(sizeof(hseKeyGroupCfgEntry_t) * ARRAY_SIZE(ram_cat));
 	if (ram_catalog_handle < 0) {
 		ERROR("Failed to allocate space for RAM Key Group in reserved memory\n");
 		ret = -ENOMEM;

@@ -172,7 +172,7 @@ static CK_OBJECT_HANDLE install_ecc_private_key(CK_FUNCTION_LIST_PTR flist, CK_S
 	CK_OBJECT_CLASS key_class = CKO_PRIVATE_KEY;
 	CK_KEY_TYPE key_type = CKK_EC;
 	CK_UTF8CHAR label[] = {"HSE-ECC-PRIV"};
-	CK_BYTE key_id[] = { 0x00, 0x03, 0x01};
+	CK_BYTE key_id[] = { 0x00, 0x07, 0x01};
 	CK_BYTE key_priv[] = {
 		0x54, 0x4d, 0x90, 0xd1, 0xbf, 0x45, 0x32, 0x9c, 0xd2, 0x39, 0x47, 0x06, 0x29, 0x3b, 0x4f, 0xc8, 
 		0x70, 0x28, 0xf7, 0xde, 0xac, 0x86, 0xb3, 0x91, 0xb6, 0x91, 0x93, 0xff, 0xe8, 0xe4, 0x2f, 0x68
@@ -219,7 +219,7 @@ static CK_OBJECT_HANDLE install_ecc_public_key(CK_FUNCTION_LIST_PTR flist, CK_SE
 	CK_OBJECT_CLASS key_class = CKO_PUBLIC_KEY;
 	CK_KEY_TYPE key_type = CKK_EC;
 	CK_UTF8CHAR label[] = {"HSE-ECC-PUB"};
-	CK_BYTE key_id[] = { 0x00, 0x04, 0x01};
+	CK_BYTE key_id[] = { 0x00, 0x08, 0x01};
 	/* DER-encoding of ANSI X9.62 ECPoint value */
 	CK_BYTE key_pub[] = {
 		0x42, 0x00, 0x04, 
@@ -261,7 +261,7 @@ static CK_OBJECT_HANDLE install_ed25519_private_key(CK_FUNCTION_LIST_PTR flist, 
 	CK_OBJECT_CLASS key_class = CKO_PRIVATE_KEY;
 	CK_KEY_TYPE key_type = CKK_EC_EDWARDS;
 	CK_UTF8CHAR label[] = {"HSE-Ed25519-PRIV"};
-	CK_BYTE key_id[] = { 0x00, 0x0A, 0x01 };
+	CK_BYTE key_id[] = { 0x01, 0x07, 0x01 };
 
 	/* Ed25519 private key (32 bytes in little-endian as per RFC 8032) */
 	CK_BYTE key_priv[] = {
@@ -311,7 +311,7 @@ static CK_OBJECT_HANDLE install_ed25519_public_key(CK_FUNCTION_LIST_PTR flist, C
 	CK_OBJECT_CLASS key_class = CKO_PUBLIC_KEY;
 	CK_KEY_TYPE     key_type  = CKK_EC_EDWARDS;
 	CK_UTF8CHAR     label[]   = {"HSE-Ed25519-PUB"};
-	CK_BYTE         key_id[]  = { 0x00, 0x0B, 0x01 };
+	CK_BYTE         key_id[]  = { 0x01, 0x08, 0x01 };
 
 	/* DER-encoded ASN.1 OCTET STRING wrapping the 32-byte Ed25519 public key. */
 	CK_BYTE key_pub[] = {
@@ -1490,8 +1490,8 @@ int main(int argc, char *argv[])
 	 *     - key_id[1] - group ID
 	 *     - key_id[2] - catalog ID
 	 */
-	key_id[0] = 0;
-	key_id[1] = 0;
+	key_id[0] = 7;
+	key_id[1] = 4;
 	key_id[2] = 1;	/* NVM key */
 	aes128_key = install_aes_hmac_key(flist, session, CKK_AES, key_id, sizeof(key_value_AES_128), key_value_AES_128);
 	if (!aes128_key) {

@@ -105,8 +105,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 				return CKR_MECHANISM_PARAM_INVALID;
 
 			final_obj = GET_KEY_HANDLE(id[2], id[1], id[0]);
-			tmp_prk   = GET_KEY_HANDLE(0x02, 0x03, 0x00);
-			tmp_okm   = GET_KEY_HANDLE(0x02, 0x03, 0x00);
+			tmp_prk   = GET_KEY_HANDLE(0x02, 0x04, 0x00);
+			tmp_okm   = GET_KEY_HANDLE(0x02, 0x04, 0x00);
 
 			/* HKDF EXTRACT */
 			memset(&srv_desc, 0, sizeof(srv_desc));

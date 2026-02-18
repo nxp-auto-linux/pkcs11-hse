@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2023 NXP
+ * Copyright 2023-2026 NXP
  */
 
 #include <hse_interface.h>
@@ -9,13 +9,13 @@
 #define HSE_NVM_KEK_HANDLE	GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, \
 					       HSE_NVM_KEK_GROUP, 0)
 
-#define HSE_NVM_AES_GROUP	8
+#define HSE_NVM_AES_GROUP	4
 #define HSE_NVM_AES_KEY1	GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, \
 					       HSE_NVM_AES_GROUP, 1)
 #define HSE_NVM_AES_KEY2	GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, \
 					       HSE_NVM_AES_GROUP, 2)
 
-#define HSE_NVM_HMAC_GROUP	9
+#define HSE_NVM_HMAC_GROUP	5
 #define HSE_NVM_HMAC_KEY0	GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, \
 					       HSE_NVM_HMAC_GROUP, 0)
 #define HSE_NVM_HMAC_KEY1	GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, \

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2023-2025 NXP
+ * Copyright 2023-2026 NXP
  */
 
 #include <stdio.h>
@@ -149,7 +149,7 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 	CK_OBJECT_CLASS key_class = CKO_SECRET_KEY;
 	CK_KEY_TYPE key_type = CKK_AES;
 	CK_UTF8CHAR label[] = {"HSE-AES-128"};
-	CK_BYTE key_id[] = { 0x01, 0x00, 0x01 };
+	CK_BYTE key_id[] = { 0x04, 0x04, 0x01 };
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
@@ -181,8 +181,8 @@ static CK_OBJECT_HANDLE util_lib_create_object_xts(CK_FUNCTION_LIST_PTR flist, C
 	CK_OBJECT_CLASS key_class = CKO_SECRET_KEY;
 	CK_KEY_TYPE key_type = CKK_AES_XTS;
 	CK_UTF8CHAR label[] = {"HSE-AES-XTS"};
-	CK_BYTE key_id[] = { 0x09, 0x01, 0x01 };
-	CK_BYTE tweak_key_id[] = { 0x08, 0x01, 0x01 };
+	CK_BYTE key_id[] = { 0x05, 0x04, 0x01 };
+	CK_BYTE tweak_key_id[] = { 0x06, 0x04, 0x01 };
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },

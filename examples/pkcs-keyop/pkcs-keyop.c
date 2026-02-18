@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2022 NXP
+ * Copyright 2021-2026 NXP
  */
 
 /*
@@ -102,11 +102,11 @@ int main(int argc, char *argv[])
 	 * HSE key IDs can only be composed of 3 bytes
 	 */
 	keyid1[0] = 0x00;
-	keyid1[1] = 0x06;
+	keyid1[1] = 0x0A;
 	keyid1[2] = 0x01;
 
 	keyid2[0] = 0x01;
-	keyid2[1] = 0x06;
+	keyid2[1] = 0x0A;
 	keyid2[2] = 0x01;
 
 	/* 

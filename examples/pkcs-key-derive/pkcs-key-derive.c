@@ -169,7 +169,7 @@ static CK_OBJECT_HANDLE util_lib_derive_key_aes(CK_FUNCTION_LIST_PTR flist, CK_S
 	 *     - key_id[1] - group ID
 	 *     - key_id[2] - catalog ID
 	 */
-	CK_BYTE key_id[] = { 0x00, 0x02, 0x02 };
+	CK_BYTE key_id[] = { 0x01, 0x02, 0x02 };
 	CK_UTF8CHAR label[] = {"HSE-DERIVED-KEY-AES"};
 	CK_KEY_TYPE ktype = CKK_AES;
 	CK_ULONG key_len_bytes = 32;
@@ -378,8 +378,8 @@ int main(int argc, char *argv[])
 	 *     - key_id[1] - group ID
 	 *     - key_id[2] - catalog ID
 	 */
-	key_id[0] = 0;
-	key_id[1] = 0;
+	key_id[0] = 2;
+	key_id[1] = 2;
 	key_id[2] = 2;
 	base_key = install_base_key(flist, session, CKK_AES, key_id, sizeof(key_value_AES_256), key_value_AES_256);
 	if (!base_key) {

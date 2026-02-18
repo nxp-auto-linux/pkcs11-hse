@@ -116,7 +116,7 @@ static CK_OBJECT_HANDLE util_lib_generate_aes(CK_FUNCTION_LIST_PTR flist, CK_SES
 	 *     - key_id[1] - group ID
 	 *     - key_id[2] - catalog ID
 	 */
-	CK_BYTE key_id[] = { 0x00, 0x00, 0x02 };
+	CK_BYTE key_id[] = { 0x00, 0x02, 0x02 };
 	CK_UTF8CHAR label[] = {"HSE-AES-256-GEN"};
 	/* key length in bits required for AES keys */
 	CK_ULONG key_bits = 256;
@@ -152,7 +152,7 @@ static CK_OBJECT_HANDLE util_lib_generate_rsapair(CK_FUNCTION_LIST_PTR flist, CK
 	 *     - key_id[1] - group ID
 	 *     - key_id[2] - catalog ID
 	 */
-	CK_BYTE key_id[] = { 0x00, 0x06, 0x01 };
+	CK_BYTE key_id[] = { 0x00, 0x09, 0x01 };
 	CK_UTF8CHAR label[] = {"HSE-RSA2048-PRIV-GEN"};
 	CK_ULONG rsa_modulus_bits = 2048;
 	CK_BYTE rsa_pub_exponent[] = { 0x01, 0x00, 0x01 };
@@ -200,7 +200,7 @@ static CK_OBJECT_HANDLE util_lib_generate_eccpair(CK_FUNCTION_LIST_PTR flist, CK
 	 *     - key_id[1] - group ID
 	 *     - key_id[2] - catalog ID
 	 */
-	CK_BYTE key_id[] = { 0x00, 0x03, 0x01 };
+	CK_BYTE key_id[] = { 0x00, 0x06, 0x01 };
 	CK_UTF8CHAR label[] = {"HSE-EC-PRIV-GEN"};
 	CK_UTF8CHAR ecc_curve_oid[] = {"\x06\x08\x2A\x86\x48\xCE\x3D\x03\x01\x07"};
 	CK_BBOOL boolean = CK_TRUE;

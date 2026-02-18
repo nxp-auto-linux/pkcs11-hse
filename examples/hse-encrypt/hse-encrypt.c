@@ -5,7 +5,7 @@
  * This is a simple application that generates an AES-256 key, encrypts some
  * data using AES-CBC, then decrypts it in-place and compares the result.
  *
- * Copyright 2022-2025 NXP
+ * Copyright 2022-2026 NXP
  */
 
 #include <stdio.h>
@@ -44,9 +44,9 @@ int main(int argc, char *argv[])
 
 	switch (argc) {
 	case 1:
-		/* when no arguments are given, use handle 010105 by default */
-		group_id = 0x01u;
-		slot_id = 0x05u;
+		/* when no arguments are given, use handle 010300 by default */
+		group_id = 0x03u;
+		slot_id = 0x00u;
 		break;
 	case 3:
 		/* parse input key group and slot index */

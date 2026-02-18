@@ -113,7 +113,7 @@ static CK_OBJECT_HANDLE util_lib_generate_aes(CK_FUNCTION_LIST_PTR flist, CK_SES
 	 *     - key_id[1] - group ID
 	 *     - key_id[2] - catalog ID
 	 */
-	CK_BYTE key_id[] = { 0x00, 0x01, 0x01 };
+	CK_BYTE key_id[] = { 0x03, 0x04, 0x01 };
 	CK_UTF8CHAR label[] = {"HSE-AES-256-GEN"};
 	CK_UTF8CHAR new_label[] = {"GENERATED_KEY"};
 	/* key length in bits required for AES keys */
