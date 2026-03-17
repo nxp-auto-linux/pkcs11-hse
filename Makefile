@@ -25,6 +25,10 @@ HSE_OBJS = $(patsubst $(HSE_SDIR)/%.c,$(HSE_ODIR)/%.o,$(HSE_SRCS))
 
 DEFS := -DUIO_DEV=$(UIO_DEV) -DHSE_LIBVER_MAJOR=$(HSE_LIBVER_MAJOR)
 
+# PKCS configuration directory
+PKCS_DIR ?= /etc
+DEFS += -DPKCS_DIR=\"$(PKCS_DIR)\"
+
 # Firmware version-major extraction logic
 ifneq ($(MAKECMDGOALS),clean)
 	HSE_FW_VERSION_MAJOR ?= $(shell \

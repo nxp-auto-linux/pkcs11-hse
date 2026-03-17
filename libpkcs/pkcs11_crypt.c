@@ -19,6 +19,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptInit)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 
 	if (gCtx->cryptokiInit == CK_FALSE)
@@ -45,12 +46,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_EncryptInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	if (get_key_object_handle(hKey) < 0) {
-		gCtx->mtxFns.unlock(gCtx->keyMtx);
+		gCtx->mtxFns.unlock(tCtx->keyMtx);
 		return CKR_KEY_HANDLE_INVALID;
 	}
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 	/* IV is optional for AES-ECB */
 	if (pMechanism->pParameter == NULL)
@@ -439,6 +440,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptInit)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 
 	if (gCtx->cryptokiInit == CK_FALSE)
@@ -465,12 +467,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_DecryptInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	if (get_key_object_handle(hKey) < 0) {
-		gCtx->mtxFns.unlock(gCtx->keyMtx);
+		gCtx->mtxFns.unlock(tCtx->keyMtx);
 		return CKR_KEY_HANDLE_INVALID;
 	}
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 	/* IV is optional for AES-ECB */
 	if (pMechanism->pParameter == NULL)
@@ -846,6 +848,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignInit)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	uint32_t blockSize = 0;
 
@@ -873,7 +876,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	if (gCtx->fwTypeId == 0) {  /* 0 - STANDARD */
+	if (tCtx->fwTypeId == 0) {  /* 0 - STANDARD */
 		switch (pMechanism->mechanism) {
 			case CKM_ECDSA_SHA3_224:
 			case CKM_ECDSA_SHA3_256:
@@ -892,12 +895,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_SignInit)(
 		}
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	if (get_key_object_handle(hKey) < 0) {
-		gCtx->mtxFns.unlock(gCtx->keyMtx);
+		gCtx->mtxFns.unlock(tCtx->keyMtx);
 		return CKR_KEY_HANDLE_INVALID;
 	}
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 	if (hse_get_hash_block_size(pMechanism->mechanism, &blockSize)) 
 		return CKR_ARGUMENTS_BAD;
@@ -1277,6 +1280,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyInit)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	uint32_t blockSize = 0;
 
@@ -1304,12 +1308,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_VerifyInit)(
 	if (pMechanism == NULL)
 		return CKR_ARGUMENTS_BAD;
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	if (get_key_object_handle(hKey) < 0) {
-		gCtx->mtxFns.unlock(gCtx->keyMtx);
+		gCtx->mtxFns.unlock(tCtx->keyMtx);
 		return CKR_KEY_HANDLE_INVALID;
 	}
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 	if (hse_get_hash_block_size(pMechanism->mechanism, &blockSize)) 
 		return CKR_ARGUMENTS_BAD;

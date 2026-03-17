@@ -47,5 +47,6 @@ struct dyn_attrHdrObject *get_key_dyn_attr_hdr_handle(int attr_head_handle, CK_A
 void *get_attr_handle_from_key(CK_OBJECT_HANDLE key_handle, CK_ATTRIBUTE_TYPE attr_type);
 void reverse_bytes(uint8_t *data, size_t len);
 int is_valid_key_length(CK_KEY_TYPE type, uint32_t key_bit_len);
+CK_RV hse_process_pin(uint8_t channel, CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen, CK_USER_TYPE utype, CK_BBOOL generate);
 
 #endif

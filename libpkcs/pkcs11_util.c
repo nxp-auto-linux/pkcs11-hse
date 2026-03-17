@@ -14,8 +14,16 @@
 #include "pkcs11_util.h"
 #include "hse-internal.h"
 
-#define PKCS_OBJ_DIR "/etc/pkcs-objs"
+#define PKCS_OBJ_DIR PKCS_DIR "/pkcs-objs"
 #define CEIL_MOD_8(x)		(((x) + 7) >> 3)
+
+#define PKCS_SO PKCS_DIR "/pkcs-so"
+#define PKCS_USER PKCS_DIR "/pkcs-user"
+
+struct pin_verifier {
+	CK_USER_TYPE user_type;
+	uint8_t tag[16];
+};
 
 void *getattr_pval(CK_ATTRIBUTE_PTR template,
 		CK_ATTRIBUTE_TYPE attribute,
@@ -1217,4 +1225,241 @@ int is_valid_key_length(CK_KEY_TYPE type, uint32_t key_bit_len) {
 		default:
 			return 0;
 	}
+}
+
+/**
+ * hse_process_pin - Generate or verify a PIN verifier using HSE
+ * @channel: HSE channel to use for cryptographic operations
+ * @pPin: Pointer to the PIN data
+ * @ulPinLen: Length of the PIN in bytes
+ * @utype: User type (CKU_SO for Security Officer, CKU_USER for normal user)
+ * @generate: CK_TRUE to generate and store a new verifier,
+ *            CK_FALSE to verify against stored verifier
+ *
+ * This function implements PIN-based authentication.
+ *
+ * The derivation process:
+ *   1. PBKDF2-HMAC-SHA512 key derivation using:
+ *      - A base HMAC key as the source, generated in C_initToken()
+ *      - The PIN as salt
+ *      - 10000 iterations
+ *   2. Copy 256 bits of derived key material to an AES key
+ *   3. Generate a 128-bit CMAC tag over a fixed label ("SO" or "US")
+ *   4. Store/verify the tag in the appropriate verifier file
+ *
+ *
+ * Return: CKR_OK on success, or one of:
+ *         CKR_USER_TYPE_INVALID - invalid user type
+ *         CKR_HOST_MEMORY - memory allocation failed
+ *         CKR_FUNCTION_FAILED - HSE operation failed
+ *         CKR_USER_PIN_NOT_INITIALIZED - verifier file not found (verify mode)
+ *         CKR_PIN_INCORRECT - PIN verification failed
+ */
+CK_RV hse_process_pin(uint8_t channel,
+					CK_UTF8CHAR_PTR pPin,
+					CK_ULONG        ulPinLen,
+					CK_USER_TYPE    utype,
+					CK_BBOOL        generate)
+{
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseKeyDeriveSrv_t *kd;
+	hseKeyDeriveCopyKeySrv_t *copyReq;
+	hseFastCMACSrv_t *macReq;
+	hseKeyInfo_t keyInfo;
+	size_t inputLen;
+	uint32_t baseKey, derivedKey, aesKey;
+	int pin_handle = -1;
+	int input_handle = -1;
+	int verifier_handle = -1;
+	int file_verifier_handle = -1;
+	const char *verPath;
+	const uint8_t *input;
+	FILE *f;
+	CK_RV rv = CKR_OK;
+	int err;
+
+	baseKey = GET_KEY_HANDLE(0x01, 0x02, 0x01);
+	derivedKey  = GET_KEY_HANDLE(0x02, 0x04, 0x00);
+	aesKey = GET_KEY_HANDLE(0x02, 0x02, 0x00);
+
+	inputLen = 2;
+
+	switch (utype) {
+		case CKU_SO:
+			verPath = PKCS_SO;
+			input = (uint8_t *)"SO";
+			break;
+		case CKU_USER:
+			verPath = PKCS_USER;
+			input = (uint8_t *)"US";
+			break;
+		default:
+			return CKR_USER_TYPE_INVALID;
+	}
+
+	pin_handle = hse_mem_alloc(ulPinLen);
+	if (pin_handle < 0) {
+		rv = CKR_HOST_MEMORY;
+		goto cleanup;
+	}
+	hse_memcpy_to_dev(pin_handle, pPin, ulPinLen, 0);
+
+	/* PBKDF2 */
+	srv_desc.srvId = HSE_SRV_ID_KEY_DERIVE;
+
+	kd = &srv_desc.hseSrv.keyDeriveReq;
+	kd->kdfAlgo = HSE_KDF_ALGO_PBKDF2HMAC;
+	kd->sch.PBKDF2.srcKeyHandle    = baseKey;
+	kd->sch.PBKDF2.targetKeyHandle = derivedKey;
+	kd->sch.PBKDF2.keyMatLen       = 64;
+	kd->sch.PBKDF2.hmacHash        = HSE_HASH_ALGO_SHA2_512;
+	kd->sch.PBKDF2.iterations      = 10000;
+	kd->sch.PBKDF2.pSalt           = hse_virt_to_dma(pin_handle, 0);
+	kd->sch.PBKDF2.saltLength      = ulPinLen;
+
+	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc), NULL);
+	if (err) {
+		rv = CKR_FUNCTION_FAILED;
+		goto cleanup;
+	}
+
+	/* derive key copy */
+	memset(&keyInfo, 0, sizeof(keyInfo));
+	keyInfo.keyType   = HSE_KEY_TYPE_AES;
+	keyInfo.keyBitLen = 256;
+	keyInfo.keyFlags  = generate ? HSE_KF_USAGE_SIGN : HSE_KF_USAGE_VERIFY;
+
+	memset(&srv_desc, 0, sizeof(srv_desc));
+	srv_desc.srvId = HSE_SRV_ID_KEY_DERIVE_COPY;
+
+	copyReq = &srv_desc.hseSrv.keyDeriveCopyKeyReq;
+	copyReq->keyHandle       = derivedKey;
+	copyReq->targetKeyHandle = aesKey;
+	copyReq->startOffset     = 0;
+	copyReq->keyInfo         = keyInfo;
+
+	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc), NULL);
+	if (err) {
+		rv = CKR_FUNCTION_FAILED;
+		goto cleanup;
+	}
+
+	/* FAST-CMAC */
+	input_handle = hse_mem_alloc(inputLen);
+	if (input_handle < 0) {
+		rv = CKR_HOST_MEMORY;
+		goto cleanup;
+	}
+	hse_memcpy_to_dev(input_handle, (void *)input, inputLen, 0);
+
+	verifier_handle = hse_mem_alloc(16);
+	if (verifier_handle < 0) {
+		rv = CKR_HOST_MEMORY;
+		goto cleanup;
+	}
+
+	memset(&srv_desc, 0, sizeof(srv_desc));
+	srv_desc.srvId = HSE_SRV_ID_FAST_CMAC;
+
+	macReq = &srv_desc.hseSrv.fastCmacReq;
+	macReq->keyHandle       = aesKey;
+	macReq->pInput          = hse_virt_to_dma(input_handle, 0);
+	macReq->inputBitLength  = inputLen * 8;
+	macReq->tagBitLength    = 128;
+	macReq->pTag            = hse_virt_to_dma(verifier_handle, 0);
+
+	macReq->authDir = generate ? HSE_AUTH_DIR_GENERATE : HSE_AUTH_DIR_VERIFY;
+
+	/* verification */
+	if (!generate) {
+		struct pin_verifier pv;
+
+		f = fopen(verPath, "rb");
+		if (!f) {
+			rv = CKR_USER_PIN_NOT_INITIALIZED;
+			goto cleanup;
+		}
+
+		if (fread(&pv, sizeof(pv), 1, f) != 1) {
+			fclose(f);
+			rv = CKR_FUNCTION_FAILED;
+			goto cleanup;
+		}
+		fclose(f);
+
+		if (pv.user_type != utype) {
+			rv = CKR_FUNCTION_FAILED;
+			goto cleanup;
+		}
+
+		file_verifier_handle = hse_mem_alloc(sizeof(pv.tag));
+		if (file_verifier_handle < 0) {
+			rv = CKR_HOST_MEMORY;
+			goto cleanup;
+		}
+
+		hse_memcpy_to_dev(file_verifier_handle, pv.tag, sizeof(pv.tag), 0);
+		macReq->pTag = hse_virt_to_dma(file_verifier_handle, 0);
+	}
+
+	/* execute CMAC generate/verify */
+	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc), NULL);
+    if (err) {
+        rv = generate ? CKR_FUNCTION_FAILED : CKR_PIN_INCORRECT;
+        goto cleanup;
+    }
+
+	/* store generated verifier */
+	if (!generate)
+		goto cleanup;
+
+	struct pin_verifier pv;
+
+	pv.user_type = utype;
+	hse_memcpy_from_dev(pv.tag, verifier_handle, sizeof(pv.tag), 0);
+
+	f = fopen(verPath, "wb");
+	if (!f) {
+		rv = CKR_FUNCTION_FAILED;
+		goto cleanup;
+	}
+
+	if (fwrite(&pv, sizeof(pv), 1, f) != 1) {
+		fclose(f);
+		rv = CKR_FUNCTION_FAILED;
+		goto cleanup;
+	}
+	fclose(f);
+
+cleanup:
+	memset(&srv_desc, 0, sizeof(srv_desc));
+	srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
+	srv_desc.hseSrv.eraseKeyReq.keyHandle = aesKey;
+	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
+
+	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc), NULL);
+	if (err && rv == CKR_OK) {
+		rv = CKR_FUNCTION_FAILED;
+	}
+
+	memset(&srv_desc, 0, sizeof(srv_desc));
+	srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
+	srv_desc.hseSrv.eraseKeyReq.keyHandle = derivedKey;
+	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
+
+	err = hse_srv_req_sync(channel, &srv_desc, sizeof(srv_desc), NULL);
+	if (err && rv == CKR_OK) {
+		rv = CKR_FUNCTION_FAILED;
+	}
+
+	if (pin_handle >= 0)
+		hse_mem_free(pin_handle);
+	if (input_handle >= 0)
+		hse_mem_free(input_handle);
+	if (verifier_handle >= 0)
+		hse_mem_free(verifier_handle);
+	if (file_verifier_handle >= 0)
+		hse_mem_free(file_verifier_handle);
+
+	return rv;
 }

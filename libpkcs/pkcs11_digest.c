@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2022-2025 NXP
+ * Copyright 2022-2026 NXP
  */
 
 #include <stdio.h>
@@ -35,7 +35,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestInit)(
 		CK_MECHANISM_PTR pMechanism
 )
 {
-	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	CK_RV rc = CKR_OK;
 
@@ -58,7 +58,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DigestInit)(
 	if (pMechanism == NULL)
 		return CKR_OK;
 
-	if (gCtx->fwTypeId == 0) {  /* 0 - STANDARD */
+	if (tCtx->fwTypeId == 0) {  /* 0 - STANDARD */
 		switch (pMechanism->mechanism) {
 			case CKM_SHA3_224:
 			case CKM_SHA3_256:

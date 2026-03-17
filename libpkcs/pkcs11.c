@@ -16,12 +16,17 @@
 #include "hse-internal.h"
 #include "pkcs11_util.h"
 
-#define PKCS_HSE_FILE "/etc/pkcs-hse-objs"
+#define PKCS_HSE_FILE PKCS_DIR "/pkcs-hse-objs"
+#define PKCS_TOKEN PKCS_DIR "/pkcs-token"
+
+#define MIN_PIN_LEN 16
+#define MAX_PIN_LEN 512
 
 static struct globalCtx globalContext = {
 	.cryptokiInit = CK_FALSE,
 };
 
+static struct tokenCtx tokenContext;
 static struct sessionCtx globalSessions[HSE_NUM_CHANNELS];
 
 static const CK_MECHANISM_TYPE mechanismList[] = {
@@ -179,6 +184,7 @@ static CK_FUNCTION_LIST_3_0 gFunctionList_3_0 = {
 	.C_CloseAllSessions  =                  C_CloseAllSessions,
 	.C_GetSessionInfo  =                    C_GetSessionInfo,
 	.C_Login  =                             C_Login,
+	.C_LoginUser =							C_LoginUser,
 	.C_Logout  =                            C_Logout,
 	.C_CreateObject =                       C_CreateObject,
 	.C_DestroyObject =                      C_DestroyObject,
@@ -220,6 +226,11 @@ CK_INTERFACE pkcs_interfaces[NUM_INTERFACES] = {
 struct globalCtx *getCtx(void)
 {
 	return &globalContext;
+}
+
+struct tokenCtx *getTokenCtx(void)
+{
+	return &tokenContext;
 }
 
 struct sessionCtx *getSessionCtx(CK_SESSION_HANDLE sID)
@@ -273,28 +284,22 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	CK_TOKEN_INFO_PTR pToken = &gCtx->token;
-	CK_SLOT_INFO_PTR pSlot = &gCtx->slot;
+	struct tokenCtx *tCtx = getTokenCtx();
 	CK_C_INITIALIZE_ARGS_PTR initArgs = pInitArgs;
-	hseAttrFwVersion_t fw_version;
-	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	int fw_version_handle, err;
-	CK_RV rv;
+	CK_BBOOL intl_token = CK_FALSE; // TODO: actually check intl_token later
+	FILE *f;
+	int rv;
 
 	if (gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_ALREADY_INITIALIZED;
 
 	if (initArgs) {
 		if (initArgs->CreateMutex && initArgs->DestroyMutex &&
-		    initArgs->LockMutex && initArgs->UnlockMutex) {
+			initArgs->LockMutex && initArgs->UnlockMutex) {
 			gCtx->mtxFns.create = initArgs->CreateMutex;
 			gCtx->mtxFns.destroy = initArgs->DestroyMutex;
 			gCtx->mtxFns.lock = initArgs->LockMutex;
 			gCtx->mtxFns.unlock = initArgs->UnlockMutex;
-
-			rv = gCtx->mtxFns.create(&gCtx->keyMtx);
-			if (rv)
-				return rv;
 		} else if (!initArgs->CreateMutex && !initArgs->DestroyMutex &&
 			   !initArgs->LockMutex && !initArgs->UnlockMutex) {
 			if (initArgs->flags & CKF_OS_LOCKING_OK) {
@@ -302,106 +307,68 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 				gCtx->mtxFns.destroy = destroyMutex;
 				gCtx->mtxFns.lock = lockMutex;
 				gCtx->mtxFns.unlock = unlockMutex;
-
-				rv = gCtx->mtxFns.create(&gCtx->keyMtx);
-				if (rv)
-					return rv;
 			} else {
 				gCtx->mtxFns.create = NULL;
 				gCtx->mtxFns.destroy = NULL;
 				gCtx->mtxFns.lock = NULL;
 				gCtx->mtxFns.unlock = NULL;
-				gCtx->keyMtx = NULL;
+				tCtx->keyMtx = NULL;
 			}
 		} else {
 			return CKR_ARGUMENTS_BAD;
 		}
 	} else {
-		/* only for testing */
-		/* Since our implementation doesn't accept NULL function, so by default
-		 *   below function pointers should be set */
 		gCtx->mtxFns.create = createMutex;
 		gCtx->mtxFns.destroy = destroyMutex;
 		gCtx->mtxFns.lock = lockMutex;
 		gCtx->mtxFns.unlock = unlockMutex;
-
-		rv = gCtx->mtxFns.create(&gCtx->keyMtx);
-		if (rv)
-			return rv;
 	}
 
-	strcpy_pkcs11_padding(pSlot->slotDescription, SLOT_DESC,
-			      sizeof(pSlot->slotDescription));
-	strcpy_pkcs11_padding(pSlot->manufacturerID, MANUFACTURER,
-			      sizeof(pSlot->manufacturerID));
-	pSlot->flags = CKF_TOKEN_PRESENT | CKF_HW_SLOT;
-
-	/* rev2 */
-	pSlot->hardwareVersion.major = 2;
-	pSlot->hardwareVersion.minor = 0;
-	/* libhse version 1.0 */
-	pSlot->firmwareVersion.major = 1;
-	pSlot->firmwareVersion.minor = 0;
-
-	strcpy_pkcs11_padding(pToken->label, TOKEN_DESC, sizeof(pToken->label));
-	strcpy_pkcs11_padding(pToken->manufacturerID, MANUFACTURER, sizeof(pToken->manufacturerID));
-
-	strcpy_pkcs11_padding(pToken->model, "N/A", sizeof(pToken->model));
-	strcpy_pkcs11_padding(pToken->serialNumber, "N/A", sizeof(pToken->serialNumber));
-
-	pToken->flags = CKF_TOKEN_INITIALIZED;
-	pToken->ulMaxSessionCount = MAX_SESSIONS;
-	pToken->ulSessionCount = 0;
-	pToken->ulMaxRwSessionCount = MAX_SESSIONS;
-	pToken->ulRwSessionCount = 0;
-	/* we don't use a pin */
-	pToken->ulMaxPinLen = 0;
-	pToken->ulMinPinLen = 0;
-	pToken->ulTotalPublicMemory = CK_UNAVAILABLE_INFORMATION;
-	pToken->ulFreePublicMemory = CK_UNAVAILABLE_INFORMATION;
-	pToken->ulTotalPrivateMemory = CK_UNAVAILABLE_INFORMATION;
-	pToken->ulFreePrivateMemory = CK_UNAVAILABLE_INFORMATION;
-	/* same as slot */
-	pToken->hardwareVersion.major = 2;
-	pToken->hardwareVersion.minor = 0;
-	pToken->firmwareVersion.major = 1;
-	pToken->firmwareVersion.minor = 0;
-
-	if (hse_dev_open())
-		return CKR_HOST_MEMORY;
-
-	/* get firmware version*/
-	fw_version_handle = hse_mem_alloc(sizeof(hseAttrFwVersion_t));
-	if (fw_version_handle < 0) {
-		return CKR_HOST_MEMORY;
-	}
-
-	srv_desc.srvId = HSE_SRV_ID_GET_ATTR;
-	srv_desc.hseSrv.getAttrReq.attrId = HSE_FW_VERSION_ATTR_ID;
-	srv_desc.hseSrv.getAttrReq.attrLen = sizeof(hseAttrFwVersion_t);
-	srv_desc.hseSrv.getAttrReq.pAttr = hse_virt_to_dma(fw_version_handle, 0);
-
-	err = hse_srv_req_sync(HSE_CHANNEL_ANY, &srv_desc, sizeof(srv_desc), NULL);
-	if (err) {
-		printf("ERROR: Failed to get firmware version: %d\n", err);
-		hse_mem_free(fw_version_handle);
+	rv = hse_dev_open();
+	if (rv)
 		return CKR_FUNCTION_FAILED;
+
+	f = fopen(PKCS_TOKEN, "rb");
+	if (f) {	/* the token was previously initialized */
+		if (!intl_token) { /* we dont have intl_tCtx yet */
+			/* if we get here it means that token was init, but there was a restart */
+			/* TODO: load tCtx from file into intl shm
+			(for now, we just load it into the static tCtx) */
+			if (fread(tCtx, sizeof(struct tokenCtx), 1, f) != 1) {
+				fclose(f);
+				return CKR_FUNCTION_FAILED;
+			}
+
+			/* after restart, reset session count */
+			/* tCtx->token.ulSessionCount = 0;
+			 * tCtx->token.ulRwSessionCount = 0; */
+		}
+		/* token was init, token is (will be) in intl shm */
+		printf("HSE FW Version: %d.%d.%d.%d\n",
+		       tCtx->token.hardwareVersion.major,
+		       tCtx->token.hardwareVersion.minor,
+		       tCtx->token.firmwareVersion.major,
+		       tCtx->token.firmwareVersion.minor);
+
+		/* recreate the mutex */
+		tCtx->keyMtx = NULL;  /* clear the stale pointer */
+		if (gCtx->mtxFns.create(&tCtx->keyMtx)) {
+			fclose(f);
+			return CKR_FUNCTION_FAILED;
+		}
+
+		/* start iteration through mem contents */
+		hse_intl_iterstart();
+		if (!hse_intl_hasnext()) {
+			hse_pkcs_read_objs_dir();
+		}
+		hse_intl_iterstop();
+
+		fclose(f);
 	}
 
-	hse_memcpy_from_dev(&fw_version, fw_version_handle, sizeof(hseAttrFwVersion_t), 0);
-	hse_mem_free(fw_version_handle);
-
-	gCtx->fwTypeId = fw_version.fwTypeId;
-
-	/* start iteration through mem contents */
-	hse_intl_iterstart();
-
-	if (!hse_intl_hasnext()) {
-		hse_pkcs_read_objs_dir();
-	}
-
-	hse_intl_iterstop();
-
+	/* token was not previously init */
+	gCtx->login = LOGIN_NONE;
 	gCtx->cryptokiInit = CK_TRUE;
 
 	return CKR_OK;
@@ -412,6 +379,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_Finalize)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	CK_RV rv = CKR_OK;
 
 	if (!gCtx->cryptokiInit)
@@ -421,8 +389,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Finalize)(
 
 	gCtx->cryptokiInit = CK_FALSE;
 
-	if (gCtx->keyMtx != NULL)
-		rv = gCtx->mtxFns.destroy(gCtx->keyMtx);
+	if (tCtx->keyMtx != NULL)
+		rv = gCtx->mtxFns.destroy(tCtx->keyMtx);
 
 	return rv;
 }
@@ -554,6 +522,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetSlotInfo)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -564,7 +533,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetSlotInfo)(
 	if (slotID != SLOT_ID)
 		return CKR_SLOT_ID_INVALID;
 
-	memcpy(pInfo, &gCtx->slot, sizeof(CK_SLOT_INFO));
+	memcpy(pInfo, &tCtx->slot, sizeof(CK_SLOT_INFO));
 
 	return CKR_OK;
 }
@@ -575,6 +544,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetTokenInfo)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -585,7 +555,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetTokenInfo)(
 	if (slotID != SLOT_ID)
 		return CKR_SLOT_ID_INVALID;
 
-	memcpy(pInfo, &gCtx->token, sizeof(CK_TOKEN_INFO));
+	memcpy(pInfo, &tCtx->token, sizeof(CK_TOKEN_INFO));
 
 	return CKR_OK;
 }
@@ -767,6 +737,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	struct hse_keyObject *pkey;
 	struct dyn_attrHdrObject *attr_hdr;
@@ -782,9 +753,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	pkey_handle = get_key_object_handle(hObject);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
+
 	if (pkey_handle < 0)
 		return CKR_OBJECT_HANDLE_INVALID;
 	pkey = (struct hse_keyObject *)hse_get_node_mem_addr(pkey_handle, true);
@@ -924,6 +896,168 @@ CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
 	CK_UTF8CHAR_PTR pLabel
 )
 {
+	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
+	CK_TOKEN_INFO_PTR pToken = &tCtx->token;
+	CK_SLOT_INFO_PTR pSlot = &tCtx->slot;
+	FILE *f;
+	CK_RV rv;
+	int fw_version_handle, err;
+	hseAttrFwVersion_t fw_version;
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseKeyGenerateSrv_t *keyGenReq;
+	uint32_t baseKey;
+	uint8_t sID;
+
+	if (!gCtx->cryptokiInit)
+        return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (slotID != SLOT_ID)
+		return CKR_SLOT_ID_INVALID;
+
+	if (!pPin)
+		return CKR_ARGUMENTS_BAD;
+
+	if (ulPinLen < MIN_PIN_LEN || ulPinLen > MAX_PIN_LEN)
+		return CKR_PIN_LEN_RANGE;
+
+	f = fopen(PKCS_TOKEN, "r");
+	if (f) {
+		fclose(f);
+		/* token is already initialized, check SO pin */
+		err = hse_channel_acquire(&sID);
+		if (err)
+			return CKR_SESSION_COUNT;
+
+		rv = hse_process_pin(sID, pPin, ulPinLen, CKU_SO, CK_FALSE);
+		hse_channel_free(sID);
+		if (rv != CKR_OK)
+			return CKR_PIN_INCORRECT;
+
+		return CKR_OK;
+	}
+
+	/* token is not initialized, first time init */
+
+	/* TODO: allocate tokenCtx in intl shm */
+	/* tokenCtx should be copied into PKCS_TOKEN to be fetched after restarts */
+
+	/* intl_tCtx = pointer to intl shm tokenCtx */
+	/* tCtx = intl_tCtx; */
+
+
+	/* init global flags and mutexes */
+	if (!tCtx->keyMtx) {
+		rv = gCtx->mtxFns.create(&tCtx->keyMtx);
+		if (rv)
+			return CKR_FUNCTION_FAILED;
+	}
+
+	/* TODO: init key rings */
+
+	/* get firmware version*/
+	fw_version_handle = hse_mem_alloc(sizeof(hseAttrFwVersion_t));
+	if (fw_version_handle < 0)
+		return CKR_HOST_MEMORY;
+
+	srv_desc.srvId = HSE_SRV_ID_GET_ATTR;
+	srv_desc.hseSrv.getAttrReq.attrId = HSE_FW_VERSION_ATTR_ID;
+	srv_desc.hseSrv.getAttrReq.attrLen = sizeof(hseAttrFwVersion_t);
+	srv_desc.hseSrv.getAttrReq.pAttr = hse_virt_to_dma(fw_version_handle, 0);
+
+	err = hse_channel_acquire(&sID);
+	if (err) {
+		hse_mem_free(fw_version_handle);
+		return CKR_SESSION_COUNT;
+	}
+
+	err = hse_srv_req_sync(sID, &srv_desc, sizeof(srv_desc), NULL);
+	if (err) {
+		hse_channel_free(sID);
+		hse_mem_free(fw_version_handle);
+		return CKR_FUNCTION_FAILED;
+	}
+
+	hse_memcpy_from_dev(&fw_version, fw_version_handle, sizeof(hseAttrFwVersion_t), 0);
+	hse_mem_free(fw_version_handle);
+
+	tCtx->fwTypeId = fw_version.fwTypeId;
+
+	/* set slot and token info */
+
+	strcpy_pkcs11_padding(pSlot->slotDescription, SLOT_DESC,
+			      sizeof(pSlot->slotDescription));
+	strcpy_pkcs11_padding(pSlot->manufacturerID, MANUFACTURER,
+			      sizeof(pSlot->manufacturerID));
+	pSlot->flags = CKF_TOKEN_PRESENT | CKF_HW_SLOT;
+
+	pSlot->hardwareVersion.major = 0;
+	pSlot->hardwareVersion.minor = 0;
+	pSlot->firmwareVersion.major = 0;
+	pSlot->firmwareVersion.minor = 0;
+
+	strcpy_pkcs11_padding(pToken->label, TOKEN_DESC, sizeof(pToken->label));
+	strcpy_pkcs11_padding(pToken->manufacturerID, MANUFACTURER, sizeof(pToken->manufacturerID));
+
+	strcpy_pkcs11_padding(pToken->model, "N/A", sizeof(pToken->model));
+	strcpy_pkcs11_padding(pToken->serialNumber, "N/A", sizeof(pToken->serialNumber));
+
+	pToken->flags = CKF_TOKEN_INITIALIZED;
+	pToken->ulMaxSessionCount = MAX_SESSIONS;
+	pToken->ulSessionCount = 0;
+	pToken->ulMaxRwSessionCount = MAX_SESSIONS;
+	pToken->ulRwSessionCount = 0;
+	pToken->ulMaxPinLen = MAX_PIN_LEN;
+	pToken->ulMinPinLen = MIN_PIN_LEN;
+	pToken->ulTotalPublicMemory = CK_UNAVAILABLE_INFORMATION;
+	pToken->ulFreePublicMemory = CK_UNAVAILABLE_INFORMATION;
+	pToken->ulTotalPrivateMemory = CK_UNAVAILABLE_INFORMATION;
+	pToken->ulFreePrivateMemory = CK_UNAVAILABLE_INFORMATION;
+
+	/* fw version */
+	pToken->hardwareVersion.major = fw_version.fwTypeId;
+	pToken->hardwareVersion.minor = fw_version.majorVersion;
+	pToken->firmwareVersion.major = fw_version.minorVersion;
+	pToken->firmwareVersion.minor = fw_version.patchVersion;
+
+	/* init SO pin */
+
+	/* generate base key */
+	baseKey = GET_KEY_HANDLE(0x01, 0x02, 0x01);
+
+	memset(&srv_desc, 0, sizeof(srv_desc));
+	keyGenReq = &srv_desc.hseSrv.keyGenReq;
+
+	srv_desc.srvId = HSE_SRV_ID_KEY_GENERATE;
+	keyGenReq->targetKeyHandle = baseKey;
+	keyGenReq->keyGenScheme = HSE_KEY_GEN_SYM_RANDOM_KEY;
+	keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_DERIVE;
+	keyGenReq->keyInfo.keyType = HSE_KEY_TYPE_HMAC;
+	keyGenReq->keyInfo.keyBitLen = 512;
+
+	err = hse_srv_req_sync(sID, &srv_desc, sizeof(srv_desc), NULL);
+	if (err) {
+		hse_channel_free(sID);
+		return CKR_FUNCTION_FAILED;
+	}
+
+	/* process pin to generate SO_verifier */
+	rv = hse_process_pin(sID, pPin, ulPinLen, CKU_SO, CK_TRUE);
+	hse_channel_free(sID);
+	if (rv)
+		return rv;
+
+	/* set token as init (save tctx in PKCS_TOKEN) */
+	f = fopen(PKCS_TOKEN, "wb");
+	if (!f)
+		return CKR_FUNCTION_FAILED;
+
+	if (fwrite(tCtx, sizeof(struct tokenCtx), 1, f) != 1) {
+		fclose(f);
+		return CKR_FUNCTION_FAILED;
+	}
+
+	fclose(f);
 	return CKR_OK;
 }
 
@@ -933,6 +1067,31 @@ CK_DECLARE_FUNCTION(CK_RV, C_InitPIN)(
 	CK_ULONG ulPinLen
 )
 {
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	CK_RV rv;
+
+	if (!gCtx->cryptokiInit)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!pPin)
+		return CKR_ARGUMENTS_BAD;
+
+	if (ulPinLen < MIN_PIN_LEN || ulPinLen > MAX_PIN_LEN)
+		return CKR_PIN_LEN_RANGE;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (gCtx->login != LOGIN_SO)
+		return CKR_USER_NOT_LOGGED_IN;
+
+	/* process pin to generate USER verifier */
+	rv = hse_process_pin(sCtx->sID, pPin, ulPinLen, CKU_USER, CK_TRUE);
+	if (rv) {
+		return rv;
+	}
+
 	return CKR_OK;
 }
 
@@ -944,6 +1103,34 @@ CK_DECLARE_FUNCTION(CK_RV, C_SetPIN)(
 	CK_ULONG ulNewLen
 )
 {
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	CK_RV rv;
+
+	if (!gCtx->cryptokiInit)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (!pOldPin || !pNewPin)
+		return CKR_ARGUMENTS_BAD;
+
+	if (ulOldLen < MIN_PIN_LEN || ulOldLen > MAX_PIN_LEN ||
+		ulNewLen < MIN_PIN_LEN || ulNewLen > MAX_PIN_LEN)
+	return CKR_PIN_LEN_RANGE;
+
+	/* verify user pin */
+	rv = hse_process_pin(sCtx->sID, pOldPin, ulOldLen, CKU_USER, CK_FALSE);
+	if (rv) {
+		return CKR_PIN_INCORRECT;
+	}
+
+	/* generate new USER verifier */
+	rv = hse_process_pin(sCtx->sID, pNewPin, ulNewLen, CKU_USER, CK_TRUE);
+	if (rv != CKR_OK)
+		return rv;
+
 	return CKR_OK;
 }
 
@@ -956,7 +1143,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_OpenSession)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	CK_TOKEN_INFO_PTR pToken = &gCtx->token;
+	struct tokenCtx *tCtx = getTokenCtx();
+	CK_TOKEN_INFO_PTR pToken = &tCtx->token;
 	unsigned char sID;
 	int err;
 	struct sessionCtx *sCtx;
@@ -1010,7 +1198,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CloseSession)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	CK_TOKEN_INFO_PTR pToken = &gCtx->token;
+	struct tokenCtx *tCtx = getTokenCtx();
+	CK_TOKEN_INFO_PTR pToken = &tCtx->token;
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 
 	if (!gCtx->cryptokiInit)
@@ -1045,7 +1234,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CloseAllSessions)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	CK_TOKEN_INFO_PTR pToken = &gCtx->token;
+	struct tokenCtx *tCtx = getTokenCtx();
+	CK_TOKEN_INFO_PTR pToken = &tCtx->token;
 	struct sessionCtx *sCtx;
 	int sessionIter;
 
@@ -1096,12 +1286,88 @@ CK_DECLARE_FUNCTION(CK_RV, C_Login)(
 	CK_ULONG ulPinLen
 )
 {
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	CK_RV rv;
+
+	if (!gCtx->cryptokiInit)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (userType != CKU_SO && userType != CKU_USER)
+		return CKR_USER_TYPE_INVALID;
+
+	if (!pPin)
+		return CKR_ARGUMENTS_BAD;
+
+	if (ulPinLen < MIN_PIN_LEN || ulPinLen > MAX_PIN_LEN)
+		return CKR_PIN_LEN_RANGE;
+
+	if (gCtx->login == LOGIN_SO && userType == CKU_SO)
+		return CKR_USER_ALREADY_LOGGED_IN;
+
+	if (gCtx->login == LOGIN_USER && userType == CKU_USER)
+		return CKR_USER_ALREADY_LOGGED_IN;
+
+	if (gCtx->login == LOGIN_SO && userType == CKU_USER)
+		return CKR_USER_ANOTHER_ALREADY_LOGGED_IN;
+
+	if (gCtx->login == LOGIN_USER && userType == CKU_SO)
+		return CKR_USER_ANOTHER_ALREADY_LOGGED_IN;
+
+	/* verify pin */
+	rv = hse_process_pin(sCtx->sID, pPin, ulPinLen, userType, CK_FALSE);
+	if (rv != CKR_OK)
+		return rv;
+
+	switch (userType) {
+		case CKU_SO:
+			gCtx->login = LOGIN_SO;
+			break;
+		case CKU_USER:
+			gCtx->login = LOGIN_USER;
+			break;
+		default:
+			return CKR_USER_TYPE_INVALID;
+	}
+
 	return CKR_OK;
+}
+
+CK_DECLARE_FUNCTION(CK_RV, C_LoginUser)(
+	CK_SESSION_HANDLE hSession,
+	CK_USER_TYPE userType,
+	CK_UTF8CHAR_PTR pPin,
+	CK_ULONG ulPinLen,
+	CK_UTF8CHAR_PTR pUsername,
+	CK_ULONG ulUsernameLen
+)
+{
+	(void)pUsername;
+	(void)ulUsernameLen;
+
+	return C_Login(hSession, userType, pPin, ulPinLen);
 }
 
 CK_DECLARE_FUNCTION(CK_RV, C_Logout)(
 	CK_SESSION_HANDLE hSession
 )
 {
+	struct globalCtx *gCtx = getCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+
+	if (!gCtx->cryptokiInit)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (!sCtx)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	if (gCtx->login == LOGIN_NONE)
+		return CKR_USER_NOT_LOGGED_IN;
+
+	gCtx->login = LOGIN_NONE;
+
 	return CKR_OK;
 }

@@ -26,6 +26,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseKeyGenerateSrv_t *keyGenReq = &srv_desc.hseSrv.keyGenReq;
@@ -71,9 +72,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 
 	obj = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	key_handle = get_key_object_handle(obj);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 	if (key_handle < 0) {
 		key_handle = hse_intl_mem_alloc(sizeof(*key), HSE_KEY_OBJ);
 		if (key_handle < 0)
@@ -247,9 +248,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 	*phPrivateKey = key->attrs.key_handle;
 	*phPublicKey = key->attrs.key_handle;
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	hse_key_object_write(key);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 	hse_mem_free(pubExp_handle);
 
@@ -272,9 +273,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
-	hseKeyGenerateSrv_t *keyGenReq = &srv_desc.hseSrv.keyGenReq;;
+	hseKeyGenerateSrv_t *keyGenReq = &srv_desc.hseSrv.keyGenReq;
 	struct hse_keyObject *key = NULL;
 	uint8_t keyType;
 	CK_OBJECT_HANDLE obj;
@@ -334,9 +336,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 
 	obj = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	key_handle = get_key_object_handle(obj);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 	if (key_handle < 0) { 
 		key_handle = hse_intl_mem_alloc(sizeof(*key), HSE_KEY_OBJ);
 		if (key_handle < 0)
@@ -465,9 +467,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 
 	*phKey = key->attrs.key_handle;
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	hse_key_object_write(key);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 	return CKR_OK;
 

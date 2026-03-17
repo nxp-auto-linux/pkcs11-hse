@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright 2021-2025 NXP
+ * Copyright 2021-2026 NXP
  */
 
 #ifndef ___PKCS11_CONTEXT_H___
@@ -209,31 +209,35 @@ struct mutexFns {
 	CK_UNLOCKMUTEX unlock;
 };
 
+enum login_state {
+	LOGIN_NONE = 0u,
+	LOGIN_USER = 1u,
+	LOGIN_SO = 2u,
+};
+
 /*
- * struct globalCtx - global context for PKCS11 operations
+ * struct globalCtx - application context for PKCS11 operations
  *
  * @cryptokiInit:     check if cryptoki has been initialized
- * @session:          session info
- * @slot:             slot info
- * @token:            token info
- * @findCtx:          context for finding objects
- * @cryptCtx:         encrypt/decrypt operations context
- * @signCtx:          sign/verify operations context
- * @object_list:      list of objects/keys
+ * @mtxFns:           function pointers to mutex operations
+ * @login:            current login state (NONE, USER, SO)
  */
 struct globalCtx {
 	CK_BBOOL cryptokiInit;
-	CK_SLOT_INFO slot;
-	CK_TOKEN_INFO token;
 	struct mutexFns mtxFns;
-	CK_VOID_PTR keyMtx;
-	uint16_t fwTypeId;
+	enum login_state login;
 };
 
 /*
  * struct sessionCtx - session context; 1 session = 1 HSE channel
  *
- *
+ * @sessionInit:      check if session has been initialized
+ * @sessionInfo:      session information
+ * @sID:              session handle/identifier
+ * @findCtx:          context for finding objects
+ * @cryptCtx:         encrypt/decrypt operations context
+ * @digestCtx:        digest/hash operations context
+ * @signCtx:          sign/verify operations context
  */
 struct sessionCtx {
 	CK_BBOOL sessionInit;
@@ -245,7 +249,23 @@ struct sessionCtx {
 	struct hse_signCtx signCtx;
 };
 
+/*
+ * struct tokenCtx - token context for PKCS11 operations
+ *
+ * @slot:             slot info
+ * @token:            token info
+ * @keyMtx:           mutex for key operations
+ * @fwTypeId:         firmware type identifier
+ */
+struct tokenCtx {
+	CK_SLOT_INFO slot;
+	CK_TOKEN_INFO token;
+	CK_VOID_PTR keyMtx;
+	uint16_t fwTypeId;
+};
+
 struct globalCtx *getCtx(void);
 struct sessionCtx *getSessionCtx(CK_SESSION_HANDLE sID);
+struct tokenCtx *getTokenCtx(void);
 
 #endif /* ___PKCS11_CONTEXT_H___ */

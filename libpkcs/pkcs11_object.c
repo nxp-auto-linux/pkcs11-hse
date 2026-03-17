@@ -19,6 +19,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseImportKeySrv_t *import_key_req;
@@ -75,9 +76,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	}
 
 	search_obj = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	key_handle = get_key_object_handle(search_obj);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 	if (key_handle < 0) {
 		key_handle = hse_intl_mem_alloc(sizeof(*key), HSE_KEY_OBJ);
 		if (key_handle < 0) {
@@ -505,10 +506,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 		goto err_free_pkey2;
 	}
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	hse_key_object_write(key);
 	*phObject = key->attrs.key_handle;
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 	hse_mem_free(pkey2_handle);
 	hse_mem_free(pkey1_handle);
@@ -539,6 +540,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	struct hse_keyObject *pkey;
@@ -550,9 +552,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 	if (!sCtx || sCtx->sessionInit == CK_FALSE)
 		return CKR_SESSION_HANDLE_INVALID;
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	key_handle = get_key_object_handle(hObject);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 	if (key_handle < 0)
 		return CKR_OBJECT_HANDLE_INVALID;
 	pkey = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
@@ -565,10 +567,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 	if (err)
 		return CKR_FUNCTION_FAILED;
 
-	gCtx->mtxFns.lock(gCtx->keyMtx);
+	gCtx->mtxFns.lock(tCtx->keyMtx);
 	hse_key_object_remove(pkey);
 	hse_intl_mem_free(key_handle);
-	gCtx->mtxFns.unlock(gCtx->keyMtx);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 	return CKR_OK;
 }

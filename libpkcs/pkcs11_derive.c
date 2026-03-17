@@ -29,6 +29,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 {
 	struct globalCtx  *gCtx;
 	struct sessionCtx *sCtx;
+	struct tokenCtx *tCtx;
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	hseKeyDeriveSrv_t        *keyDeriveReq;
 	hseKeyDeriveCopyKeySrv_t *copyReq;
@@ -48,6 +49,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 	CK_ULONG *val_len_p;
 	int err;
 
+	tCtx = getTokenCtx();
 	gCtx = getCtx();
 	sCtx = getSessionCtx(hSession);
 
@@ -131,9 +133,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 				return CKR_MECHANISM_PARAM_INVALID;
 			}
 
-			gCtx->mtxFns.lock(gCtx->keyMtx);
 			err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
-			gCtx->mtxFns.unlock(gCtx->keyMtx);
 			if (err)
 				return CKR_FUNCTION_FAILED;
 
@@ -151,9 +151,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 			keyDeriveReq->sch.HKDF_Expand.kdfCommon.pInfo = (HOST_ADDR)hkdf->pInfo;
 			keyDeriveReq->sch.HKDF_Expand.kdfCommon.infoLength = (uint32_t)hkdf->ulInfoLen;
 
-			gCtx->mtxFns.lock(gCtx->keyMtx);
 			err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
-			gCtx->mtxFns.unlock(gCtx->keyMtx);
 			if (err)
 				return CKR_FUNCTION_FAILED;
 
@@ -204,16 +202,14 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 			copyReq->startOffset = 0;
 			copyReq->keyInfo = keyInfo;
 
-			gCtx->mtxFns.lock(gCtx->keyMtx);
 			err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
-			gCtx->mtxFns.unlock(gCtx->keyMtx);
 			if (err)
 				return CKR_FUNCTION_FAILED;
 
 			/* Key object creation */		
-			gCtx->mtxFns.lock(gCtx->keyMtx);
+			gCtx->mtxFns.lock(tCtx->keyMtx);
 			key_handle = get_key_object_handle(final_obj);
-			gCtx->mtxFns.unlock(gCtx->keyMtx);
+			gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 			if (key_handle < 0) {
 				key_handle = hse_intl_mem_alloc(sizeof(struct hse_keyObject), HSE_KEY_OBJ);
@@ -239,9 +235,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 			if (err)
 				goto err_free_key_intl;
 			
-			gCtx->mtxFns.lock(gCtx->keyMtx);
+			gCtx->mtxFns.lock(tCtx->keyMtx);
 			hse_key_object_write(key);
-			gCtx->mtxFns.unlock(gCtx->keyMtx);
+			gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 			*phKey = final_obj;
 
