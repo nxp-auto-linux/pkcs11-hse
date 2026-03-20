@@ -2,7 +2,7 @@
 /*
  * NXP HSE Userspace Driver - Memory Management
  *
- * Copyright 2021-2025 NXP
+ * Copyright 2021-2026 NXP
  */
 
 #include <stdio.h>
@@ -16,7 +16,6 @@
 #include "hse-internal.h"
 
 #define HSE_NODE_SIZE    sizeof(struct node_data) /* memory block metadata */
-#define HSE_MEM_OFF      (8 * 1024) /* memory for nodes */
 
 /**
  * enum hse_node_status
@@ -150,7 +149,7 @@ void hse_intl_iterstop()
 
 int hse_mem_init(void *intl_base_addr, void *rmem_base_addr)
 {
-	if (!intl_base_addr || !rmem_base_addr)
+	if (!rmem_base_addr)
 		return EINVAL;
 
 	priv.intl_mem_start = (struct node_data *)intl_base_addr;
@@ -190,6 +189,10 @@ static int _hse_mem_alloc(size_t size, bool intl)
 
 	if (!size)
 		return -EINVAL;
+
+	/* Check if internal memory pool is available */
+	if (intl && !priv.intl_mem_start)
+		return -ENOSPC;
 
 	/* align size to 8 bytes */
 	size = (size + (8 - 1)) & ~(8 - 1);
@@ -256,6 +259,10 @@ static void _hse_mem_free(int node_handle, bool intl)
 	if (node_handle < 0)
 		return;
 
+	/* Check if internal memory pool is available */
+	if (intl && !priv.intl_mem_start)
+		return;
+
 	/* get the node_data for the block to be freed */
 	free_block = get_node_ptr(node_handle, intl);
 	if (!free_block || !(free_block->use_status == HSE_NODE_USING_MEM))
@@ -300,8 +307,12 @@ static void _hse_mem_free(int node_handle, bool intl)
 
 uint8_t hse_intl_get_node_type(int node_handle)
 {
-	struct node_data *node = get_node_ptr(node_handle, true);
+	struct node_data *node;
 
+	if (!priv.intl_mem_start)
+		return 0;
+
+	node = get_node_ptr(node_handle, true);
 	if (!node)
 		return 0;
 	return node->type;
@@ -309,8 +320,12 @@ uint8_t hse_intl_get_node_type(int node_handle)
 
 void hse_intl_set_node_type(int node_handle, uint8_t type)
 {
-	struct node_data *node = get_node_ptr(node_handle, true);
+	struct node_data *node;
 
+	if (!priv.intl_mem_start)
+		return;
+
+	node = get_node_ptr(node_handle, true);
 	if (!node)
 		return;
 	node->type = type;
@@ -323,7 +338,13 @@ int hse_mem_alloc(size_t size)
 
 int hse_intl_mem_alloc(size_t size, uint8_t type)
 {
-	int node_handle = _hse_mem_alloc(size, true);
+	int node_handle;
+
+	/* Early check for pool availability */
+	if (!priv.intl_mem_start)
+		return -ENOSPC;
+
+	node_handle = _hse_mem_alloc(size, true);
 
 	if (node_handle < 0)
 		goto err_node_idx;

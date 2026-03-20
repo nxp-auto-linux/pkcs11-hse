@@ -2,7 +2,7 @@
 /*
  * NXP HSE User Space Driver - Core
  *
- * Copyright 2019-2025 NXP
+ * Copyright 2019-2026 NXP
  */
 
 #include <stdio.h>
@@ -64,6 +64,30 @@
 #define HSE_DEV_SETUP_SEM    "/libhse_dev_setup" /* POSIX semaphore name used during device setup */
 #define HSE_SEM_PERMS		 0660
 
+/*
+ * HSE_INTL_RESERVED_SIZE - Size of reserved region in internal memory
+ *
+ * This region cannot be used for internal node metadata or the dynamic
+ * allocation pool.
+ * When intl_size equals this value (4KB minimum config), no dynamic
+ * internal memory allocations are possible.
+ */
+#define HSE_INTL_RESERVED_SIZE    4096u
+#define HSE_MIN_POOL_SIZE 4096u
+
+/*
+ * HSE_INTL_MIN_SIZE - Minimum internal memory size to enable dynamic pool
+ *
+ * To have a functional internal memory pool, we need:
+ * - HSE_INTL_RESERVED_SIZE: Reserved internal memory
+ * - HSE_MEM_OFF: Node metadata region
+ * - 4KB: Minimum dynamic pool size
+ *
+ * If intl_size < HSE_INTL_MIN_SIZE, no dynamic internal allocations
+ * are possible and hse_intl_mem_alloc() will return -ENOSPC.
+ */
+#define HSE_INTL_MIN_SIZE  (HSE_INTL_RESERVED_SIZE + \
+							HSE_MEM_OFF + HSE_MIN_POOL_SIZE)
 /**
  * enum hse_fw_status - HSE firmware status
  * @HSE_FW_SHUTDOWN: firmware not initialized or shut down due to fatal error
@@ -596,8 +620,12 @@ uint64_t hse_virt_to_dma(int node_handle, uint32_t off)
  */
 static int hse_dev_setup(void)
 {
-	unsigned int offset = offsetof(struct hse_uio_intl, mem_ph);
 	sem_t *setup_sem = NULL;
+	bool intl_pool_available;
+	int rc = 0;
+
+	/* Check if there is space for internal memory pool */
+	intl_pool_available = (priv.intl_size >= HSE_INTL_MIN_SIZE);
 
 	setup_sem = sem_open(HSE_DEV_SETUP_SEM, O_CREAT, HSE_SEM_PERMS, 1);
 	if (setup_sem == SEM_FAILED) {
@@ -606,11 +634,13 @@ static int hse_dev_setup(void)
 	}
 
 	sem_wait(setup_sem);
+
 	if (priv.intl->setup_done) {
-		hse_mem_init((uint8_t *)priv.intl + offset, priv.rmem);
-		sem_post(setup_sem);
-		sem_close(setup_sem);
-		return 0;
+		if (intl_pool_available)
+			rc = hse_mem_init((uint8_t *)priv.intl + HSE_INTL_RESERVED_SIZE, priv.rmem);
+		else
+			rc = hse_mem_init(NULL, priv.rmem);  /* No internal pool */
+		goto out;
 	}
 
 	/* initialize locks */
@@ -618,21 +648,26 @@ static int hse_dev_setup(void)
 	pthread_spin_init(&priv.intl->stream_lock, PTHREAD_PROCESS_SHARED);
 	pthread_spin_init(&priv.intl->mem_lock, PTHREAD_PROCESS_SHARED);
 
-	/* initialize internal memory as buffer pool */
-	if (hse_mem_setup((uint8_t *)priv.intl + offset,
-			  priv.intl_size - offset, true)) {
-		printf("libhse: failed to set up intl mem pool\n");
-		sem_post(setup_sem);
-		sem_close(setup_sem);
-		return ENOMEM;
+	/* initialize internal memory as buffer pool (only if space available) */
+	if (intl_pool_available) {
+		if (hse_mem_setup((uint8_t *)priv.intl + HSE_INTL_RESERVED_SIZE,
+			priv.intl_size - HSE_INTL_RESERVED_SIZE, true)) {
+			printf("libhse: failed to set up intl mem pool\n");
+			rc = ENOMEM;
+			goto out;
+		}
+		printf("libhse: internal memory pool initialized (%lu KB available)\n",
+			   (unsigned long)(priv.intl_size - HSE_INTL_RESERVED_SIZE) / 1024);
+	} else {
+		printf("libhse: internal memory pool disabled (intl_size=%lu, min=%u)\n",
+			   (unsigned long)priv.intl_size, HSE_INTL_RESERVED_SIZE);
 	}
 
 	/* initialize reserved memory as buffer pool */
 	if (hse_mem_setup(priv.rmem, priv.rmem_size, false)) {
 		printf("libhse: failed to set up shared mem pool\n");
-		sem_post(setup_sem);
-		sem_close(setup_sem);
-		return ENOMEM;
+		rc = ENOMEM;
+		goto out;
 	}
 
 	priv.intl->setup_done = true;
@@ -640,10 +675,11 @@ static int hse_dev_setup(void)
 	/* destroy semaphore once all processes close it */
 	sem_unlink(HSE_DEV_SETUP_SEM);
 
+out:
 	sem_post(setup_sem);
 	sem_close(setup_sem);
 
-	return 0;
+	return rc;
 }
 
 /**
@@ -825,6 +861,31 @@ err_close_fd:
 	priv.locked = false;
 	printf("libhse: init failed (err = %d)\n", err);
 	return err;
+}
+
+/**
+ * Get pointer to the static memory region
+ *
+ * This static region occupies the space between the end of hse_uio_intl
+ * and the 4KB page boundary. This provides approximately 3.8KB for other
+ * use cases.
+ */
+void *hse_intl_get_static_mem(void)
+{
+	if (!priv.init || !priv.intl)
+		return NULL;
+
+	return (uint8_t *)priv.intl + offsetof(struct hse_uio_intl, mem_ph);
+}
+
+/*
+ * Get size of the static memory region
+ *
+ * Return: available size in bytes
+ */
+size_t hse_intl_get_static_size(void)
+{
+	return HSE_INTL_RESERVED_SIZE - offsetof(struct hse_uio_intl, mem_ph);
 }
 
 /**
