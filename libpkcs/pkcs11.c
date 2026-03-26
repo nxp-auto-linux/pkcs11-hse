@@ -476,25 +476,27 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetInterface) (
 	CK_FLAGS flags
 )
 {
-	if (!ppInterface)
+	CK_VERSION_PTR interface_version;
+	int i;
+
+	if (ppInterface == NULL_PTR)
 		return CKR_ARGUMENTS_BAD;
 
-	if (!pInterfaceName) {
-		*ppInterface = &pkcs_interfaces[DEFAULT_INTERFACE];
-		return CKR_OK;
-	}
+	*ppInterface = NULL_PTR;
 
-	for (int i = 0; i < NUM_INTERFACES; i++) {
-		CK_VERSION_PTR interface_version = (CK_VERSION_PTR)pkcs_interfaces[i].pFunctionList;
+	for (i = 0; i < NUM_INTERFACES; i++) {
+		interface_version = (CK_VERSION_PTR)pkcs_interfaces[i].pFunctionList;
 
-		if (strcmp((char *)pInterfaceName, (char *)pkcs_interfaces[i].pInterfaceName) != 0)
+		if (pInterfaceName != NULL_PTR &&
+		    strcmp((char *)pInterfaceName, (char *)pkcs_interfaces[i].pInterfaceName) != 0)
 			continue;
 
-		if (pVersion && (pVersion->major != interface_version->major ||
-		    pVersion->minor != interface_version->minor))
+		if (pVersion != NULL_PTR &&
+		    (pVersion->major != interface_version->major ||
+		     pVersion->minor != interface_version->minor))
 			continue;
 
-		if ((flags & pkcs_interfaces[i].flags) != flags)
+		if (flags != 0 && (pkcs_interfaces[i].flags & flags) != flags)
 			continue;
 
 		*ppInterface = &pkcs_interfaces[i];
