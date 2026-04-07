@@ -184,10 +184,18 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 				goto err_free_key_intl;
 			}
 
+			if ((getattr_pval(pPrivateKeyTemplate, CKA_KEY_TYPE, ulPrivateKeyAttributeCount)) &&
+				(key->attrs.key_type != CKK_EC)) {
+				rc = CKR_TEMPLATE_INCONSISTENT;
+				goto err_free_key_intl;
+			}
+
 			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPublicKeyTemplate, CKA_VERIFY, ulPublicKeyAttributeCount)) && (*keyFlag_val))
 				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_VERIFY;
 			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPrivateKeyTemplate, CKA_SIGN, ulPrivateKeyAttributeCount)) && (*keyFlag_val))
 				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_SIGN;
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPrivateKeyTemplate, CKA_DERIVE, ulPrivateKeyAttributeCount)) && (*keyFlag_val))
+				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_EXCHANGE;
 
 			keyGenReq->keyInfo.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
 
