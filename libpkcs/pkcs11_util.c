@@ -1227,6 +1227,40 @@ int is_valid_key_length(CK_KEY_TYPE type, uint32_t key_bit_len) {
 	}
 }
 
+int hse_get_hmac_key_params(CK_KEY_TYPE key_type, hseHashAlgo_t *hash_algo, uint32_t *block_size, uint32_t *digest_size)
+{
+	switch (key_type) {
+		case CKK_SHA_1_HMAC:
+			*hash_algo = HSE_HASH_ALGO_SHA_1;
+			*block_size = SHA256_BLOCK_SIZE;
+			*digest_size = 20;
+			break;
+		case CKK_SHA224_HMAC:
+			*hash_algo = HSE_HASH_ALGO_SHA2_224;
+			*block_size = SHA256_BLOCK_SIZE;
+			*digest_size = 28;
+			break;
+		case CKK_SHA256_HMAC:
+			*hash_algo = HSE_HASH_ALGO_SHA2_256;
+			*block_size = SHA256_BLOCK_SIZE;
+			*digest_size = 32;
+			break;
+		case CKK_SHA384_HMAC:
+			*hash_algo = HSE_HASH_ALGO_SHA2_384;
+			*block_size = SHA512_BLOCK_SIZE;
+			*digest_size = 48;
+			break;
+		case CKK_SHA512_HMAC:
+			*hash_algo = HSE_HASH_ALGO_SHA2_512;
+			*block_size = SHA512_BLOCK_SIZE;
+			*digest_size = 64;
+			break;
+		default:
+			return -1;
+	}
+	return 0;
+}
+
 /**
  * hse_process_pin - Generate or verify a PIN verifier using HSE
  * @channel: HSE channel to use for cryptographic operations

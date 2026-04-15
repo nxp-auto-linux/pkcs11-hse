@@ -40,6 +40,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	CK_BYTE *tweak_id;
 	uint8_t *pubkey, *privkey;
 	CK_BBOOL *keyFlag_val = NULL;
+	uint32_t blocksize, digestsize;
+	hseHashAlgo_t hash_algo;
+	hseHashSrv_t *hash_req;
+	int hash_len_handle = -1;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -476,6 +480,50 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				key_info.keyType = HSE_KEY_TYPE_AES;
 			} else {
 				/* HMAC key */
+				if (hse_get_hmac_key_params(key->attrs.key_type, &hash_algo, &blocksize, &digestsize)) {
+					rc = CKR_ARGUMENTS_BAD;
+					goto err_free_pkey2;
+				}
+
+				/* keys longer than block size must be shortened by hashing */
+				if (pkey2_len > blocksize) {
+					hash_len_handle = hse_mem_alloc(sizeof(uint32_t));
+					if (hash_len_handle < 0) {
+						rc = CKR_HOST_MEMORY;
+						goto err_free_pkey2;
+					}
+					hse_memcpy_to_dev(hash_len_handle, &digestsize, sizeof(uint32_t), 0);
+
+					memset(&srv_desc, 0, sizeof(srv_desc));
+					srv_desc.srvId = HSE_SRV_ID_HASH;
+					hash_req = &srv_desc.hseSrv.hashReq;
+					hash_req->accessMode = HSE_ACCESS_MODE_ONE_PASS;
+					hash_req->hashAlgo = hash_algo;
+					hash_req->sgtOption = HSE_SGT_OPTION_NONE;
+					hash_req->inputLength = pkey2_len;
+					hash_req->pInput = hse_virt_to_dma(pkey2_handle, 0);
+					hash_req->pHashLength = hse_virt_to_dma(hash_len_handle, 0);
+					hash_req->pHash = hse_virt_to_dma(pkey2_handle, 0);
+
+					err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
+					hse_mem_free(hash_len_handle);
+					if (err) {
+						rc = CKR_FUNCTION_FAILED;
+						goto err_free_pkey2;
+					}
+
+					pkey2_len = digestsize;
+
+					/* reset srv_desc */
+					memset(&srv_desc, 0, sizeof(srv_desc));
+					srv_desc.srvId = HSE_SRV_ID_IMPORT_KEY;
+					import_key_req = &srv_desc.hseSrv.importKeyReq;
+					import_key_req->pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
+					import_key_req->targetKeyHandle = key->attrs.key_handle;
+					import_key_req->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
+					import_key_req->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
+				}
+
 				key_info.keyFlags = (HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
 				key_info.keyType = HSE_KEY_TYPE_HMAC;
 			}
