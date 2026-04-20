@@ -214,13 +214,11 @@ static CK_OBJECT_HANDLE util_lib_generate_eccpair(CK_FUNCTION_LIST_PTR flist, CK
 	CK_ATTRIBUTE privateKeyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_ID, &key_id, sizeof(key_id) },
-		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
 		{ CKA_SIGN, &boolean, sizeof(boolean) }
 	};
 
 	CK_ATTRIBUTE publicKeyTemplate[] = {
 		{ CKA_EC_PARAMS, ecc_curve_oid, sizeof(ecc_curve_oid)-1 },
-		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
 		{ CKA_VERIFY, &boolean, sizeof(boolean) }
 	};
 

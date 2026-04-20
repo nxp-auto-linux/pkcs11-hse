@@ -330,6 +330,7 @@ static int generate_ec_keypair(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE ses
 		{ CKA_ID, key_id, 3 },
 		{ CKA_SIGN, &boolean, sizeof(boolean) },
 		{ CKA_DERIVE, &boolean, sizeof(boolean) },
+		{ CKA_EXTRACTABLE, &boolean, sizeof(boolean) }
 	};
 
 	rv = flist->C_GenerateKeyPair(session, &mech,

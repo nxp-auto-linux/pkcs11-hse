@@ -150,11 +150,15 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 	CK_KEY_TYPE key_type = CKK_AES;
 	CK_UTF8CHAR label[] = {"HSE-AES-128"};
 	CK_BYTE key_id[] = { 0x04, 0x04, 0x01 };
+	CK_BBOOL boolean = CK_TRUE;
+
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
 		{ CKA_ID, &key_id, sizeof(key_id) },
+		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
+		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
 		{ CKA_VALUE, (CK_BYTE_PTR)key_value, aes_key_len }
 	};
 
@@ -183,12 +187,16 @@ static CK_OBJECT_HANDLE util_lib_create_object_xts(CK_FUNCTION_LIST_PTR flist, C
 	CK_UTF8CHAR label[] = {"HSE-AES-XTS"};
 	CK_BYTE key_id[] = { 0x05, 0x04, 0x01 };
 	CK_BYTE tweak_key_id[] = { 0x06, 0x04, 0x01 };
+	CK_BBOOL boolean = CK_TRUE;
+
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
 		{ CKA_ID, &key_id, sizeof(key_id) },
 		{ CKA_XTS_TWEAK_HANDLE, &tweak_key_id, sizeof(tweak_key_id)},
+		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
+		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
 		{ CKA_VALUE, (CK_BYTE_PTR)key_value, aes_key_len }
 	};
 

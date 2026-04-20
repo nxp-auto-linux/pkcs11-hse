@@ -142,11 +142,15 @@ static CK_OBJECT_HANDLE install_aes_hmac_key(CK_FUNCTION_LIST_PTR flist, CK_SESS
 	CK_OBJECT_CLASS key_class = CKO_SECRET_KEY;
 	CK_KEY_TYPE type = key_type;
 	CK_UTF8CHAR label[] = {"HSE-Sym-Key"};
+	CK_BBOOL boolean = CK_TRUE;
+
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &type, sizeof(type) },
 		{ CKA_ID, key_id, 3 },
+		{ CKA_SIGN, &boolean, sizeof(boolean) },
+		{ CKA_VERIFY, &boolean, sizeof(boolean) },
 		{ CKA_VALUE, (CK_BYTE_PTR)key_value, key_len }
 	};
 
@@ -187,6 +191,8 @@ static CK_OBJECT_HANDLE install_ecc_private_key(CK_FUNCTION_LIST_PTR flist, CK_S
 	};
 	/* DER-encoding of an ANSI X9.62 Parameters value */
 	char *ec_param_oid = "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x07";
+	CK_BBOOL boolean = CK_TRUE;
+
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
@@ -194,6 +200,7 @@ static CK_OBJECT_HANDLE install_ecc_private_key(CK_FUNCTION_LIST_PTR flist, CK_S
 		{ CKA_ID, &key_id, sizeof(key_id) },
 		{ CKA_EC_POINT, key_pub, sizeof(key_pub) },
 		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
+		{ CKA_SIGN, &boolean, sizeof(boolean) },
 		{ CKA_VALUE, key_priv, sizeof(key_priv) }
 	};
 
@@ -230,13 +237,16 @@ static CK_OBJECT_HANDLE install_ecc_public_key(CK_FUNCTION_LIST_PTR flist, CK_SE
 	};
 	/* DER-encoding of an ANSI X9.62 Parameters value */
 	char *ec_param_oid = "\x06\x09\x2B\x24\x03\x03\x02\x08\x01\x01\x07";
+	CK_BBOOL boolean = CK_TRUE;
+
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
 		{ CKA_ID, &key_id, sizeof(key_id) },
 		{ CKA_EC_POINT, key_pub, sizeof(key_pub) },
-		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) }
+		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
+		{ CKA_VERIFY, &boolean, sizeof(boolean) }
 	};
 
 	rv = flist->C_CreateObject(session, keyTemplate, ARRAY_SIZE(keyTemplate), &key);
@@ -276,6 +286,7 @@ static CK_OBJECT_HANDLE install_ed25519_private_key(CK_FUNCTION_LIST_PTR flist, 
 		0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a
 	};
 	char *ec_param_oid = "\x06\x03\x2B\x65\x70"; /* id-Ed25519 */
+	CK_BBOOL boolean = CK_TRUE;
 
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL,     label,      sizeof(label)-1 },
@@ -284,6 +295,7 @@ static CK_OBJECT_HANDLE install_ed25519_private_key(CK_FUNCTION_LIST_PTR flist, 
 		{ CKA_ID,        key_id,     sizeof(key_id) },
 		{ CKA_EC_POINT,  key_pub,    sizeof(key_pub) },
 		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
+		{ CKA_SIGN,      &boolean,     sizeof(boolean) },
 		{ CKA_VALUE,     key_priv,       sizeof(key_priv) }
 	};
 
@@ -320,6 +332,7 @@ static CK_OBJECT_HANDLE install_ed25519_public_key(CK_FUNCTION_LIST_PTR flist, C
 		0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a
 	};
 	char *ec_param_oid = "\x06\x03\x2B\x65\x70"; /* id-Ed25519 */
+	CK_BBOOL boolean = CK_TRUE;
 
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
@@ -327,7 +340,8 @@ static CK_OBJECT_HANDLE install_ed25519_public_key(CK_FUNCTION_LIST_PTR flist, C
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
 		{ CKA_ID, &key_id, sizeof(key_id) },
 		{ CKA_EC_POINT, key_pub, sizeof(key_pub) },
-		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) }
+		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
+		{ CKA_VERIFY, &boolean, sizeof(boolean) }
 	};
 
 	rv = flist->C_CreateObject(session, keyTemplate, ARRAY_SIZE(keyTemplate), &key);
