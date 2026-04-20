@@ -69,7 +69,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	/* error if id_len doesn't conform to hse expectations */
 	id_len = getattr_len(pTemplate, CKA_ID, ulCount);
 	if (!id_len || id_len != 3) {
-		return CKR_ARGUMENTS_BAD;
+		rc = CKR_ARGUMENTS_BAD;
 		goto err_free_key_info;
 	}
 
@@ -356,11 +356,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				key_info.keyFlags |= HSE_KF_USAGE_SIGN;
 				key_info.keyType = HSE_KEY_TYPE_ECC_PAIR;
 
-				import_key_req->pKey[0] = 0u;
-				import_key_req->pKey[1] = 0u;
 				import_key_req->pKey[2] = hse_virt_to_dma(pkey2_handle, 0);
-				import_key_req->keyLen[0] = 0u;
-				import_key_req->keyLen[1] = 0u;
 				import_key_req->keyLen[2] = pkey2_len;
 			}
 
