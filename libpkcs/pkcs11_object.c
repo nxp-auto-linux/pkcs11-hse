@@ -170,8 +170,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			}
 			hse_memcpy_to_dev(pkey1_handle, getattr_pval(pTemplate, CKA_PUBLIC_EXPONENT, ulCount), pkey1_len, 0);
 
-			/* rsa can be used for sign/verify */
-			key_info.keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_USAGE_ENCRYPT | HSE_KF_ACCESS_EXPORTABLE;
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_ENCRYPT, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_USAGE_ENCRYPT;
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_VERIFY, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_USAGE_VERIFY;
+
 			key_info.keyBitLen = pkey0_len * 8;
 			key_info.specific.pubExponentSize = pkey1_len;
 			key_info.keyType = HSE_KEY_TYPE_RSA_PUB;
@@ -197,12 +200,27 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				}
 				hse_memcpy_to_dev(pkey2_handle, getattr_pval(pTemplate, CKA_PRIVATE_EXPONENT, ulCount), pkey2_len, 0);
 
-				key_info.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_DECRYPT | HSE_KF_ACCESS_EXPORTABLE;
+				if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_DECRYPT, ulCount)) && (*keyFlag_val))
+					key_info.keyFlags |= HSE_KF_USAGE_DECRYPT;
+				if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_SIGN, ulCount)) && (*keyFlag_val))
+					key_info.keyFlags |= HSE_KF_USAGE_SIGN;
+
+				/* default flags for RSA key pair if none specified */
+				if (key_info.keyFlags == 0)
+					key_info.keyFlags = HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_VERIFY;
+
 				key_info.keyType = HSE_KEY_TYPE_RSA_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_dma(pkey2_handle, 0); /* private exponent */
 				import_key_req->keyLen[2] = pkey2_len;
+			} else {
+				/* default flags for RSA public key if none specified */
+				if (key_info.keyFlags == 0)
+					key_info.keyFlags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_VERIFY;
 			}
+
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_EXTRACTABLE, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
 
 			break;
 		case CKK_EC:
@@ -230,8 +248,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				goto err_free_pkey0;
 			}
 
-			/* ecc keys can only be used for sign/verify */
-			key_info.keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_ACCESS_EXPORTABLE;
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_VERIFY, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_USAGE_VERIFY;
+
 			key_info.specific.eccCurveId = ecparam2curveid((char *)ecc_oid, 
 							(uint8_t)getattr_len(pTemplate, CKA_EC_PARAMS, ulCount));
 			key_info.keyBitLen = hse_get_ec_key_bitlen(key_info.specific.eccCurveId);
@@ -262,12 +281,27 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				}
 				hse_memcpy_to_dev(pkey2_handle, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len, 0);
 
-				key_info.keyFlags |= HSE_KF_USAGE_SIGN;
+				if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_SIGN, ulCount)) && (*keyFlag_val))
+					key_info.keyFlags |= HSE_KF_USAGE_SIGN;
+				if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_DERIVE, ulCount)) && (*keyFlag_val))
+					key_info.keyFlags |= HSE_KF_USAGE_EXCHANGE;
+
+				/* default flags for ECC key pair if none specified */
+				if (key_info.keyFlags == 0)
+					key_info.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
+
 				key_info.keyType = HSE_KEY_TYPE_ECC_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_dma(pkey2_handle, 0); /* ec private scalar/order */
 				import_key_req->keyLen[2] = pkey2_len;
+			} else {
+				/* default flags for ECC public key if none specified */
+				if (key_info.keyFlags == 0)
+					key_info.keyFlags |= HSE_KF_USAGE_VERIFY;
 			}
+
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_EXTRACTABLE, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
 
 			break;
 		case CKK_EC_EDWARDS:
@@ -310,8 +344,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 				rc = CKR_ARGUMENTS_BAD;
 				goto err_free_pkey0;
 			}
-			key_info.keyFlags = HSE_KF_USAGE_VERIFY | HSE_KF_ACCESS_EXPORTABLE;
-			key_info.keyType  = HSE_KEY_TYPE_ECC_PUB;
+
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_VERIFY, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_USAGE_VERIFY;
+
+			key_info.keyType = HSE_KEY_TYPE_ECC_PUB;
 
 			import_key_req->pKey[0] = hse_virt_to_dma(pkey0_handle, 0);
 			import_key_req->pKey[1] = 0u;
@@ -353,12 +390,25 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 
 				hse_memcpy_to_dev(pkey2_handle, privkey, pkey2_len, 0);
 
-				key_info.keyFlags |= HSE_KF_USAGE_SIGN;
+				if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_SIGN, ulCount)) && (*keyFlag_val))
+					key_info.keyFlags |= HSE_KF_USAGE_SIGN;
+
+				/* default flags for EdDSA key pair if none specified */
+				if (key_info.keyFlags == 0)
+					key_info.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
+
 				key_info.keyType = HSE_KEY_TYPE_ECC_PAIR;
 
 				import_key_req->pKey[2] = hse_virt_to_dma(pkey2_handle, 0);
 				import_key_req->keyLen[2] = pkey2_len;
+			} else {
+				/* default flags for EdDSA public key if none specified */
+				if (key_info.keyFlags == 0)
+					key_info.keyFlags |= HSE_KF_USAGE_VERIFY;
 			}
+
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_EXTRACTABLE, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
 
 			break;
 		/*
@@ -470,9 +520,23 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			}
 			hse_memcpy_to_dev(pkey2_handle, getattr_pval(pTemplate, CKA_VALUE, ulCount), pkey2_len, 0);
 
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_SIGN, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_USAGE_SIGN;
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_VERIFY, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_USAGE_VERIFY;
+			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_DERIVE, ulCount)) && (*keyFlag_val))
+				key_info.keyFlags |= HSE_KF_USAGE_DERIVE;
+
 			if (key->attrs.key_type == CKK_AES || key->attrs.key_type == CKK_AES_XTS) {
-				/* aes keys can only be used for encrypt/decrypt */
-				key_info.keyFlags = (HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
+				if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_ENCRYPT, ulCount)) && (*keyFlag_val))
+					key_info.keyFlags |= HSE_KF_USAGE_ENCRYPT;
+				if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_DECRYPT, ulCount)) && (*keyFlag_val))
+					key_info.keyFlags |= HSE_KF_USAGE_DECRYPT;
+
+				/* default flags for AES key if none specified */
+				if (key_info.keyFlags == 0)
+					key_info.keyFlags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
+
 				key_info.keyType = HSE_KEY_TYPE_AES;
 			} else {
 				/* HMAC key */
@@ -520,7 +584,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 					import_key_req->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 				}
 
-				key_info.keyFlags = (HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY);
+				/* default flags for HMAC key if none specified */
+				if (key_info.keyFlags == 0)
+					key_info.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
+
 				key_info.keyType = HSE_KEY_TYPE_HMAC;
 			}
 
@@ -538,9 +605,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_key_intl;
 	}
-
-	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_DERIVE, ulCount)) && (*keyFlag_val))
-					key_info.keyFlags |= HSE_KF_USAGE_DERIVE;
 
 	hse_memcpy_to_dev(key_info_handle, (void *)&key_info, sizeof(key_info), 0);
 

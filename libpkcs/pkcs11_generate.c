@@ -160,13 +160,14 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_ENCRYPT;
 			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPublicKeyTemplate, CKA_VERIFY, ulPublicKeyAttributeCount)) && (*keyFlag_val))
 				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_VERIFY;
-
 			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPrivateKeyTemplate, CKA_DECRYPT, ulPrivateKeyAttributeCount)) && (*keyFlag_val))
 				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_DECRYPT;
 			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPrivateKeyTemplate, CKA_SIGN, ulPrivateKeyAttributeCount)) && (*keyFlag_val))
 				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_SIGN;
 
-			keyGenReq->keyInfo.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
+			/* default flags for RSA key pair if none specified */
+			if (keyGenReq->keyInfo.keyFlags == 0)
+				keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_VERIFY;
 
 			keyGenReq->keyInfo.keyType = HSE_KEY_TYPE_RSA_PAIR;
 			keyGenReq->keyInfo.keyBitLen = *keyBitsLen;
@@ -197,7 +198,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPrivateKeyTemplate, CKA_DERIVE, ulPrivateKeyAttributeCount)) && (*keyFlag_val))
 				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_EXCHANGE;
 
-			keyGenReq->keyInfo.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
+			/* default flags for ECC key pair if none specified */
+			if (keyGenReq->keyInfo.keyFlags == 0)
+				keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
 
 			keyGenReq->keyInfo.keyType = HSE_KEY_TYPE_ECC_PAIR;
 			keyGenReq->keyInfo.specific.eccCurveId = ecparam2curveid((char *)ecc_oid,
@@ -225,7 +228,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPrivateKeyTemplate, CKA_SIGN, ulPrivateKeyAttributeCount)) && (*keyFlag_val))
 				keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_SIGN;
 
-			keyGenReq->keyInfo.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
+			/* default flags for EdDSA key pair if none specified */
+			if (keyGenReq->keyInfo.keyFlags == 0)
+				keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
 
 			/* EdDSA uses HSE_KEY_TYPE_ECC_PAIR key type */
 			keyGenReq->keyInfo.keyType = HSE_KEY_TYPE_ECC_PAIR;
@@ -245,6 +250,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 			rc = CKR_ARGUMENTS_BAD;
 			goto err_free_key_intl;
 	}
+
+	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pPrivateKeyTemplate, CKA_EXTRACTABLE, ulPrivateKeyAttributeCount)) && (*keyFlag_val))
+		keyGenReq->keyInfo.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
 
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err) {
@@ -457,6 +465,16 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 		keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_SIGN;
 	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_VERIFY, ulCount)) && (*keyFlag_val))
 		keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_VERIFY;
+	if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_DERIVE, ulCount)) && (*keyFlag_val))
+		keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_DERIVE;
+
+	/* default flags if none specified */
+	if (keyGenReq->keyInfo.keyFlags == 0) {
+		if (keyType == HSE_KEY_TYPE_AES)
+			keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
+		else
+			keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
+	}
 
 	keyGenReq->keyInfo.keyType = keyType;
 	keyGenReq->keyInfo.keyBitLen = *keyBitsLen;
