@@ -12,6 +12,9 @@
 #include "hse_interface.h"
 #include "pkcs11-unix.h"
 
+#define PKCS_TOKEN_FILE      PKCS_DIR "/pkcs-token"
+#define PKCS_HSE_FILE   PKCS_DIR "/pkcs-hse-objs"
+
 #define LIBRARY_VERSION_MAJOR 0u
 #define LIBRARY_VERSION_MINOR 1u
 
@@ -69,6 +72,8 @@
 
 #define SHA3_512_DIGEST_SIZE   64
 #define SHA3_512_BLOCK_SIZE    72
+
+#define TCTX_LOADED 0x544B4E31
 
 enum hse_intl_obj_type {
 	HSE_KEY_OBJ = 1,
@@ -305,6 +310,7 @@ struct rings {
 /*
  * struct tokenCtx - token context for PKCS11 operations
  *
+ * @loaded:           token initialization status
  * @slot:             slot info
  * @token:            token info
  * @keyMtx:           mutex for key operations
@@ -312,9 +318,11 @@ struct rings {
  * @rings:            key ring management structure
  */
 struct tokenCtx {
+	uint32_t loaded;
 	CK_SLOT_INFO slot;
 	CK_TOKEN_INFO token;
 	CK_VOID_PTR keyMtx;
+	CK_VOID_PTR tctx_file_mtx;
 	uint16_t fwTypeId;
 	struct rings rings;
 };

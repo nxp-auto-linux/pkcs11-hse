@@ -10,6 +10,7 @@
 #include "pkcs11_context.h"
 #include "hse-internal.h"
 #include "pkcs11_util.h"
+#include "pkcs11_key_mgmt.h"
 
 CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 		CK_SESSION_HANDLE hSession,
@@ -27,9 +28,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	uint32_t pkey0_len, pkey1_len, pkey2_len, fullkey_len, tweakkey_len;
 	void *ecc_oid, *ec_point;
 	struct hse_keyObject *key;
-	CK_BYTE *idtemp;
-	CK_ULONG id_len;
-	CK_OBJECT_HANDLE search_obj;
 	char *label = NULL;
 	CK_RV rc = CKR_OK;
 	int err, key_info_handle = -1, key_handle = -1;
@@ -37,13 +35,20 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	uint32_t key_bit_len;
 	int tweakmem_handle = -1;
 	CK_BYTE *fullKey, *tweakKey;
-	CK_BYTE *tweak_id;
 	uint8_t *pubkey, *privkey;
 	CK_BBOOL *keyFlag_val = NULL;
 	uint32_t blocksize, digestsize;
 	hseHashAlgo_t hash_algo;
 	hseHashSrv_t *hash_req;
 	int hash_len_handle = -1;
+	hseKeyType_t hse_key_type = 0;
+	CK_BBOOL *token_attr;
+	enum object_domain is_token;
+	uint32_t acquired_handle = 0;
+	uint32_t tweak_handle = 0;
+	CK_KEY_TYPE ck_key_type;
+	CK_OBJECT_CLASS ck_class;
+	CK_BYTE tweak_handle_bytes[3];
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -61,67 +66,86 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	    getattr_len(pTemplate, CKA_LABEL, ulCount) > MAX_LABEL_LEN)
 		return CKR_ARGUMENTS_BAD;
 
+	/* Extract key type */
+	if ((CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount) == NULL)
+		return CKR_TEMPLATE_INCOMPLETE;
+	ck_key_type = *(CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount);
+
+	/* Extract object class */
+	if (((CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount) == NULL) &&
+	    (ck_key_type == CKK_RSA || ck_key_type == CKK_EC || ck_key_type == CKK_EC_EDWARDS))
+		return CKR_TEMPLATE_INCOMPLETE;
+
+	if (getattr_pval(pTemplate, CKA_CLASS, ulCount))
+		ck_class = *(CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
+	else
+		ck_class = CKO_SECRET_KEY;
+
+	/* Determine HSE key type and storage class */
+	switch (ck_key_type) {
+		case CKK_AES:
+		case CKK_AES_XTS:
+			hse_key_type = HSE_KEY_TYPE_AES;
+			break;
+
+		case CKK_SHA_1_HMAC:
+		case CKK_SHA224_HMAC:
+		case CKK_SHA256_HMAC:
+		case CKK_SHA384_HMAC:
+		case CKK_SHA512_HMAC:
+			hse_key_type = HSE_KEY_TYPE_HMAC;
+			break;
+
+		case CKK_RSA:
+			if (ck_class == CKO_PUBLIC_KEY)
+				hse_key_type = HSE_KEY_TYPE_RSA_PUB;
+			else
+				hse_key_type = HSE_KEY_TYPE_RSA_PAIR;
+			break;
+
+		case CKK_EC:
+		case CKK_EC_EDWARDS:
+			if (ck_class == CKO_PUBLIC_KEY)
+				hse_key_type = HSE_KEY_TYPE_ECC_PUB;
+			else
+				hse_key_type = HSE_KEY_TYPE_ECC_PAIR;
+			break;
+
+		default:
+			return CKR_KEY_TYPE_INCONSISTENT;
+	}
+
+	/* Determine obj type (token or session) */
+	token_attr = (CK_BBOOL *)getattr_pval(pTemplate, CKA_TOKEN, ulCount);
+	is_token = (token_attr && *token_attr == CK_TRUE) ? TOKEN_OBJ : SESSION_OBJ;
+
+	/* Acquire slot from key ring */
+	rc = key_slot_acquire(hse_key_type, is_token, &acquired_handle);
+	if (rc != CKR_OK)
+		return rc;
+
 	key_info_handle = hse_mem_alloc(sizeof(key_info));
-	if (key_info_handle < 0)
-		return CKR_HOST_MEMORY;
+	if (key_info_handle < 0) {
+		rc = CKR_HOST_MEMORY;
+		goto err_release_slot;
+	}
 	hse_memset(key_info_handle, 0, sizeof(key_info), 0);
 
-	/* error if id_len doesn't conform to hse expectations */
-	id_len = getattr_len(pTemplate, CKA_ID, ulCount);
-	if (!id_len || id_len != 3) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_info;
-	}
-
-	idtemp = (CK_BYTE *)getattr_pval(pTemplate, CKA_ID, ulCount);
-	if (idtemp == NULL) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_info;
-	}
-
-	search_obj = GET_KEY_HANDLE(idtemp[2], idtemp[1], idtemp[0]);
-	gCtx->mtxFns.lock(tCtx->keyMtx);
-	key_handle = get_key_object_handle(search_obj);
-	gCtx->mtxFns.unlock(tCtx->keyMtx);
+	key_handle = hse_intl_mem_alloc(sizeof(*key), HSE_KEY_OBJ);
 	if (key_handle < 0) {
-		key_handle = hse_intl_mem_alloc(sizeof(*key), HSE_KEY_OBJ);
-		if (key_handle < 0) {
-			rc = CKR_HOST_MEMORY;
-			goto err_free_key_info;
-		}
-	} else if (idtemp[2] == HSE_KEY_CATALOG_ID_NVM) {
-		printf("ERROR: NVM Slot is already occupied.");
-		printf(" The slot should be cleared, before a new key can be added\n");
-		rc = CKR_ARGUMENTS_BAD;
+		rc = CKR_HOST_MEMORY;
 		goto err_free_key_info;
 	}
+
 	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 	memset(key, 0, sizeof(*key));
 
-	/* get key handle for CKA_ID */
-	key->attrs.key_handle = search_obj;
-
 	/* key handles are unique in HSE; use them for UID */
-	key->attrs.key_uid = key->attrs.key_handle;
+	key->attrs.key_handle = acquired_handle;
+	key->attrs.key_uid = acquired_handle;
+	key->attrs.key_type = ck_key_type;
+	key->attrs.key_class = ck_class;
 	key->dyn_attrs_handle = -1;
-
-	if ((CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount) == NULL) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_intl;
-	} else {
-		key->attrs.key_type = *(CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulCount);
-	}
-
-	/* if key is not RSA or EC, it cannot be either private or public, so object class is optional */
-	if (((CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount) == NULL) &&
-	    (key->attrs.key_type == CKK_RSA || key->attrs.key_type == CKK_EC)) {
-		rc = CKR_ARGUMENTS_BAD;
-		goto err_free_key_intl;
-	} else if (getattr_pval(pTemplate, CKA_CLASS, ulCount)) {
-		key->attrs.key_class = *(CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
-	} else {
-		key->attrs.key_class = CK_UNAVAILABLE_INFORMATION;
-	}
 
 	memset(key->attrs.key_label, 0, MAX_LABEL_LEN);
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
@@ -436,16 +460,15 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			tweakmem_handle = hse_mem_alloc(tweakkey_len);
 			if (tweakmem_handle < 0) {
 				rc = CKR_HOST_MEMORY;
-				goto err_free_tweakmem;
+				goto err_free_key_intl;
 			}
 
 			hse_memcpy_to_dev(tweakmem_handle, tweakKey, tweakkey_len, 0);
 
-			tweak_id = (CK_BYTE *)getattr_pval(pTemplate, CKA_XTS_TWEAK_HANDLE, ulCount);
-			if (tweak_id == NULL || getattr_len(pTemplate, CKA_XTS_TWEAK_HANDLE, ulCount) != 3) {
-				rc = CKR_ARGUMENTS_BAD;
+			/* Acquire slot for tweak key */
+			rc = key_slot_acquire(HSE_KEY_TYPE_AES, is_token, &tweak_handle);
+			if (rc != CKR_OK)
 				goto err_free_tweakmem;
-			}
 
 /*
  * HSE_KF_USAGE_XTS_TWEAK flag is only supported starting with
@@ -462,7 +485,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 			key_info.keyBitLen = tweakkey_len * 8;
 
 			import_key_req->pKeyInfo = hse_virt_to_dma(key_info_handle, 0);
-			import_key_req->targetKeyHandle = GET_KEY_HANDLE(tweak_id[2], tweak_id[1], tweak_id[0]);
+			import_key_req->targetKeyHandle = tweak_handle;
 			import_key_req->cipher.cipherKeyHandle = HSE_INVALID_KEY_HANDLE;
 			import_key_req->keyContainer.authKeyHandle = HSE_INVALID_KEY_HANDLE;
 
@@ -478,11 +501,30 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 
 			err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 			if (err) {
+				key_slot_release(tweak_handle);
 				rc = CKR_FUNCTION_FAILED;
 				goto err_free_tweakmem;
 			}
 
+			/* Store tweak handle as dynamic attribute */
+			tweak_handle_bytes[0] = GET_SLOT_IDX(tweak_handle);
+			tweak_handle_bytes[1] = GET_GROUP_IDX(tweak_handle);
+			tweak_handle_bytes[2] = GET_CATALOG_ID(tweak_handle);
+
+			CK_ATTRIBUTE tweak_attr = {
+				.type = CKA_XTS_TWEAK_HANDLE,
+				.pValue = tweak_handle_bytes,
+				.ulValueLen = 3
+			};
+
+			rc = hse_add_dyn_attr(key, tweak_attr);
+			if (rc != CKR_OK) {
+				key_slot_release(tweak_handle);
+				goto err_free_tweakmem;
+			}
+
 			hse_mem_free(tweakmem_handle);
+			tweakmem_handle = -1;
 
 			/* Reset the service descriptor for the cipher key */
 			memset(&srv_desc, 0, sizeof(srv_desc));
@@ -639,6 +681,8 @@ err_free_key_intl:
 	hse_intl_mem_free(key_handle);
 err_free_key_info:
 	hse_mem_free(key_info_handle);
+err_release_slot:
+	key_slot_release(acquired_handle);
 	return rc;
 }
 
@@ -652,6 +696,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 	struct sessionCtx *sCtx = getSessionCtx(hSession);
 	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
 	struct hse_keyObject *pkey;
+	uint32_t tweak_handle;
+	uint8_t *attr;
 	int err, key_handle;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
@@ -667,6 +713,30 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 		return CKR_OBJECT_HANDLE_INVALID;
 	pkey = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
+	/* Handle AES-XTS: erase and release tweak key first */
+	if (pkey->attrs.key_type == CKK_AES_XTS) {
+		attr = get_attr_handle_from_key(hObject, CKA_XTS_TWEAK_HANDLE);
+		if (attr != NULL) {
+			tweak_handle = GET_KEY_HANDLE(attr[2], attr[1], attr[0]);
+
+			/* Erase tweak key from HSE */
+			srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
+			srv_desc.hseSrv.eraseKeyReq.keyHandle = tweak_handle;
+			srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
+
+			err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
+			if (err)
+				printf("[C_DestroyObject] WARNING: Failed to erase XTS tweak key 0x%06X\n",
+						tweak_handle);
+
+			/* Release tweak key slot */
+			key_slot_release(tweak_handle);
+
+			/* Reset srv_desc for main key */
+			memset(&srv_desc, 0, sizeof(srv_desc));
+		}
+	}
+
 	srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
 	srv_desc.hseSrv.eraseKeyReq.keyHandle = pkey->attrs.key_handle;
 	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
@@ -674,6 +744,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DestroyObject)(
 	err = hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
 	if (err)
 		return CKR_FUNCTION_FAILED;
+
+	key_slot_release(pkey->attrs.key_handle);
 
 	gCtx->mtxFns.lock(tCtx->keyMtx);
 	hse_key_object_remove(pkey);

@@ -12,6 +12,7 @@
 #include "pkcs11_context.h"
 #include "hse_interface.h"
 #include "pkcs11_util.h"
+#include "pkcs11_key_mgmt.h"
 #include "hse-internal.h"
 
 #ifndef INFO
@@ -40,8 +41,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 	hseHashAlgo_t             hash_algo;
 
 	struct hse_keyObject *key = NULL;
-	CK_OBJECT_HANDLE final_obj;
-	CK_OBJECT_HANDLE peer_pub_key_handle, shared_secret_handle;
+	uint32_t peer_pub_key_handle, shared_secret_handle;
+	uint32_t final_handle;
+	CK_BBOOL final_slot_acquired = CK_FALSE;
+	CK_BBOOL shared_secret_slot_acquired = CK_FALSE;
+	CK_BBOOL peer_pub_key_slot_acquired = CK_FALSE;
 	int key_handle = -1;
 	int salt_handle = -1;
 	int info_handle = -1;
@@ -52,12 +56,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 
 	CK_HKDF_PARAMS_PTR hkdf;
 	CK_ECDH1_DERIVE_PARAMS_PTR ecdh;
-	CK_BYTE     *id;
 	CK_KEY_TYPE *kt;
 	CK_BBOOL    *f;
+	CK_BBOOL    *token_attr;
 	char        *label;
 
-	CK_ULONG id_len, val_len, label_len;
+	CK_ULONG val_len, label_len;
 	CK_ULONG *val_len_p;
 	CK_BYTE_PTR pub_data;
 	CK_ULONG pub_data_len;
@@ -65,6 +69,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 	CK_ULONG expected_point_len;
 	CK_RV rv = CKR_OK;
 	int err;
+
+	enum object_domain is_token;
+	hseKeyType_t hse_key_type;
 
 	tCtx = getTokenCtx();
 	gCtx = getCtx();
@@ -81,11 +88,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 
 	if (!pTemplate && ulAttributeCount != 0)
 		return CKR_TEMPLATE_INCOMPLETE;
-
-	id = (CK_BYTE *)getattr_pval(pTemplate, CKA_ID, ulAttributeCount);
-	id_len = getattr_len(pTemplate, CKA_ID, ulAttributeCount);
-	if (!id || id_len != 3)
-		return CKR_TEMPLATE_INCONSISTENT;
 
 	kt = (CK_KEY_TYPE *)getattr_pval(pTemplate, CKA_KEY_TYPE, ulAttributeCount);
 
@@ -111,9 +113,24 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 	if (label && label_len > MAX_LABEL_LEN)
 		return CKR_ARGUMENTS_BAD;
 
-	final_obj = GET_KEY_HANDLE(id[2], id[1], id[0]);
-	shared_secret_handle = GET_KEY_HANDLE(0x02, 0x04, 0x00);
-	peer_pub_key_handle = GET_KEY_HANDLE(0x02, 0x05, 0x00);
+	/* Determine obj type (token or session) */
+	token_attr = (CK_BBOOL *)getattr_pval(pTemplate, CKA_TOKEN, ulAttributeCount);
+	is_token = (token_attr && *token_attr == CK_TRUE) ? TOKEN_OBJ : SESSION_OBJ;
+
+	/* Determine HSE key type */
+	hse_key_type = (*kt == CKK_AES) ? HSE_KEY_TYPE_AES : HSE_KEY_TYPE_HMAC;
+
+	/* Acquire slot for final derived key */
+	rv = key_slot_acquire(hse_key_type, is_token, &final_handle);
+	if (rv != CKR_OK)
+		return rv;
+	final_slot_acquired = CK_TRUE;
+
+	/* Acquire shared secret slot */
+	rv = key_slot_acquire(HSE_KEY_TYPE_SHARED_SECRET, SESSION_OBJ, &shared_secret_handle);
+	if (rv != CKR_OK)
+		goto cleanup;
+	shared_secret_slot_acquired = CK_TRUE;
 
 	switch (pMechanism->mechanism) {
 		case CKM_HKDF_DERIVE:
@@ -250,6 +267,12 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 				rv = CKR_MECHANISM_PARAM_INVALID;
 				goto cleanup;
 			}
+
+			/* Acquire ecc pub key slot */
+			rv = key_slot_acquire(HSE_KEY_TYPE_ECC_PUB, SESSION_OBJ, &peer_pub_key_handle);
+			if (rv != CKR_OK)
+				goto cleanup;
+			peer_pub_key_slot_acquired = CK_TRUE;
 
 			/* import peer public key */
 			keyinfo_handle = hse_mem_alloc(sizeof(hseKeyInfo_t));
@@ -423,7 +446,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 		keyInfo.keyFlags |= HSE_KF_USAGE_DERIVE;
 
 	copyReq->keyHandle = shared_secret_handle;
-	copyReq->targetKeyHandle = final_obj;
+	copyReq->targetKeyHandle = final_handle;
 	copyReq->startOffset = 0;
 	copyReq->keyInfo = keyInfo;
 
@@ -435,7 +458,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 
 	/* key object creation */
 	gCtx->mtxFns.lock(tCtx->keyMtx);
-	key_handle = get_key_object_handle(final_obj);
+	key_handle = get_key_object_handle(final_handle);
 	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
 	if (key_handle < 0) {
@@ -449,8 +472,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 	key = (struct hse_keyObject *)hse_get_node_mem_addr(key_handle, true);
 
 	memset(key, 0, sizeof(*key));
-	key->attrs.key_handle = final_obj;
-	key->attrs.key_uid = final_obj;
+	key->attrs.key_handle = final_handle;
+	key->attrs.key_uid = final_handle;
 	key->attrs.key_type = *kt;
 	key->attrs.key_class = CKO_SECRET_KEY;
 
@@ -470,20 +493,28 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 	hse_key_object_write(key);
 	gCtx->mtxFns.unlock(tCtx->keyMtx);
 
-	*phKey = final_obj;
+	*phKey = final_handle;
+
+	rv = CKR_OK;
 
 cleanup:
-	memset(&srv_desc, 0, sizeof(srv_desc));
-	srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
-	srv_desc.hseSrv.eraseKeyReq.keyHandle = peer_pub_key_handle;
-	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
-	hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
+	if (shared_secret_slot_acquired) {
+		memset(&srv_desc, 0, sizeof(srv_desc));
+		srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
+		srv_desc.hseSrv.eraseKeyReq.keyHandle = shared_secret_handle;
+		srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
+		hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
+		key_slot_release(shared_secret_handle);
+	}
 
-	memset(&srv_desc, 0, sizeof(srv_desc));
-	srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
-	srv_desc.hseSrv.eraseKeyReq.keyHandle = shared_secret_handle;
-	srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
-	hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
+	if (peer_pub_key_slot_acquired) {
+		memset(&srv_desc, 0, sizeof(srv_desc));
+		srv_desc.srvId = HSE_SRV_ID_ERASE_KEY;
+		srv_desc.hseSrv.eraseKeyReq.keyHandle = peer_pub_key_handle;
+		srv_desc.hseSrv.eraseKeyReq.eraseKeyOptions = 0u;
+		hse_srv_req_sync(sCtx->sID, &srv_desc, sizeof(srv_desc), NULL);
+		key_slot_release(peer_pub_key_handle);
+	}
 
 	if (salt_handle >= 0)
 		hse_mem_free(salt_handle);
@@ -497,6 +528,8 @@ cleanup:
 		hse_mem_free(pubkey_handle);
 	if (base_keyinfo_handle >= 0)
 		hse_mem_free(base_keyinfo_handle);
+	if (rv != CKR_OK && final_slot_acquired)
+		key_slot_release(final_handle);
 
 	return rv;
 }

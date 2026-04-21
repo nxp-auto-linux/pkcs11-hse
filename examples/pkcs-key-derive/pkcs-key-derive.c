@@ -161,7 +161,7 @@ static int util_lib_finalize(CK_FUNCTION_LIST_PTR flist)
 }
 
 static CK_OBJECT_HANDLE install_base_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
-							CK_KEY_TYPE key_type, uint8_t *key_id, int key_len, uint8_t *key_value)
+							CK_KEY_TYPE key_type, int key_len, uint8_t *key_value)
 {
 	CK_OBJECT_HANDLE key;
 	CK_RV rv;
@@ -175,7 +175,6 @@ static CK_OBJECT_HANDLE install_base_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &type, sizeof(type) },
 		{ CKA_DERIVE, &boolean, sizeof(boolean) },
-		{ CKA_ID, key_id, 3 },
 		{ CKA_VALUE, (CK_BYTE_PTR)key_value, key_len }
 	};
 
@@ -191,13 +190,6 @@ static CK_OBJECT_HANDLE util_lib_derive_key_aes(CK_FUNCTION_LIST_PTR flist, CK_S
 	CK_OBJECT_HANDLE derived_key;
 	CK_RV rv;
 
-	/* 
-	 * key_id represent the HSE key slot in the key catalog
-	 *     - key_id[0] - slot ID
-	 *     - key_id[1] - group ID
-	 *     - key_id[2] - catalog ID
-	 */
-	CK_BYTE key_id[] = { 0x01, 0x02, 0x02 };
 	CK_UTF8CHAR label[] = {"HSE-DERIVED-KEY-AES"};
 	CK_KEY_TYPE ktype = CKK_AES;
 	CK_ULONG key_len_bytes = 32;
@@ -206,7 +198,6 @@ static CK_OBJECT_HANDLE util_lib_derive_key_aes(CK_FUNCTION_LIST_PTR flist, CK_S
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_KEY_TYPE, &ktype, sizeof(ktype) },
 		{ CKA_LABEL, label, sizeof(label) - 1 },
-		{ CKA_ID, &key_id, sizeof(key_id) },
 		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
 		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
 		{ CKA_VALUE_LEN, &key_len_bytes, sizeof(key_len_bytes) },
@@ -310,7 +301,6 @@ out:
 }
 
 static int generate_ec_keypair(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
-                               CK_BYTE *key_id,
                                CK_OBJECT_HANDLE *phPubKey, CK_OBJECT_HANDLE *phPrivKey)
 {
 	CK_RV rv;
@@ -327,7 +317,6 @@ static int generate_ec_keypair(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE ses
 	CK_ATTRIBUTE privKeyTemplate[] = {
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
 		{ CKA_LABEL, label, sizeof(label) - 1 },
-		{ CKA_ID, key_id, 3 },
 		{ CKA_SIGN, &boolean, sizeof(boolean) },
 		{ CKA_DERIVE, &boolean, sizeof(boolean) },
 		{ CKA_EXTRACTABLE, &boolean, sizeof(boolean) }
@@ -363,8 +352,7 @@ static int get_ec_point(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
 
 static CK_OBJECT_HANDLE derive_ecdh_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
 										CK_OBJECT_HANDLE hPrivKey, CK_BYTE *peer_ec_point,
-										CK_ULONG peer_ec_point_len, CK_BYTE *derived_key_id,
-										CK_EC_KDF_TYPE kdf)
+										CK_ULONG peer_ec_point_len, CK_EC_KDF_TYPE kdf)
 {
 	CK_RV rv;
 	CK_OBJECT_HANDLE hDerivedKey;
@@ -414,7 +402,6 @@ static CK_OBJECT_HANDLE derive_ecdh_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_H
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_KEY_TYPE, &ktype, sizeof(ktype) },
 		{ CKA_LABEL, label, sizeof(label) - 1 },
-		{ CKA_ID, derived_key_id, 3 },
 		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
 		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
 		{ CKA_VALUE_LEN, &key_len, sizeof(key_len) },
@@ -501,25 +488,18 @@ static int test_ecdh_derive(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE sessio
 	CK_ULONG first_ec_point_len = sizeof(first_ec_point);
 	CK_ULONG second_ec_point_len = sizeof(second_ec_point);
 
-	CK_BYTE first_key_id[] = { 0x00, 0x07, 0x01 };
-	CK_BYTE second_key_id[] = { 0x01, 0x07, 0x01 };
-	CK_BYTE first_derived_id[] = { 0x00, 0x02, 0x02 };
-	CK_BYTE second_derived_id[] = { 0x01, 0x02, 0x02 };
-
 	const char *kdf_name = get_kdf_name(kdf);
 
 	INFO("ECDH - %s...\n", kdf_name);
 
 	INFO("Generating first EC key pair...\n");
-	if (generate_ec_keypair(flist, session, first_key_id,
-							&hFirstPub, &hFirstPriv) != 0) {
+	if (generate_ec_keypair(flist, session, &hFirstPub, &hFirstPriv) != 0) {
 		ERROR("Failed to generate first key pair\n");
 		goto cleanup;
 	}
 
 	INFO("Generating second EC key pair...\n");
-	if (generate_ec_keypair(flist, session, second_key_id,
-							&hSecondPub, &hSecondPriv) != 0) {
+	if (generate_ec_keypair(flist, session, &hSecondPub, &hSecondPriv) != 0) {
 		ERROR("Failed to generate second key pair\n");
 		goto cleanup;
 	}
@@ -538,8 +518,7 @@ static int test_ecdh_derive(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE sessio
 
 	INFO("First party deriving shared secret...\n");
 	hFirstDerived = derive_ecdh_key(flist, session, hFirstPriv,
-									second_ec_point, second_ec_point_len,
-									first_derived_id, kdf);
+									second_ec_point, second_ec_point_len, kdf);
 	if (hFirstDerived == CK_INVALID_HANDLE) {
 		ERROR("First party failed to derive shared secret\n");
 		goto cleanup;
@@ -547,8 +526,7 @@ static int test_ecdh_derive(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE sessio
 
 	INFO("Second party deriving shared secret...\n");
 	hSecondDerived = derive_ecdh_key(flist, session, hSecondPriv,
-									 first_ec_point, first_ec_point_len,
-									 second_derived_id, kdf);
+									 first_ec_point, first_ec_point_len, kdf);
 	if (hSecondDerived == CK_INVALID_HANDLE) {
 		ERROR("Second party failed to derive shared secret\n");
 		goto cleanup;
@@ -595,7 +573,6 @@ int main(int argc, char *argv[])
 {
 	void *lib_handle;
 	char *libpath, *arg_help = "help";
-	uint8_t key_id[3];
 	int ret = 0;
 
 	CK_FUNCTION_LIST_PTR flist;
@@ -682,13 +659,8 @@ int main(int argc, char *argv[])
 		goto err_lib_finalize;
 	}
 
-	INFO("HKDF key derivation...\n");
-
-	INFO("Install base key...\n");
-	key_id[0] = 2;
-	key_id[1] = 2;
-	key_id[2] = 2;
-	base_key = install_base_key(flist, session, CKK_AES, key_id, sizeof(key_value_AES_256), key_value_AES_256);
+	INFO("Install base key ...\n");
+	base_key = install_base_key(flist, session, CKK_AES, sizeof(key_value_AES_256), key_value_AES_256);
 	if (base_key == CK_INVALID_HANDLE) {
 		ERROR("Failed to create key object\n");
 		ret = -EKEYREJECTED;
@@ -713,6 +685,15 @@ int main(int argc, char *argv[])
 		goto err_close_session;
 	}
 	INFO("HKDF verification PASSED\n");
+	INFO("Releasing HKDF keys to free slots for ECDH...\n");
+	if (derived_key != CK_INVALID_HANDLE) {
+		flist->C_DestroyObject(session, derived_key);
+		derived_key = CK_INVALID_HANDLE;
+	}
+	if (base_key != CK_INVALID_HANDLE) {
+		flist->C_DestroyObject(session, base_key);
+		base_key = CK_INVALID_HANDLE;
+	}
 
 	if (run_all_ecdh_tests(flist, session) != 0) {
 		ERROR("Some ECDH tests failed\n");

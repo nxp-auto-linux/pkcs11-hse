@@ -133,7 +133,7 @@ static CK_RV util_lib_close_sessions(CK_FUNCTION_LIST_PTR flist, CK_SLOT_ID slot
 }
 
 static CK_OBJECT_HANDLE install_aes_hmac_key(CK_FUNCTION_LIST_PTR flist, CK_SESSION_HANDLE session,
-					       CK_KEY_TYPE key_type, uint8_t *key_id, int key_len, uint8_t *key_value)
+					       CK_KEY_TYPE key_type, int key_len, uint8_t *key_value)
 {
 	CK_OBJECT_HANDLE key;
 	CK_RV rv;
@@ -148,9 +148,9 @@ static CK_OBJECT_HANDLE install_aes_hmac_key(CK_FUNCTION_LIST_PTR flist, CK_SESS
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &type, sizeof(type) },
-		{ CKA_ID, key_id, 3 },
 		{ CKA_SIGN, &boolean, sizeof(boolean) },
 		{ CKA_VERIFY, &boolean, sizeof(boolean) },
+		{ CKA_TOKEN, &boolean, sizeof(boolean) },
 		{ CKA_VALUE, (CK_BYTE_PTR)key_value, key_len }
 	};
 
@@ -166,17 +166,9 @@ static CK_OBJECT_HANDLE install_ecc_private_key(CK_FUNCTION_LIST_PTR flist, CK_S
 	CK_OBJECT_HANDLE key = 0;
 	CK_RV rv;
 
-	/* define key template
-	 * 
-	 * key_id represent the HSE key slot in the key catalog
-	 *     - key_id[0] - slot ID
-	 *     - key_id[1] - group ID
-	 *     - key_id[2] - catalog ID
-	 */
 	CK_OBJECT_CLASS key_class = CKO_PRIVATE_KEY;
 	CK_KEY_TYPE key_type = CKK_EC;
 	CK_UTF8CHAR label[] = {"HSE-ECC-PRIV"};
-	CK_BYTE key_id[] = { 0x00, 0x07, 0x01};
 	CK_BYTE key_priv[] = {
 		0x54, 0x4d, 0x90, 0xd1, 0xbf, 0x45, 0x32, 0x9c, 0xd2, 0x39, 0x47, 0x06, 0x29, 0x3b, 0x4f, 0xc8, 
 		0x70, 0x28, 0xf7, 0xde, 0xac, 0x86, 0xb3, 0x91, 0xb6, 0x91, 0x93, 0xff, 0xe8, 0xe4, 0x2f, 0x68
@@ -197,7 +189,6 @@ static CK_OBJECT_HANDLE install_ecc_private_key(CK_FUNCTION_LIST_PTR flist, CK_S
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
-		{ CKA_ID, &key_id, sizeof(key_id) },
 		{ CKA_EC_POINT, key_pub, sizeof(key_pub) },
 		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
 		{ CKA_SIGN, &boolean, sizeof(boolean) },
@@ -216,17 +207,9 @@ static CK_OBJECT_HANDLE install_ecc_public_key(CK_FUNCTION_LIST_PTR flist, CK_SE
 	CK_OBJECT_HANDLE key;
 	CK_RV rv;
 
-	/* define key template
-	 * 
-	 * key_id represent the HSE key slot in the key catalog
-	 *     - key_id[0] - slot ID
-	 *     - key_id[1] - group ID
-	 *     - key_id[2] - catalog ID
-	 */
 	CK_OBJECT_CLASS key_class = CKO_PUBLIC_KEY;
 	CK_KEY_TYPE key_type = CKK_EC;
 	CK_UTF8CHAR label[] = {"HSE-ECC-PUB"};
-	CK_BYTE key_id[] = { 0x00, 0x08, 0x01};
 	/* DER-encoding of ANSI X9.62 ECPoint value */
 	CK_BYTE key_pub[] = {
 		0x42, 0x00, 0x04, 
@@ -243,7 +226,7 @@ static CK_OBJECT_HANDLE install_ecc_public_key(CK_FUNCTION_LIST_PTR flist, CK_SE
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
-		{ CKA_ID, &key_id, sizeof(key_id) },
+		{ CKA_TOKEN, &boolean, sizeof(boolean) },
 		{ CKA_EC_POINT, key_pub, sizeof(key_pub) },
 		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
 		{ CKA_VERIFY, &boolean, sizeof(boolean) }
@@ -261,17 +244,9 @@ static CK_OBJECT_HANDLE install_ed25519_private_key(CK_FUNCTION_LIST_PTR flist, 
 	CK_OBJECT_HANDLE key = 0;
 	CK_RV rv;
 
-	/* define key template
-	 *
-	 * key_id represent the HSE key slot in the key catalog
-	 *     - key_id[0] - slot ID
-	 *     - key_id[1] - group ID
-	 *     - key_id[2] - catalog ID
-	 */
 	CK_OBJECT_CLASS key_class = CKO_PRIVATE_KEY;
 	CK_KEY_TYPE key_type = CKK_EC_EDWARDS;
 	CK_UTF8CHAR label[] = {"HSE-Ed25519-PRIV"};
-	CK_BYTE key_id[] = { 0x01, 0x07, 0x01 };
 
 	/* Ed25519 private key (32 bytes in little-endian as per RFC 8032) */
 	CK_BYTE key_priv[] = {
@@ -292,7 +267,7 @@ static CK_OBJECT_HANDLE install_ed25519_private_key(CK_FUNCTION_LIST_PTR flist, 
 		{ CKA_LABEL,     label,      sizeof(label)-1 },
 		{ CKA_CLASS,     &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE,  &key_type,  sizeof(key_type) },
-		{ CKA_ID,        key_id,     sizeof(key_id) },
+		{ CKA_TOKEN, &boolean, sizeof(boolean) },
 		{ CKA_EC_POINT,  key_pub,    sizeof(key_pub) },
 		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
 		{ CKA_SIGN,      &boolean,     sizeof(boolean) },
@@ -313,17 +288,9 @@ static CK_OBJECT_HANDLE install_ed25519_public_key(CK_FUNCTION_LIST_PTR flist, C
 	CK_OBJECT_HANDLE key;
 	CK_RV rv;
 
-	/* define key template
-	 *
-	 * key_id represent the HSE key slot in the key catalog
-	 *     - key_id[0] - slot ID
-	 *     - key_id[1] - group ID
-	 *     - key_id[2] - catalog ID
-	 */
 	CK_OBJECT_CLASS key_class = CKO_PUBLIC_KEY;
 	CK_KEY_TYPE     key_type  = CKK_EC_EDWARDS;
 	CK_UTF8CHAR     label[]   = {"HSE-Ed25519-PUB"};
-	CK_BYTE         key_id[]  = { 0x01, 0x08, 0x01 };
 
 	/* DER-encoded ASN.1 OCTET STRING wrapping the 32-byte Ed25519 public key. */
 	CK_BYTE key_pub[] = {
@@ -338,7 +305,7 @@ static CK_OBJECT_HANDLE install_ed25519_public_key(CK_FUNCTION_LIST_PTR flist, C
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
-		{ CKA_ID, &key_id, sizeof(key_id) },
+		{ CKA_TOKEN, &boolean, sizeof(boolean) },
 		{ CKA_EC_POINT, key_pub, sizeof(key_pub) },
 		{ CKA_EC_PARAMS, (CK_BYTE_PTR)ec_param_oid, strlen(ec_param_oid) },
 		{ CKA_VERIFY, &boolean, sizeof(boolean) }
@@ -1389,7 +1356,6 @@ int main(int argc, char *argv[])
 	CK_OBJECT_HANDLE ed25519_priv_key = CK_INVALID_HANDLE;
 	CK_OBJECT_HANDLE ed25519_pub_key = CK_INVALID_HANDLE;
 	CK_OBJECT_HANDLE aes128_key, hmac_key_1, hmac_key_2;
-	uint8_t key_id[3];
 
 	if (argc == 2 && !strncmp(argv[1], arg_help, sizeof(*arg_help))) {
 		usage(argv[0]);
@@ -1499,15 +1465,8 @@ int main(int argc, char *argv[])
 
 	/* CMAC */
 	INFO("Install AES key ...\n");
-	 /* key_id represent the HSE key slot in the key catalog
-	 *     - key_id[0] - slot ID
-	 *     - key_id[1] - group ID
-	 *     - key_id[2] - catalog ID
-	 */
-	key_id[0] = 7;
-	key_id[1] = 4;
-	key_id[2] = 1;	/* NVM key */
-	aes128_key = install_aes_hmac_key(flist, session, CKK_AES, key_id, sizeof(key_value_AES_128), key_value_AES_128);
+
+	aes128_key = install_aes_hmac_key(flist, session, CKK_AES, sizeof(key_value_AES_128), key_value_AES_128);
 	if (!aes128_key) {
 		ERROR("Failed to create key object\n");
 		ret = -EKEYREJECTED;
@@ -1519,20 +1478,14 @@ int main(int argc, char *argv[])
 	/* HMAC */
 	INFO("Install HMAC key ...\n");
 
-	key_id[0] = 0;
-	key_id[1] = 2;
-	key_id[2] = 1;	/* NVM key */
-	hmac_key_1 = install_aes_hmac_key(flist, session, CKK_SHA256_HMAC, key_id, sizeof(key_value_HMAC_1), key_value_HMAC_1);
+	hmac_key_1 = install_aes_hmac_key(flist, session, CKK_SHA256_HMAC, sizeof(key_value_HMAC_1), key_value_HMAC_1);
 	if (!hmac_key_1) {
 		ERROR("Failed to create key object\n");
 		ret = -EKEYREJECTED;
 		goto err_close_session;
 	}
 
-	key_id[0] = 1;
-	key_id[1] = 2;
-	key_id[2] = 1;	/* NVM key */
-	hmac_key_2 = install_aes_hmac_key(flist, session, CKK_SHA256_HMAC, key_id, sizeof(key_value_HMAC_2), key_value_HMAC_2);
+	hmac_key_2 = install_aes_hmac_key(flist, session, CKK_SHA256_HMAC, sizeof(key_value_HMAC_2), key_value_HMAC_2);
 	if (!hmac_key_2) {
 		ERROR("Failed to create key object\n");
 		ret = -EKEYREJECTED;

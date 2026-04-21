@@ -124,22 +124,16 @@ static CK_OBJECT_HANDLE util_lib_create_object(CK_FUNCTION_LIST_PTR flist, CK_SE
 	CK_OBJECT_HANDLE key;
 	CK_RV rv;
 
-	/* define key template
-	 * 
-	 * key_id represent the HSE key slot in the key catalog
-	 *     - key_id[0] - slot ID
-	 *     - key_id[1] - group ID
-	 *     - key_id[2] - catalog ID
-	 */
 	CK_OBJECT_CLASS key_class = CKO_PUBLIC_KEY;
 	CK_KEY_TYPE key_type = CKK_RSA;
 	CK_UTF8CHAR label[] = {"HSE-RSA2048-PUB"};
-	CK_BYTE key_id[] = { 0x00, 0x0B, 0x01 };
+	CK_BBOOL boolean = CK_TRUE;
+
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
 		{ CKA_CLASS, &key_class, sizeof(key_class) },
 		{ CKA_KEY_TYPE, &key_type, sizeof(key_type) },
-		{ CKA_ID, &key_id, sizeof(key_id) },
+		{ CKA_TOKEN, &boolean, sizeof(boolean) },
 		{ CKA_MODULUS, (CK_BYTE_PTR)rsa_modulus, rsa_modulus_bytes },
 		{ CKA_PUBLIC_EXPONENT, (CK_BYTE_PTR)rsa_pub_exponent, rsa_pub_exponent_bytes }
 	};

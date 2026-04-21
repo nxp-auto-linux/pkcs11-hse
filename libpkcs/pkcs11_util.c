@@ -8,10 +8,14 @@
 #include <string.h>
 #include <errno.h>
 #include <dirent.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 #include "hse_interface.h"
 #include "pkcs11_context.h"
 #include "pkcs11_util.h"
+#include "pkcs11_key_mgmt.h"
 #include "hse-internal.h"
 
 #define PKCS_OBJ_DIR PKCS_DIR "/pkcs-objs"
@@ -1498,4 +1502,61 @@ cleanup:
 		hse_mem_free(file_verifier_handle);
 
 	return rv;
+}
+CK_RV write_tCtx_buffer(const struct tokenCtx *buffer, CK_BBOOL create_file)
+{
+	FILE *f = NULL;
+	int fd = -1;
+	CK_RV rv = CKR_OK;
+
+	if (!buffer)
+		return CKR_ARGUMENTS_BAD;
+
+	if (create_file) {
+		/* Create file with proper permissions */
+		fd = open(PKCS_TOKEN_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+		if (fd < 0) {
+			rv = CKR_FUNCTION_FAILED;
+			goto err_close;
+		}
+
+		/* Override umask effects explicitly */
+		if (fchmod(fd, 0666) != 0) {
+			rv = CKR_FUNCTION_FAILED;
+			goto err_close;
+		}
+
+		f = fdopen(fd, "wb");
+		if (!f) {
+			rv = CKR_FUNCTION_FAILED;
+			goto err_close;
+		}
+	} else {
+		/* File should already exist, just open for writing */
+		f = fopen(PKCS_TOKEN_FILE, "wb");
+		if (!f)
+			return CKR_FUNCTION_FAILED;
+	}
+
+	/* Write entire tokenCtx including rings state. */
+	if (fwrite(buffer, sizeof(struct tokenCtx), 1, f) != 1)
+		rv = CKR_FUNCTION_FAILED;
+
+err_close:
+	if (f)
+		fclose(f);
+	else if (fd >= 0)
+		close(fd);
+
+	return rv;
+
+}
+CK_RV write_tCtx(CK_BBOOL create_file)
+{
+	struct tokenCtx *tCtx = getTokenCtx();
+
+	if (!tCtx)
+		return CKR_ARGUMENTS_BAD;
+
+	return write_tCtx_buffer(tCtx, create_file);
 }

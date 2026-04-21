@@ -15,9 +15,7 @@
 #include "pkcs11_context.h"
 #include "hse-internal.h"
 #include "pkcs11_util.h"
-
-#define PKCS_HSE_FILE PKCS_DIR "/pkcs-hse-objs"
-#define PKCS_TOKEN PKCS_DIR "/pkcs-token"
+#include "pkcs11_key_mgmt.h"
 
 #define MIN_PIN_LEN 16
 #define MAX_PIN_LEN 512
@@ -26,7 +24,7 @@ static struct globalCtx globalContext = {
 	.cryptokiInit = CK_FALSE,
 };
 
-static struct tokenCtx tokenContext;
+static struct tokenCtx *tokenContext = NULL;
 static struct sessionCtx globalSessions[HSE_NUM_CHANNELS];
 
 static const CK_MECHANISM_TYPE mechanismList[] = {
@@ -234,7 +232,7 @@ struct globalCtx *getCtx(void)
 
 struct tokenCtx *getTokenCtx(void)
 {
-	return &tokenContext;
+	return tokenContext;
 }
 
 struct sessionCtx *getSessionCtx(CK_SESSION_HANDLE sID)
@@ -288,9 +286,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	struct tokenCtx *tCtx = getTokenCtx();
+	struct tokenCtx *tCtx = NULL;
 	CK_C_INITIALIZE_ARGS_PTR initArgs = pInitArgs;
-	CK_BBOOL intl_token = CK_FALSE; // TODO: actually check intl_token later
 	FILE *f;
 	int rv;
 
@@ -316,7 +313,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 				gCtx->mtxFns.destroy = NULL;
 				gCtx->mtxFns.lock = NULL;
 				gCtx->mtxFns.unlock = NULL;
-				tCtx->keyMtx = NULL;
 			}
 		} else {
 			return CKR_ARGUMENTS_BAD;
@@ -332,43 +328,100 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 	if (rv)
 		return CKR_FUNCTION_FAILED;
 
-	f = fopen(PKCS_TOKEN, "rb");
-	if (f) {	/* the token was previously initialized */
-		if (!intl_token) { /* we dont have intl_tCtx yet */
-			/* if we get here it means that token was init, but there was a restart */
-			/* TODO: load tCtx from file into intl shm
-			(for now, we just load it into the static tCtx) */
-			if (fread(tCtx, sizeof(struct tokenCtx), 1, f) != 1) {
-				fclose(f);
+	tCtx = (struct tokenCtx *)hse_intl_get_static_mem();
+	if (!tCtx) {
+		hse_dev_close();
+		return CKR_DEVICE_ERROR;
+	}
+
+	/* Internal shared memory already valid */
+	if (tCtx->loaded == TCTX_LOADED) {
+		printf("[C_Initialize] Intl shm valid, using existing tokenCtx\n");
+		tokenContext = tCtx;
+		tCtx->keyMtx = NULL;
+		if (gCtx->mtxFns.create) {
+			if (gCtx->mtxFns.create(&tCtx->keyMtx) != CKR_OK) {
+				hse_dev_close();
 				return CKR_FUNCTION_FAILED;
 			}
-
-			/* after restart, reset session count */
-			/* tCtx->token.ulSessionCount = 0;
-			 * tCtx->token.ulRwSessionCount = 0; */
-		}
-		/* token was init, token is (will be) in intl shm */
-		printf("HSE FW Version: %d.%d.%d.%d\n",
-		       tCtx->token.hardwareVersion.major,
-		       tCtx->token.hardwareVersion.minor,
-		       tCtx->token.firmwareVersion.major,
-		       tCtx->token.firmwareVersion.minor);
-
-		/* recreate the mutex */
-		tCtx->keyMtx = NULL;  /* clear the stale pointer */
-		if (gCtx->mtxFns.create(&tCtx->keyMtx)) {
-			fclose(f);
-			return CKR_FUNCTION_FAILED;
+			if (gCtx->mtxFns.create(&tCtx->tctx_file_mtx) != CKR_OK) {
+				gCtx->mtxFns.destroy(tCtx->keyMtx);
+				tCtx->keyMtx = NULL;
+				hse_dev_close();
+				return CKR_FUNCTION_FAILED;
+			}
 		}
 
-		/* start iteration through mem contents */
+		gCtx->login = LOGIN_NONE;
+		gCtx->cryptokiInit = CK_TRUE;
+
+		/* Start iteration through mem contents */
 		hse_intl_iterstart();
 		if (!hse_intl_hasnext()) {
 			hse_pkcs_read_objs_dir();
 		}
 		hse_intl_iterstop();
 
+		return CKR_OK;
+	}
+
+	/* Internal shared memory not valid - check if file exists */
+	f = fopen(PKCS_TOKEN_FILE, "rb");
+	if (f) {
+		/* File exists, intl shm invalid - load from file */
+		printf("[C_Initialize] Loading tokenCtx from file to intl shm\n");
+
+		if (fread(tCtx, sizeof(struct tokenCtx), 1, f) != 1) {
+			fclose(f);
+			hse_dev_close();
+			return CKR_FUNCTION_FAILED;
+		}
 		fclose(f);
+
+		/* after restart, reset session count */
+		/* tCtx->token.ulSessionCount = 0;
+		 * tCtx->token.ulRwSessionCount = 0; */
+
+		printf("HSE FW Version: %d.%d.%d.%d\n",
+		       tCtx->token.hardwareVersion.major,
+		       tCtx->token.hardwareVersion.minor,
+		       tCtx->token.firmwareVersion.major,
+		       tCtx->token.firmwareVersion.minor);
+
+		/* recreate the mutexes */
+		memset(&tCtx->keyMtx, 0, sizeof(tCtx->keyMtx));
+		memset(&tCtx->tctx_file_mtx, 0, sizeof(tCtx->tctx_file_mtx));
+
+		if (gCtx->mtxFns.create) {
+			if (gCtx->mtxFns.create(&tCtx->keyMtx) != CKR_OK) {
+				hse_dev_close();
+				return CKR_FUNCTION_FAILED;
+			}
+			if (gCtx->mtxFns.create(&tCtx->tctx_file_mtx) != CKR_OK) {
+				hse_dev_close();
+				return CKR_FUNCTION_FAILED;
+			}
+		}
+		/* Mark intl shm as valid */
+		tCtx->loaded = TCTX_LOADED;
+
+		tokenContext = tCtx;
+
+		/* Reinitialize ring mutexes (can't be persisted) */
+		rv = key_rings_init_spinlocks();
+		if (rv != CKR_OK) {
+			hse_dev_close();
+			return rv;
+		}
+		/* start iteration through mem contents */
+		hse_intl_iterstart();
+		if (!hse_intl_hasnext()) {
+			hse_pkcs_read_objs_dir();
+		}
+		hse_intl_iterstop();
+	} else {
+		/* Fresh system - no file, no valid intl shm */
+		tokenContext = NULL;
 	}
 
 	/* token was not previously init */
@@ -384,17 +437,60 @@ CK_DECLARE_FUNCTION(CK_RV, C_Finalize)(
 {
 	struct globalCtx *gCtx = getCtx();
 	struct tokenCtx *tCtx = getTokenCtx();
+	struct tokenCtx *buffer = NULL;
 	CK_RV rv = CKR_OK;
 
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
+	/* Only save if token was initialized */
+	if (tCtx && tCtx->loaded == TCTX_LOADED) {
+		printf("[C_Finalize] Saving tokenCtx to filesystem\n");
+
+		/* Allocate tCtx buffer */
+		buffer = (struct tokenCtx *)calloc(1, sizeof(struct tokenCtx));
+		if (!buffer) {
+			printf("[C_Finalize] ERROR: Failed to allocate snapshot buffer\n");
+			rv = CKR_HOST_MEMORY;
+			goto err_dev_close;
+        }
+
+		/* Lock all ring mutexes */
+		rv = key_rings_lock_all();
+		if (rv != CKR_OK) {
+			printf("[C_Finalize] WARNING: Failed to lock ring mutexes: 0x%lX\n", rv);
+			printf("[C_Finalize] Skipping token context persistence to avoid corruption\n");
+		} else {
+			/* Copy tokenCtx to buffer while spinlocks are held */
+			memcpy(buffer, tCtx, sizeof(struct tokenCtx));
+
+			/* Unlock spinlocks so that other processes can use them */
+			key_rings_unlock_all();
+
+			if (gCtx->mtxFns.lock && tCtx->tctx_file_mtx) {
+				gCtx->mtxFns.lock(tCtx->tctx_file_mtx);
+			}
+
+			rv = write_tCtx_buffer(buffer, CK_FALSE);
+			if (rv != CKR_OK) {
+				printf("[C_Finalize] WARNING: Failed to persist tokenCtx: 0x%lX\n", rv);
+			}
+
+			if (gCtx->mtxFns.unlock && tCtx->tctx_file_mtx) {
+				gCtx->mtxFns.unlock(tCtx->tctx_file_mtx);
+			}
+		}
+
+		/* Free tCtx buffer */
+		free(buffer);
+		buffer = NULL;
+	}
+
+err_dev_close:
 
 	hse_dev_close();
 
 	gCtx->cryptokiInit = CK_FALSE;
-
-	if (tCtx->keyMtx != NULL)
-		rv = gCtx->mtxFns.destroy(tCtx->keyMtx);
+	tokenContext = NULL;
 
 	return rv;
 }
@@ -1155,9 +1251,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
 )
 {
 	struct globalCtx *gCtx = getCtx();
-	struct tokenCtx *tCtx = getTokenCtx();
-	CK_TOKEN_INFO_PTR pToken = &tCtx->token;
-	CK_SLOT_INFO_PTR pSlot = &tCtx->slot;
+	struct tokenCtx *tCtx;
+	CK_TOKEN_INFO_PTR pToken;
+	CK_SLOT_INFO_PTR pSlot;
 	FILE *f;
 	CK_RV rv;
 	int fw_version_handle, err;
@@ -1179,9 +1275,17 @@ CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
 	if (ulPinLen < MIN_PIN_LEN || ulPinLen > MAX_PIN_LEN)
 		return CKR_PIN_LEN_RANGE;
 
-	f = fopen(PKCS_TOKEN, "r");
+	/* Get intl shm address */
+	tCtx = (struct tokenCtx *)hse_intl_get_static_mem();
+	if (!tCtx)
+		return CKR_DEVICE_ERROR;
+
+	/* Check if token already initialized */
+	f = fopen(PKCS_TOKEN_FILE, "r");
 	if (f) {
 		fclose(f);
+		printf("[C_InitToken] Token already initialized, verifying SO PIN\n");
+		/* token reinitialization not supported at this time */
 		/* token is already initialized, check SO pin */
 		err = hse_channel_acquire(&sID);
 		if (err)
@@ -1197,21 +1301,45 @@ CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
 
 	/* token is not initialized, first time init */
 
-	/* TODO: allocate tokenCtx in intl shm */
-	/* tokenCtx should be copied into PKCS_TOKEN to be fetched after restarts */
+	/* Clear the tokenCtx area in intl shm */
+	memset(tCtx, 0, sizeof(struct tokenCtx));
 
-	/* intl_tCtx = pointer to intl shm tokenCtx */
-	/* tCtx = intl_tCtx; */
+	pSlot = &tCtx->slot;
+	pToken = &tCtx->token;
 
-
-	/* init global flags and mutexes */
-	if (!tCtx->keyMtx) {
+	/* Initialize keyMtx */
+	tCtx->keyMtx = NULL;
+	if (gCtx->mtxFns.create) {
 		rv = gCtx->mtxFns.create(&tCtx->keyMtx);
-		if (rv)
+		if (rv != CKR_OK)
 			return CKR_FUNCTION_FAILED;
 	}
 
-	/* TODO: init key rings */
+	/* Initialize tctx_file_mtx (same pattern as keyMtx) */
+	tCtx->tctx_file_mtx = NULL;
+	if (gCtx->mtxFns.create) {
+		rv = gCtx->mtxFns.create(&tCtx->tctx_file_mtx);
+		if (rv != CKR_OK) {
+            /* Cleanup keyMtx */
+            if (tCtx->keyMtx && gCtx->mtxFns.destroy)
+                gCtx->mtxFns.destroy(tCtx->keyMtx);
+            tCtx->keyMtx = NULL;
+            return CKR_FUNCTION_FAILED;
+        }
+    }
+
+	/* Mark intl shm as valid */
+	tCtx->loaded = TCTX_LOADED;
+
+	/* Set global pointer */
+	tokenContext = tCtx;
+
+	/* Initialize key rings */
+	rv = key_rings_init();
+	if (rv != CKR_OK) {
+		printf("[C_InitToken] key_rings_init() failed: 0x%lX\n", rv);
+		return rv;
+	}
 
 	/* get firmware version*/
 	fw_version_handle = hse_mem_alloc(sizeof(hseAttrFwVersion_t));
@@ -1281,7 +1409,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
 	/* init SO pin */
 
 	/* generate base key */
-	baseKey = GET_KEY_HANDLE(0x01, 0x02, 0x01);
+	baseKey = GET_KEY_HANDLE(BASE_KEY_CATALOG_ID, BASE_KEY_GROUP_ID, BASE_KEY_SLOT_ID);
 
 	memset(&srv_desc, 0, sizeof(srv_desc));
 	keyGenReq = &srv_desc.hseSrv.keyGenReq;
@@ -1305,18 +1433,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
 	if (rv)
 		return rv;
 
-	/* set token as init (save tctx in PKCS_TOKEN) */
-	f = fopen(PKCS_TOKEN, "wb");
-	if (!f)
-		return CKR_FUNCTION_FAILED;
+	/* set token as init (save tctx in PKCS_TOKEN_FILE) */
+	rv = write_tCtx(CK_TRUE);
 
-	if (fwrite(tCtx, sizeof(struct tokenCtx), 1, f) != 1) {
-		fclose(f);
-		return CKR_FUNCTION_FAILED;
-	}
-
-	fclose(f);
-	return CKR_OK;
+	return rv;
 }
 
 CK_DECLARE_FUNCTION(CK_RV, C_InitPIN)(

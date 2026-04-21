@@ -107,13 +107,6 @@ static CK_OBJECT_HANDLE util_lib_generate_aes(CK_FUNCTION_LIST_PTR flist, CK_SES
 	CK_OBJECT_HANDLE key;
 	CK_RV rv;
 
-	/* 
-	 * key_id represent the HSE key slot in the key catalog
-	 *     - key_id[0] - slot ID
-	 *     - key_id[1] - group ID
-	 *     - key_id[2] - catalog ID
-	 */
-	CK_BYTE key_id[] = { 0x03, 0x04, 0x01 };
 	CK_UTF8CHAR label[] = {"HSE-AES-256-GEN"};
 	CK_UTF8CHAR new_label[] = {"GENERATED_KEY"};
 	CK_ULONG key_len = 32;
@@ -121,7 +114,7 @@ static CK_OBJECT_HANDLE util_lib_generate_aes(CK_FUNCTION_LIST_PTR flist, CK_SES
 
 	CK_ATTRIBUTE keyTemplate[] = {
 		{ CKA_LABEL, label, sizeof(label)-1 },
-		{ CKA_ID, &key_id, sizeof(key_id) },
+		{ CKA_TOKEN, &boolean, sizeof(boolean) },
 		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
 		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
 		{ CKA_VALUE_LEN, &key_len, sizeof(key_len) },
