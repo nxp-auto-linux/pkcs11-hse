@@ -250,18 +250,73 @@ struct sessionCtx {
 };
 
 /*
+ * struct key_ring - manages a single key ring (group of slots)
+ *
+ * @hse_key_type:    HSE key type this ring handles
+ * @catalog:         HSE catalog ID (NVM=1, RAM=2)
+ * @group:           HSE group ID within catalog
+ * @total_slots:     Total number of slots in this ring
+ * @available_mask:  Bitmask where 1 = available, 0 = acquired
+ * @mtx:             Mutex for thread-safe access
+ */
+struct key_ring {
+	hseKeyType_t hse_key_type;
+	uint8_t catalog;
+	uint8_t group;
+	uint8_t total_slots;
+	uint64_t available_mask;
+	pthread_spinlock_t ring_lock;
+};
+
+struct rings {
+	/* Token (NVM) rings */
+	struct key_ring aes_token;
+	uint32_t aes_token_handles[AES_TOKEN_GROUP_SIZE];
+	struct key_ring hmac_token;
+	uint32_t hmac_token_handles[HMAC_TOKEN_GROUP_SIZE];
+	struct key_ring ecc_pair_token;
+	uint32_t ecc_pair_token_handles[ECC_PAIR_TOKEN_GROUP_SIZE];
+	struct key_ring ecc_pub_token;
+	uint32_t ecc_pub_token_handles[ECC_PUB_TOKEN_GROUP_SIZE];
+	struct key_ring rsa_pair_token;
+	uint32_t rsa_pair_token_handles[RSA_PAIR_TOKEN_GROUP_SIZE];
+	struct key_ring rsa_pub_token;
+	uint32_t rsa_pub_token_handles[RSA_PUB_TOKEN_GROUP_SIZE];
+
+	/* Session (RAM) rings */
+	struct key_ring aes_session;
+	uint32_t aes_session_handles[AES_SESSION_GROUP_SIZE];
+	struct key_ring hmac_session;
+	uint32_t hmac_session_handles[HMAC_SESSION_GROUP_SIZE];
+	struct key_ring shared_secret_session;
+	uint32_t shared_secret_session_handles[SHARED_SECRET_SESSION_GROUP_SIZE];
+	struct key_ring ecc_pub_session;
+	uint32_t ecc_pub_session_handles[ECC_PUB_SESSION_GROUP_SIZE];
+	struct key_ring rsa_pub_session;
+	uint32_t rsa_pub_session_handles[RSA_PUB_SESSION_GROUP_SIZE];
+
+	/* Session key pairs stored in NVM */
+	struct key_ring ecc_pair_session;
+	uint32_t ecc_pair_session_handles[ECC_PAIR_SESSION_GROUP_SIZE];
+	struct key_ring rsa_pair_session;
+	uint32_t rsa_pair_session_handles[RSA_PAIR_SESSION_GROUP_SIZE];
+};
+
+/*
  * struct tokenCtx - token context for PKCS11 operations
  *
  * @slot:             slot info
  * @token:            token info
  * @keyMtx:           mutex for key operations
  * @fwTypeId:         firmware type identifier
+ * @rings:            key ring management structure
  */
 struct tokenCtx {
 	CK_SLOT_INFO slot;
 	CK_TOKEN_INFO token;
 	CK_VOID_PTR keyMtx;
 	uint16_t fwTypeId;
+	struct rings rings;
 };
 
 struct globalCtx *getCtx(void);

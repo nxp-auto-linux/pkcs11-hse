@@ -6,6 +6,8 @@
 #ifndef __PKCS11_UTIL_H__
 #define __PKCS11_UTIL_H__
 
+#define BIT64(n) (1ull << (n))
+
 void *getattr_pval(CK_ATTRIBUTE_PTR template, CK_ATTRIBUTE_TYPE attribute, CK_ULONG attrCount);
 CK_ULONG getattr_len(CK_ATTRIBUTE_PTR template, CK_ATTRIBUTE_TYPE attribute, CK_ULONG attrCount);
 
