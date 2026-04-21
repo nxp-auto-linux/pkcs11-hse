@@ -15,11 +15,11 @@ Please take the below steps as referance:
 
 3. Import RSA private and public keys using pkcs11-tool from OpenSC.
 
-    pkcs11-tool --module /usr/lib/libpkcs-hse.so --write-object rsa_priv.pem --type privkey --id 000601 --label "HSE-RSAPRIV-KEY"
+    pkcs11-tool --module /<path>/libpkcs-hse.so --write-object rsa_priv.pem --type privkey --id 000901 --label "HSE-RSAPRIV-KEY" --usage-decrypt --usage-sign
 
-    pkcs11-tool --module /usr/lib/libpkcs-hse.so --write-object rsa_pub.pem --type pubkey --id 000501 --label "HSE-RSAPUB-KEY"
+    pkcs11-tool --module /<path>/libpkcs-hse.so --write-object rsa_pub.pem --type pubkey --id 000B01 --label "HSE-RSAPUB-KEY" --usage-decrypt --usage-sign
 
 4. Run the pkcs-cipher
 
-    pkcs-cipher /usr/lib/libpkcs-hse.so
+    pkcs-cipher /<path>/libpkcs-hse.so
 

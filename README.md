@@ -163,10 +163,10 @@ You can use `pkcs11-tool` to load RSA keys (public/pair), EC keys (public) and A
 to the key's number (`00`), slot (`06`) and catalog (`01`), in hexadecimal, from the HSE Key Catalog. Some examples:
 
 ```
-./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/rsa_keypair.der --type privkey --id 000601 --label "HSE-RSAPRIV-KEY"
-./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/rsa_keypub.der --type pubkey --id 000501 --label "HSE-RSAPUB-KEY"
-./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/ec_keypub.der --type pubkey --id 000401 --label "HSE-ECPUB-prime256v1-KEY"
-./pkcs11-tool --module ~/pkcs11-hse.so --write-object /<path>/aes.key --type secrkey --key-type AES:256 --id 000101 --label "HSE-AES-256-KEY"
+./pkcs11-tool --module /<path>/libpkcs-hse.so --write-object /<path>/rsa_keypair.der --type privkey --id 000901 --label "HSE-RSAPRIV-KEY" --usage-decrypt --usage-sign
+./pkcs11-tool --module /<path>/libpkcs-hse.so --write-object /<path>/rsa_keypub.der --type pubkey --id 000B01 --label "HSE-RSAPUB-KEY" --usage-decrypt --usage-sign
+./pkcs11-tool --module /<path>/libpkcs-hse.so --write-object /<path>/ec_keypub.der --type pubkey --id 000801 --label "HSE-ECPUB-prime256v1-KEY" --usage-sign
+./pkcs11-tool --module /<path>/libpkcs-hse.so --write-object /<path>/aes.key --type secrkey --key-type AES:256 --id 000401 --label "HSE-AES-256-KEY" --usage-decrypt
 ```
 
 The tool will display a message if the key import operation is successful.
