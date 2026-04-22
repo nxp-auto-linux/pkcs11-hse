@@ -103,7 +103,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 
 	val_len = *val_len_p;
 
-	if (!is_valid_key_length(*kt, val_len * 8))
+	if (!is_valid_key_length(*kt, HSE_BYTES_TO_BITS(val_len)))
 		return CKR_KEY_SIZE_RANGE;
 
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulAttributeCount);
@@ -373,7 +373,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 	copyReq = &srv_desc.hseSrv.keyDeriveCopyKeyReq;
 
 	memset(&keyInfo, 0, sizeof(keyInfo));
-	keyInfo.keyBitLen = (uint16_t)(val_len * 8);
+	keyInfo.keyBitLen = (uint16_t)HSE_BYTES_TO_BITS(val_len);
 
 	if (*kt == CKK_AES) {
 		keyInfo.keyType = HSE_KEY_TYPE_AES;

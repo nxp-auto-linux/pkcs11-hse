@@ -297,7 +297,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	uint8_t keyType;
 	CK_OBJECT_HANDLE obj;
 	CK_BBOOL *keyFlag_val = NULL;
-	uint16_t *keyBitsLen;
+	CK_ULONG *keyBytesLen;
 	CK_BYTE *idtemp;
 	CK_ULONG id_len;
 	char *label = NULL;
@@ -392,7 +392,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	if (label != NULL)
 		memcpy(key->attrs.key_label, label, getattr_len(pTemplate, CKA_LABEL, ulCount));
 
-	if (!(keyBitsLen = (uint16_t *)getattr_pval(pTemplate, CKA_VALUE_LEN, ulCount))) {
+	if (!(keyBytesLen = (CK_ULONG *)getattr_pval(pTemplate, CKA_VALUE_LEN, ulCount))) {
 		rc = CKR_ARGUMENTS_BAD;
 		goto err_free_key_intl;
 	}
@@ -428,7 +428,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 		keyGenReq->keyInfo.keyFlags |= HSE_KF_USAGE_ENCRYPT;
 #endif /* HSE_FW_VERSION_MAJOR >= 2 */
 		keyGenReq->keyInfo.keyType = keyType;
-		keyGenReq->keyInfo.keyBitLen = *keyBitsLen;
+		keyGenReq->keyInfo.keyBitLen = (uint16_t)HSE_BYTES_TO_BITS(*keyBytesLen);
 		keyGenReq->keyInfo.keyCounter = 0u;
 		keyGenReq->keyInfo.smrFlags = 0u;
 		keyGenReq->sch.symKey = 0u;
@@ -477,7 +477,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	}
 
 	keyGenReq->keyInfo.keyType = keyType;
-	keyGenReq->keyInfo.keyBitLen = *keyBitsLen;
+	keyGenReq->keyInfo.keyBitLen = (uint16_t)HSE_BYTES_TO_BITS(*keyBytesLen);
 #if HSE_FW_VERSION_MAJOR >= 2
 	if (keyType == HSE_KEY_TYPE_AES)
 		keyGenReq->keyInfo.specific.aesBlockModeMask = 0u;

@@ -116,8 +116,7 @@ static CK_OBJECT_HANDLE util_lib_generate_aes(CK_FUNCTION_LIST_PTR flist, CK_SES
 	CK_BYTE key_id[] = { 0x03, 0x04, 0x01 };
 	CK_UTF8CHAR label[] = {"HSE-AES-256-GEN"};
 	CK_UTF8CHAR new_label[] = {"GENERATED_KEY"};
-	/* key length in bits required for AES keys */
-	CK_ULONG key_bits = 256;
+	CK_ULONG key_len = 32;
 	CK_BBOOL boolean = CK_TRUE;
 
 	CK_ATTRIBUTE keyTemplate[] = {
@@ -125,7 +124,7 @@ static CK_OBJECT_HANDLE util_lib_generate_aes(CK_FUNCTION_LIST_PTR flist, CK_SES
 		{ CKA_ID, &key_id, sizeof(key_id) },
 		{ CKA_ENCRYPT, &boolean, sizeof(boolean) },
 		{ CKA_DECRYPT, &boolean, sizeof(boolean) },
-		{ CKA_VALUE_LEN, &key_bits, sizeof(key_bits) },
+		{ CKA_VALUE_LEN, &key_len, sizeof(key_len) },
 		{ CKA_VENDOR_DEFINED, new_label, sizeof(new_label) - 1 },
 		{ CKA_ALWAYS_SENSITIVE, &boolean, sizeof(boolean) },
 		{ CKA_SENSITIVE, &boolean, sizeof(boolean) }
