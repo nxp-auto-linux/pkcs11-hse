@@ -773,7 +773,9 @@ static bool check_static_attr_type(CK_ATTRIBUTE_TYPE attr_type)
 	    attr_type == CKA_CLASS || attr_type == CKA_MODULUS || attr_type == CKA_MODULUS_BITS ||
 	    attr_type == CKA_VALUE || attr_type == CKA_PUBLIC_EXPONENT || attr_type == CKA_VALUE_LEN ||
 	    attr_type == CKA_PRIVATE_EXPONENT || attr_type == CKA_EC_POINT ||
-		attr_type == CKA_EC_PARAMS)
+	    attr_type == CKA_EC_PARAMS || attr_type == CKA_PRIME_1 || attr_type == CKA_PRIME_2 ||
+	    attr_type == CKA_EXPONENT_1 || attr_type == CKA_EXPONENT_2 || attr_type == CKA_COEFFICIENT ||
+	    attr_type == CKA_PRIME || attr_type == CKA_SUBPRIME || attr_type == CKA_BASE)
 		return true;
 	return false;
 }

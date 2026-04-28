@@ -865,6 +865,20 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 						err = CKR_FUNCTION_FAILED;
 				}
 				break;
+			/* secret and private key material should never be exported */
+			case CKA_VALUE:
+			case CKA_PRIVATE_EXPONENT:
+			case CKA_PRIME_1:
+			case CKA_PRIME_2:
+			case CKA_EXPONENT_1:
+			case CKA_EXPONENT_2:
+			case CKA_COEFFICIENT:
+			case CKA_PRIME:
+			case CKA_SUBPRIME:
+			case CKA_BASE:
+				pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+				err = CKR_ATTRIBUTE_SENSITIVE;
+				break;
 			default:
 				{
 					attr_hdr = get_key_dyn_attr_hdr_handle(pkey->dyn_attrs_handle,
