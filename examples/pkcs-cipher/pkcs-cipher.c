@@ -862,7 +862,7 @@ int main(int argc, char *argv[])
 	INFO("Found Key Object with handle %06lx\n", aes_key);
 
 	aes_xts_key = util_lib_find_objects(flist, session, "HSE-AES-XTS");
-	if (!aes_key) {
+	if (!aes_xts_key) {
 		ERROR("Failed to find xts key object with Class CKO_SECRET_KEY\n");
 		ret = -ENOKEY;
 		goto err_remove_aes;
