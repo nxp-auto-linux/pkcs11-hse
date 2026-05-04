@@ -119,6 +119,7 @@ static CK_FUNCTION_LIST gFunctionList = {
 	.C_GetMechanismList  =                  C_GetMechanismList,
 	.C_GetMechanismInfo  =                  C_GetMechanismInfo,
 	.C_GetAttributeValue  =                 C_GetAttributeValue,
+	.C_SetAttributeValue  =                 C_SetAttributeValue,
 	.C_InitToken  =                         C_InitToken,
 	.C_InitPIN  =                           C_InitPIN,
 	.C_SetPIN  =                            C_SetPIN,
@@ -176,6 +177,7 @@ static CK_FUNCTION_LIST_3_0 gFunctionList_3_0 = {
 	.C_GetMechanismList  =                  C_GetMechanismList,
 	.C_GetMechanismInfo  =                  C_GetMechanismInfo,
 	.C_GetAttributeValue  =                 C_GetAttributeValue,
+	.C_SetAttributeValue  =                 C_SetAttributeValue,
 	.C_InitToken  =                         C_InitToken,
 	.C_InitPIN  =                           C_InitPIN,
 	.C_SetPIN  =                            C_SetPIN,
@@ -987,6 +989,160 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 		return CKR_BUFFER_TOO_SMALL;
 
 	return CKR_OK;
+}
+
+CK_DECLARE_FUNCTION(CK_RV, C_SetAttributeValue)(
+	CK_SESSION_HANDLE hSession,
+	CK_OBJECT_HANDLE hObject,
+	CK_ATTRIBUTE_PTR pTemplate,
+	CK_ULONG ulCount
+)
+{
+	struct globalCtx *gCtx = getCtx();
+	struct tokenCtx *tCtx = getTokenCtx();
+	struct sessionCtx *sCtx = getSessionCtx(hSession);
+	struct hse_keyObject *pkey;
+	struct dyn_attrHdrObject *attr_hdr;
+	int i, pkey_handle;
+	CK_RV err = CKR_OK;
+
+	if (!gCtx->cryptokiInit)
+		return CKR_CRYPTOKI_NOT_INITIALIZED;
+
+	if (pTemplate == NULL || ulCount == 0)
+		return CKR_ARGUMENTS_BAD;
+
+	if (!sCtx || sCtx->sessionInit == CK_FALSE)
+		return CKR_SESSION_HANDLE_INVALID;
+
+	gCtx->mtxFns.lock(tCtx->keyMtx);
+	pkey_handle = get_key_object_handle(hObject);
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
+
+	if (pkey_handle < 0)
+		return CKR_OBJECT_HANDLE_INVALID;
+	pkey = (struct hse_keyObject *)hse_get_node_mem_addr(pkey_handle, true);
+
+	/* Validate all attributes before modifying any */
+	for (i = 0; i < ulCount; i++) {
+		switch (pTemplate[i].type) {
+			/* Sensitive attributes */
+			case CKA_VALUE:
+			case CKA_PRIVATE_EXPONENT:
+			case CKA_PRIME_1:
+			case CKA_PRIME_2:
+			case CKA_EXPONENT_1:
+			case CKA_EXPONENT_2:
+			case CKA_PRIME:
+			case CKA_SUBPRIME:
+			case CKA_BASE:
+			case CKA_COEFFICIENT:
+				return CKR_ATTRIBUTE_SENSITIVE;
+
+			/* Read-only attributes */
+			case CKA_MODULUS:
+			case CKA_MODULUS_BITS:
+			case CKA_PUBLIC_EXPONENT:
+			case CKA_EC_POINT:
+			case CKA_EC_PARAMS:
+			case CKA_VALUE_LEN:
+			case CKA_VALUE_BITS:
+			case CKA_SUBPRIME_BITS:
+			case CKA_PUBLIC_KEY_INFO:
+
+			case CKA_ENCRYPT:
+			case CKA_DECRYPT:
+			case CKA_SIGN:
+			case CKA_VERIFY:
+			case CKA_DERIVE:
+			case CKA_EXTRACTABLE:
+			case CKA_NEVER_EXTRACTABLE:
+			case CKA_SENSITIVE:
+			case CKA_ALWAYS_SENSITIVE:
+			case CKA_WRAP:
+			case CKA_UNWRAP:
+			case CKA_SIGN_RECOVER:
+			case CKA_VERIFY_RECOVER:
+			case CKA_LOCAL:
+			case CKA_PRIVATE:
+			case CKA_COPYABLE:
+
+			case CKA_UNIQUE_ID:
+			case CKA_KEY_TYPE:
+			case CKA_CLASS:
+			case CKA_TOKEN:
+
+			case CKA_KEY_GEN_MECHANISM:
+			case CKA_CERTIFICATE_TYPE:
+			case CKA_CERTIFICATE_CATEGORY:
+			case CKA_NAME_HASH_ALGORITHM:
+
+			case CKA_PROFILE_ID:
+				return CKR_ATTRIBUTE_READ_ONLY;
+
+			/* Unsupported attributes */
+			case CKA_CHECK_VALUE:
+			case CKA_WRAP_WITH_TRUSTED:
+			case CKA_ALWAYS_AUTHENTICATE:
+			case CKA_TRUSTED:
+			case CKA_WRAP_TEMPLATE:
+			case CKA_UNWRAP_TEMPLATE:
+				return CKR_ACTION_PROHIBITED;
+
+			/* Modifiable attributes */
+			case CKA_LABEL:
+				if (pTemplate[i].ulValueLen == 0 || pTemplate[i].ulValueLen > MAX_LABEL_LEN)
+					return CKR_ARGUMENTS_BAD;
+				break;
+
+			case CKA_ID:
+				/* TODO: check value length */
+				return CKR_ATTRIBUTE_READ_ONLY;
+
+			default:
+				if (pTemplate[i].pValue == NULL || pTemplate[i].ulValueLen == 0)
+					return CKR_ATTRIBUTE_VALUE_INVALID;
+				break;
+		}
+	}
+
+	/* Apply modifications */
+	gCtx->mtxFns.lock(tCtx->keyMtx);
+
+	for (i = 0; i < ulCount; i++) {
+		switch (pTemplate[i].type) {
+			case CKA_LABEL:
+				memset(pkey->attrs.key_label, 0, MAX_LABEL_LEN);
+				if (pTemplate[i].pValue != NULL)
+					memcpy(pkey->attrs.key_label, pTemplate[i].pValue, pTemplate[i].ulValueLen);
+				break;
+			case CKA_ID:
+				/* TODO: memcpy value */
+				break;
+			default:
+				attr_hdr = get_key_dyn_attr_hdr_handle(pkey->dyn_attrs_handle,
+								pTemplate[i].type);
+				if (attr_hdr != NULL && attr_hdr->ulLen == pTemplate[i].ulValueLen) {
+					memcpy((void *)hse_get_node_mem_addr(attr_hdr->attr_handle, true),
+						pTemplate[i].pValue, pTemplate[i].ulValueLen);
+				} else {
+					if (attr_hdr != NULL)
+						hse_free_dyn_attr(pkey, pTemplate[i].type);
+
+					err = hse_add_dyn_attr(pkey, pTemplate[i]);
+					if (err)
+						goto out_unlock;
+				}
+				break;
+		}
+	}
+
+	hse_key_object_write(pkey);
+
+out_unlock:
+	gCtx->mtxFns.unlock(tCtx->keyMtx);
+
+	return err;
 }
 
 CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
