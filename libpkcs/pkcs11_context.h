@@ -29,7 +29,7 @@
 #define SLOT_ID         0
 
 #define MAX_SESSIONS    (HSE_NUM_CHANNELS - 1)
-#define MAX_LABEL_LEN   32
+#define MAX_LABEL_LEN   512
 
 #if (HSE_FW_VERSION_MAJOR == 0)
 #error "Invalid firmware version major"
