@@ -848,3 +848,20 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjectsFinal)(
 
 	return CKR_OK;
 }
+
+CK_DECLARE_FUNCTION(CK_RV, C_CopyObject)(
+	CK_SESSION_HANDLE hSession,
+	CK_OBJECT_HANDLE hObject,
+	CK_ATTRIBUTE_PTR pTemplate,
+	CK_ULONG ulCount,
+	CK_OBJECT_HANDLE_PTR phNewObject
+)
+{
+	(void)hSession;
+	(void)hObject;
+	(void)pTemplate;
+	(void)ulCount;
+	(void)phNewObject;
+
+	return CKR_ACTION_PROHIBITED;
+}
