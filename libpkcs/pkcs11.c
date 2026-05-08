@@ -742,7 +742,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	struct hse_keyObject *pkey;
 	struct dyn_attrHdrObject *attr_hdr;
 	int i, pkey_handle;
-	CK_RV err = CKR_OK;
+	CK_BBOOL attr_sensitive = CK_FALSE;
+	CK_BBOOL attr_type_invalid = CK_FALSE;
+	CK_BBOOL buffer_too_small = CK_FALSE;
 
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -764,69 +766,129 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	for (i = 0; i < ulCount; i++) {
 		switch (pTemplate[i].type) {
 			case CKA_LABEL:
-				if (pTemplate[i].pValue == NULL)
+				if (pTemplate[i].pValue == NULL) {
 					pTemplate[i].ulValueLen = MAX_LABEL_LEN;
-				else 
+				} else if (pTemplate[i].ulValueLen >= MAX_LABEL_LEN) {
 					strncpy(pTemplate[i].pValue, pkey->attrs.key_label, MAX_LABEL_LEN);
+					pTemplate[i].ulValueLen = MAX_LABEL_LEN;
+				} else {
+					pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+					buffer_too_small = CK_TRUE;
+				}
 				break;
 			case CKA_UNIQUE_ID:
-				if (pTemplate[i].pValue == NULL)
+				if (pTemplate[i].pValue == NULL) {
 					pTemplate[i].ulValueLen = sizeof(CK_ULONG);
-				else
+				} else if (pTemplate[i].ulValueLen >= sizeof(CK_ULONG)) {
 					memcpy(pTemplate[i].pValue, &pkey->attrs.key_uid, sizeof(CK_ULONG));
+					pTemplate[i].ulValueLen = sizeof(CK_ULONG);
+				} else {
+					pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+					buffer_too_small = CK_TRUE;
+				}
 				break;
 			case CKA_ID:
-				if (pTemplate[i].pValue == NULL) {
-					pTemplate[i].ulValueLen = 0x3u;
-				} else {
-					uint8_t *byte_value;
-					byte_value = (uint8_t *)pTemplate[i].pValue;
-					byte_value[0] = (uint8_t)pkey->attrs.key_uid;
-					byte_value[1] = (uint8_t)((pkey->attrs.key_uid) >> 8);
-					byte_value[2] = (uint8_t)((pkey->attrs.key_uid) >> 16);
-					pTemplate[i].ulValueLen = 0x3u;
+				{
+					CK_ULONG id_len = 0x3u;
+					if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = id_len;
+					} else if (pTemplate[i].ulValueLen >= id_len) {
+						uint8_t *byte_value = (uint8_t *)pTemplate[i].pValue;
+						byte_value[0] = (uint8_t)pkey->attrs.key_uid;
+						byte_value[1] = (uint8_t)((pkey->attrs.key_uid) >> 8);
+						byte_value[2] = (uint8_t)((pkey->attrs.key_uid) >> 16);
+						pTemplate[i].ulValueLen = id_len;
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
+					}
 				}
 				break;
 			case CKA_CLASS:
-				if (pTemplate[i].pValue == NULL)
+				if (pTemplate[i].pValue == NULL) {
 					pTemplate[i].ulValueLen = sizeof(CK_OBJECT_CLASS);
-				else
+				} else if (pTemplate[i].ulValueLen >= sizeof(CK_OBJECT_CLASS)) {
 					memcpy(pTemplate[i].pValue, &pkey->attrs.key_class, sizeof(CK_OBJECT_CLASS));
+					pTemplate[i].ulValueLen = sizeof(CK_OBJECT_CLASS);
+				} else {
+					pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+					buffer_too_small = CK_TRUE;
+				}
 				break;
 			case CKA_KEY_TYPE:
-				if (pTemplate[i].pValue == NULL)
+				if (pTemplate[i].pValue == NULL) {
 					pTemplate[i].ulValueLen = sizeof(CK_KEY_TYPE);
-				else
+				} else if (pTemplate[i].ulValueLen >= sizeof(CK_KEY_TYPE)) {
 					memcpy(pTemplate[i].pValue, &pkey->attrs.key_type, sizeof(CK_KEY_TYPE));
+					pTemplate[i].ulValueLen = sizeof(CK_KEY_TYPE);
+				} else {
+					pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+					buffer_too_small = CK_TRUE;
+				}
 				break;
 			case CKA_MODULUS:
-				if (pTemplate[i].pValue == NULL) 
-					pTemplate[i].ulValueLen = (CK_ULONG)hse_get_key_bit_length(sCtx->sID, pkey->attrs.key_handle) >> 3;
-				else
-					err = pkey_value_export(sCtx->sID, pkey, pTemplate[i].pValue, NULL, &pTemplate[i].ulValueLen, NULL);
+				{
+					CK_ULONG modulus_len = (CK_ULONG)hse_get_key_bit_length(sCtx->sID, pkey->attrs.key_handle) >> 3;
+					if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = modulus_len;
+					} else if (pTemplate[i].ulValueLen >= modulus_len) {
+						CK_RV rv = pkey_value_export(sCtx->sID, pkey, pTemplate[i].pValue, NULL, &pTemplate[i].ulValueLen, NULL);
+						if (rv != CKR_OK) {
+							pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+							attr_type_invalid = CK_TRUE;
+						}
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
+					}
+				}
 				break;
 			case CKA_PUBLIC_EXPONENT:
-				if (pTemplate[i].pValue == NULL)
-					err = pkey_value_export(sCtx->sID, pkey, NULL, NULL, NULL, &pTemplate[i].ulValueLen);
-				else
-					err = pkey_value_export(sCtx->sID, pkey, NULL, pTemplate[i].pValue, NULL, &pTemplate[i].ulValueLen);
+				{
+					CK_ULONG exp_len = 0;
+					CK_RV rv = pkey_value_export(sCtx->sID, pkey, NULL, NULL, NULL, &exp_len);
+					if (rv != CKR_OK) {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						attr_type_invalid = CK_TRUE;
+					} else if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = exp_len;
+					} else if (pTemplate[i].ulValueLen >= exp_len) {
+						rv = pkey_value_export(sCtx->sID, pkey, NULL, pTemplate[i].pValue, NULL, &pTemplate[i].ulValueLen);
+						if (rv != CKR_OK) {
+							pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+							attr_type_invalid = CK_TRUE;
+						}
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
+					}
+				}
 				break;
 			case CKA_EC_POINT:
 				{
-					/* DER-encoding of ANSI X9.62 ECPoint value Q, Only support EC keys of Weierstrass curves, uncompressed format */
-					CK_ULONG len;
-					uint8_t *tlv = (uint8_t *)pTemplate[i].pValue;
-
-					err = pkey_value_export(sCtx->sID, pkey, NULL, NULL, &len, NULL);
-					if (err)
+					/* DER-encoding of ANSI X9.62 ECPoint value Q */
+					CK_ULONG len = 0;
+					CK_RV rv = pkey_value_export(sCtx->sID, pkey, NULL, NULL, &len, NULL);
+					if (rv != CKR_OK) {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						attr_type_invalid = CK_TRUE;
 						break;
-					
-					if (pTemplate[i].pValue == NULL)
-						pTemplate[i].ulValueLen = len + 2; /* plus 2 to add length of TLV header */
-					else {
+					}
+
+					CK_ULONG total_len = len + 2; /* plus 2 for TLV header */
+
+					if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = total_len;
+					} else if (pTemplate[i].ulValueLen >= total_len) {
+						uint8_t *tlv = (uint8_t *)pTemplate[i].pValue;
 
 						/* tlv+2 to leave 2 bytes room for TLV header (DER encoding) */
-						err = pkey_value_export(sCtx->sID, pkey, tlv + 2, NULL, NULL, NULL);
+						rv = pkey_value_export(sCtx->sID, pkey, tlv + 2, NULL, NULL, NULL);
+						if (rv != CKR_OK) {
+							pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+							attr_type_invalid = CK_TRUE;
+							break;
+						}
 
 						/*
 						 * EdDSA Endianness Conversion (from HSE BE to RFC 8032 LE)
@@ -839,8 +901,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 
 						/* Fill the TLV header */
 						*tlv++ = 0x04; /* 0x4 = OCTET_STRING */
-						*tlv = (uint8_t)len; /* length: should be less than 127 bytes */
-						pTemplate[i].ulValueLen = len + 2;
+						*tlv = (uint8_t)len;
+						pTemplate[i].ulValueLen = total_len;
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
 					}
 				}
 				break;
@@ -851,18 +916,27 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 					hseEccCurveId_t ec_curve_id;
 
 					if (hse_get_ec_curve_id(sCtx->sID, pkey, &ec_curve_id)) {
-						err = CKR_FUNCTION_FAILED;
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						attr_type_invalid = CK_TRUE;
 						break;
 					}
 
 					oid = curveid2ecparam(ec_curve_id, &oid_len);
+					if (oid == NULL) {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						attr_type_invalid = CK_TRUE;
+						break;
+					}
 
-					if (pTemplate[i].pValue == NULL)
-						pTemplate[i].ulValueLen = (unsigned long)oid_len;
-					else if (oid != NULL)
+					if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = (CK_ULONG)oid_len;
+					} else if (pTemplate[i].ulValueLen >= (CK_ULONG)oid_len) {
 						memcpy(pTemplate[i].pValue, oid, oid_len);
-					else 
-						err = CKR_FUNCTION_FAILED;
+						pTemplate[i].ulValueLen = (CK_ULONG)oid_len;
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
+					}
 				}
 				break;
 			/* secret and private key material should never be exported */
@@ -877,7 +951,7 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 			case CKA_SUBPRIME:
 			case CKA_BASE:
 				pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
-				err = CKR_ATTRIBUTE_SENSITIVE;
+				attr_sensitive = CK_TRUE;
 				break;
 			default:
 				{
@@ -885,22 +959,34 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 									pTemplate[i].type);
 					if (attr_hdr == NULL) {
 						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						attr_type_invalid = CK_TRUE;
 						break;
 					}
 
 					if (pTemplate[i].pValue == NULL) {
 						pTemplate[i].ulValueLen = attr_hdr->ulLen;
-						break;
+					} else if (pTemplate[i].ulValueLen >= attr_hdr->ulLen) {
+						memcpy(pTemplate[i].pValue,
+							   (void *)hse_get_node_mem_addr(attr_hdr->attr_handle, true),
+							   attr_hdr->ulLen);
+						pTemplate[i].ulValueLen = attr_hdr->ulLen;
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
 					}
-
-					memcpy(pTemplate[i].pValue,
-						   (void *)hse_get_node_mem_addr(attr_hdr->attr_handle, true),
-					       attr_hdr->ulLen);
 				}
+				break;
 		}
 	}
 
-	return err;
+	if (attr_sensitive)
+		return CKR_ATTRIBUTE_SENSITIVE;
+	if (attr_type_invalid)
+		return CKR_ATTRIBUTE_TYPE_INVALID;
+	if (buffer_too_small)
+		return CKR_BUFFER_TOO_SMALL;
+
+	return CKR_OK;
 }
 
 CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
