@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <pthread.h>
 
 #include "hse_interface.h"
 #include "pkcs11_context.h"
@@ -773,7 +774,7 @@ static void strcpy_pkcs11_nul_padding(unsigned char *dest, const char *source, s
 
 static bool check_static_attr_type(CK_ATTRIBUTE_TYPE attr_type)
 {
-	if (attr_type == CKA_LABEL || attr_type == CKA_ID || attr_type == CKA_KEY_TYPE ||
+	if (attr_type == CKA_LABEL || attr_type == CKA_ID || attr_type == CKA_UNIQUE_ID || attr_type == CKA_KEY_TYPE ||
 	    attr_type == CKA_CLASS || attr_type == CKA_MODULUS || attr_type == CKA_MODULUS_BITS ||
 	    attr_type == CKA_VALUE || attr_type == CKA_PUBLIC_EXPONENT || attr_type == CKA_VALUE_LEN ||
 	    attr_type == CKA_PRIVATE_EXPONENT || attr_type == CKA_EC_POINT ||
@@ -948,14 +949,16 @@ int32_t hse_key_object_write(struct hse_keyObject *key)
 	if (!key)
 		return EINVAL;
 
-	sprintf(key_file_path, "%s/0x%06lx.bin", PKCS_OBJ_DIR, key->attrs.key_handle);
+	sprintf(key_file_path, "%s/0x%06x.bin", PKCS_OBJ_DIR, key->attrs.key_handle);
 	key_file = fopen(key_file_path, "wb");
 	if (!key_file)
 		return EBADF;
 
 	strcpy_pkcs11_padding((unsigned char *)serialized.attrs.key_label,
 					key->attrs.key_label, MAX_LABEL_LEN);
-	serialized.attrs.key_uid = key->attrs.key_uid;
+	memcpy(serialized.attrs.obj_id, key->attrs.obj_id, MAX_KEY_ID_LEN);
+	serialized.attrs.obj_id_len = key->attrs.obj_id_len;
+	memcpy(serialized.attrs.obj_uid, key->attrs.obj_uid, UNIQUE_ID_LEN);
 	serialized.attrs.key_handle = key->attrs.key_handle;
 	serialized.attrs.key_type = key->attrs.key_type;
 	serialized.attrs.key_class = key->attrs.key_class;
@@ -1003,7 +1006,7 @@ int32_t hse_key_object_remove(struct hse_keyObject *key)
 
 	if (!key)
 		return EINVAL;
-	sprintf(key_file_path, "%s/0x%06lx.bin", PKCS_OBJ_DIR, key->attrs.key_handle);
+	sprintf(key_file_path, "%s/0x%06x.bin", PKCS_OBJ_DIR, key->attrs.key_handle);
 	hse_free_dyn_attr_list(key->dyn_attrs_handle);
 	
 	return remove(key_file_path);
@@ -1046,7 +1049,9 @@ int32_t hse_key_obj_read(char *key_name)
 
 	strcpy_pkcs11_nul_padding((unsigned char *)key_obj->attrs.key_label,
 				tmp_key_obj.attrs.key_label, MAX_LABEL_LEN);
-	key_obj->attrs.key_uid = tmp_key_obj.attrs.key_uid;
+	memcpy(key_obj->attrs.obj_id, tmp_key_obj.attrs.obj_id, MAX_KEY_ID_LEN);
+	key_obj->attrs.obj_id_len = tmp_key_obj.attrs.obj_id_len;
+	memcpy(key_obj->attrs.obj_uid, tmp_key_obj.attrs.obj_uid, UNIQUE_ID_LEN);
 	key_obj->attrs.key_handle = tmp_key_obj.attrs.key_handle;
 	key_obj->attrs.key_type = tmp_key_obj.attrs.key_type;
 	key_obj->attrs.key_class = tmp_key_obj.attrs.key_class;
@@ -1559,4 +1564,92 @@ CK_RV write_tCtx(CK_BBOOL create_file)
 		return CKR_ARGUMENTS_BAD;
 
 	return write_tCtx_buffer(tCtx, create_file);
+}
+
+/**
+ * generate_unique_id - Generate a unique 32-byte ID using counter + SHA-256
+ * @session_id: HSE session/channel ID for hash operation
+ * @obj_class:  Object class
+ * @key_handle: HSE key handle (0 if not applicable)
+ * @out_uid:    Output buffer for 32-byte unique ID
+ *
+ * Returns: CKR_OK on success, error code otherwise
+ */
+CK_RV generate_unique_id(uint8_t session_id, CK_OBJECT_CLASS obj_class,
+	                     uint32_t key_handle, uint8_t *out_uid)
+{
+	struct tokenCtx *tCtx = getTokenCtx();
+	DECLARE_SET_ZERO(hseSrvDescriptor_t, srv_desc);
+	hseHashSrv_t *hash_req;
+	int input_handle = -1;
+	int output_handle = -1;
+	int hash_len_handle = -1;
+	uint32_t hash_len = UNIQUE_ID_LEN;
+	int err;
+	CK_RV rv = CKR_OK;
+
+	struct uid_input_buf {
+		uint64_t counter;
+		CK_OBJECT_CLASS obj_class;
+		uint32_t key_handle;
+	} input_data;
+
+	if (!out_uid || !tCtx)
+		return CKR_ARGUMENTS_BAD;
+
+	pthread_spin_lock(&tCtx->uid_lock);
+	if (tCtx->uid_counter == 0)
+		printf("WARNING: UID counter overflow!\n");
+	pthread_spin_unlock(&tCtx->uid_lock);
+
+	input_data.obj_class = obj_class;
+	input_data.key_handle = key_handle;
+
+	input_handle = hse_mem_alloc(sizeof(input_data));
+	if (input_handle < 0) {
+		rv = CKR_HOST_MEMORY;
+		goto cleanup;
+	}
+	hse_memcpy_to_dev(input_handle, &input_data, sizeof(input_data), 0);
+
+	output_handle = hse_mem_alloc(UNIQUE_ID_LEN);
+	if (output_handle < 0) {
+		rv = CKR_HOST_MEMORY;
+		goto cleanup;
+	}
+
+	hash_len_handle = hse_mem_alloc(sizeof(hash_len));
+	if (hash_len_handle < 0) {
+		rv = CKR_HOST_MEMORY;
+		goto cleanup;
+	}
+	hse_memcpy_to_dev(hash_len_handle, &hash_len, sizeof(hash_len), 0);
+
+	srv_desc.srvId = HSE_SRV_ID_HASH;
+	hash_req = &srv_desc.hseSrv.hashReq;
+	hash_req->accessMode = HSE_ACCESS_MODE_ONE_PASS;
+	hash_req->hashAlgo = HSE_HASH_ALGO_SHA2_256;
+	hash_req->sgtOption = HSE_SGT_OPTION_NONE;
+	hash_req->inputLength = sizeof(input_data);
+	hash_req->pInput = hse_virt_to_dma(input_handle, 0);
+	hash_req->pHashLength = hse_virt_to_dma(hash_len_handle, 0);
+	hash_req->pHash = hse_virt_to_dma(output_handle, 0);
+
+	err = hse_srv_req_sync(session_id, &srv_desc, sizeof(srv_desc), NULL);
+	if (err) {
+		rv = CKR_FUNCTION_FAILED;
+		goto cleanup;
+	}
+
+	hse_memcpy_from_dev(out_uid, output_handle, UNIQUE_ID_LEN, 0);
+
+cleanup:
+	if (input_handle >= 0)
+		hse_mem_free(input_handle);
+	if (output_handle >= 0)
+		hse_mem_free(output_handle);
+	if (hash_len_handle >= 0)
+		hse_mem_free(hash_len_handle);
+
+	return rv;
 }

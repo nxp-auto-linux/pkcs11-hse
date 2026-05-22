@@ -473,9 +473,15 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 
 	memset(key, 0, sizeof(*key));
 	key->attrs.key_handle = final_handle;
-	key->attrs.key_uid = final_handle;
 	key->attrs.key_type = *kt;
 	key->attrs.key_class = CKO_SECRET_KEY;
+
+	rv = generate_unique_id(sCtx->sID, key->attrs.key_class,
+							key->attrs.key_handle, key->attrs.obj_uid);
+	if (rv != CKR_OK) {
+		hse_intl_mem_free(key_handle);
+		goto cleanup;
+	}
 
 	if (label && label_len)
 		memcpy(key->attrs.key_label, label, label_len);

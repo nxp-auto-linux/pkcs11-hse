@@ -49,6 +49,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 	CK_KEY_TYPE ck_key_type;
 	CK_OBJECT_CLASS ck_class;
 	CK_BYTE tweak_handle_bytes[3];
+	CK_BYTE *key_id = NULL;
+	CK_ULONG key_id_len = 0;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -142,10 +144,28 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 
 	/* key handles are unique in HSE; use them for UID */
 	key->attrs.key_handle = acquired_handle;
-	key->attrs.key_uid = acquired_handle;
 	key->attrs.key_type = ck_key_type;
 	key->attrs.key_class = ck_class;
 	key->dyn_attrs_handle = -1;
+
+	rc = generate_unique_id(sCtx->sID, key->attrs.key_class,
+							key->attrs.key_handle, key->attrs.obj_uid);
+	if (rc != CKR_OK) {
+		goto err_free_key_intl;
+	}
+
+	key_id = (CK_BYTE *)getattr_pval(pTemplate, CKA_ID, ulCount);
+	if (key_id) {
+		key_id_len = getattr_len(pTemplate, CKA_ID, ulCount);
+		if (key_id_len > MAX_KEY_ID_LEN) {
+			rc = CKR_ARGUMENTS_BAD;
+			goto err_free_key_intl;
+		}
+		memcpy(key->attrs.obj_id, key_id, key_id_len);
+		key->attrs.obj_id_len = key_id_len;
+	} else {
+		key->attrs.obj_id_len = 0;
+	}
 
 	memset(key->attrs.key_label, 0, MAX_LABEL_LEN);
 	label = (char *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
@@ -778,18 +798,19 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjectsInit)(
 
 	if (ulCount > 0 && pTemplate) {
 		sCtx->findCtx.obj_class = (CK_OBJECT_CLASS *)getattr_pval(pTemplate, CKA_CLASS, ulCount);
-		sCtx->findCtx.obj_uid = (CK_ULONG *)getattr_pval(pTemplate, CKA_UNIQUE_ID, ulCount);
+		sCtx->findCtx.obj_uid = (uint8_t *)getattr_pval(pTemplate, CKA_UNIQUE_ID, ulCount);
+		sCtx->findCtx.obj_uid_len = getattr_len(pTemplate, CKA_UNIQUE_ID, ulCount);
 		sCtx->findCtx.label = (CK_UTF8CHAR *)getattr_pval(pTemplate, CKA_LABEL, ulCount);
-		if (getattr_len(pTemplate, CKA_ID, ulCount) == 3)
-			sCtx->findCtx.key_id = (CK_BYTE *)getattr_pval(pTemplate, CKA_ID, ulCount);
-		else 
-			sCtx->findCtx.key_id = NULL;
+		sCtx->findCtx.obj_id = (uint8_t *)getattr_pval(pTemplate, CKA_ID, ulCount);
+		sCtx->findCtx.obj_id_len = getattr_len(pTemplate, CKA_ID, ulCount);
 		sCtx->findCtx.search_template = pTemplate;
 	} else {
 		sCtx->findCtx.obj_class = NULL;
 		sCtx->findCtx.obj_uid = NULL;
+		sCtx->findCtx.obj_uid_len = 0;
 		sCtx->findCtx.label = NULL;
-		sCtx->findCtx.key_id = NULL;
+		sCtx->findCtx.obj_id = NULL;
+		sCtx->findCtx.obj_id_len = 0;
 	}
 
 	sCtx->findCtx.ulCount = ulCount;
@@ -812,7 +833,6 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjects)(
 	struct hse_findCtx *finder;
 	struct dyn_attrHdrObject *dyn_attr_hdr;
 	int i, j, found, key_handle;
-	CK_BYTE *key_id;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -848,22 +868,25 @@ CK_DECLARE_FUNCTION(CK_RV, C_FindObjects)(
 		else if (finder->obj_class)
 			found++;
 
-		if(finder->obj_uid && key->attrs.key_uid != *finder->obj_uid)
-			continue;
-		else if (finder->obj_uid)
+		if (finder->obj_uid && finder->obj_uid_len > 0) {
+			if (finder->obj_uid_len != UNIQUE_ID_LEN)
+				continue;
+			if (memcmp(key->attrs.obj_uid, finder->obj_uid, UNIQUE_ID_LEN) != 0)
+				continue;
 			found++;
+		}
 
 		if (finder->label && (strcmp(key->attrs.key_label, (const char *)finder->label)))
 			continue;
 		else if (finder->label)
 			found++;
-		
-		if (finder->key_id) {
-			key_id = finder->key_id;
-			if (GET_KEY_HANDLE(key_id[2], key_id[1], key_id[0]) != key->attrs.key_uid)
+
+		if (finder->obj_id && finder->obj_id_len > 0) {
+			if (key->attrs.obj_id_len != finder->obj_id_len)
 				continue;
-			else
-				found++;
+			if (memcmp(key->attrs.obj_id, finder->obj_id, finder->obj_id_len) != 0)
+				continue;
+			found++;
 		}
 
 		for (j = 0; j < finder->ulCount; j++) {

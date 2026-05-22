@@ -53,5 +53,6 @@ int hse_get_hmac_key_params(CK_KEY_TYPE key_type, hseHashAlgo_t *hash_algo, uint
 CK_RV hse_process_pin(uint8_t channel, CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen, CK_USER_TYPE utype, CK_BBOOL generate);
 CK_RV write_tCtx_buffer(const struct tokenCtx *buffer, CK_BBOOL create_file);
 CK_RV write_tCtx(CK_BBOOL create_file);
+CK_RV generate_unique_id(uint8_t session_id, CK_OBJECT_CLASS obj_class, uint32_t key_handle, uint8_t *out_uid);
 
 #endif

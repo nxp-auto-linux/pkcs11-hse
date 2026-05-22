@@ -51,6 +51,8 @@
 
 #define SHA224_DIGEST_SIZE 28
 #define SHA224_BLOCK_SIZE  64
+#define UNIQUE_ID_LEN   32
+#define MAX_KEY_ID_LEN  512
 
 #define SHA256_DIGEST_SIZE 32
 #define SHA256_BLOCK_SIZE  64
@@ -153,9 +155,11 @@ struct hse_signCtx {
 struct hse_findCtx {
 	CK_BBOOL init;
 	CK_OBJECT_CLASS *obj_class;
-	CK_ULONG *obj_uid;
+	uint8_t *obj_uid;
+	CK_ULONG obj_uid_len;
 	CK_UTF8CHAR *label;
-	CK_BYTE *key_id;
+	uint8_t *obj_id;
+	CK_ULONG obj_id_len;
 	CK_ATTRIBUTE_PTR search_template;
 	CK_ULONG ulCount;
 };
@@ -164,15 +168,17 @@ struct hse_findCtx {
  * struct static_attrs - default key attributes
  *
  * @key_label:  user-provided identifier for the object
- * @key_uid:    read-only unique object ID
+ * @obj_uid:    read-only unique object ID
  * @key_handle: hse-provided key handle
  * @key_type:   private/pair or public key
  * @key_class:  rsa or ecc
  */
 struct static_attrs {
 	char key_label[MAX_LABEL_LEN];
-	CK_ULONG key_uid;
-	CK_OBJECT_HANDLE key_handle;
+	uint8_t obj_uid[UNIQUE_ID_LEN];
+	uint8_t obj_id[MAX_KEY_ID_LEN];
+	CK_ULONG obj_id_len;
+	uint32_t key_handle;
 	CK_KEY_TYPE key_type;
 	CK_OBJECT_CLASS key_class;
 };
@@ -314,6 +320,8 @@ struct rings {
  * @slot:             slot info
  * @token:            token info
  * @keyMtx:           mutex for key operations
+ * @uid_lock          spinlock for UID counter access
+ * @uid_counter       uid counter for unique key identification
  * @fwTypeId:         firmware type identifier
  * @rings:            key ring management structure
  */
@@ -322,6 +330,8 @@ struct tokenCtx {
 	CK_SLOT_INFO slot;
 	CK_TOKEN_INFO token;
 	CK_VOID_PTR keyMtx;
+	pthread_spinlock_t uid_lock;
+	uint64_t uid_counter;
 	CK_VOID_PTR tctx_file_mtx;
 	uint16_t fwTypeId;
 	struct rings rings;

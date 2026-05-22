@@ -345,8 +345,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 				return CKR_FUNCTION_FAILED;
 			}
 			if (gCtx->mtxFns.create(&tCtx->tctx_file_mtx) != CKR_OK) {
-				gCtx->mtxFns.destroy(tCtx->keyMtx);
 				tCtx->keyMtx = NULL;
+				hse_dev_close();
+				return CKR_FUNCTION_FAILED;
+			}
+			if (pthread_spin_init(&tCtx->uid_lock, PTHREAD_PROCESS_SHARED) != 0) {
+				tCtx->keyMtx = NULL;
+				tCtx->tctx_file_mtx = NULL;
 				hse_dev_close();
 				return CKR_FUNCTION_FAILED;
 			}
@@ -401,6 +406,10 @@ CK_DECLARE_FUNCTION(CK_RV, C_Initialize) (
 				hse_dev_close();
 				return CKR_FUNCTION_FAILED;
 			}
+		}
+		if (pthread_spin_init(&tCtx->uid_lock, PTHREAD_PROCESS_SHARED) != 0) {
+			hse_dev_close();
+			return CKR_FUNCTION_FAILED;
 		}
 		/* Mark intl shm as valid */
 		tCtx->loaded = TCTX_LOADED;
@@ -878,26 +887,24 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 				break;
 			case CKA_UNIQUE_ID:
 				if (pTemplate[i].pValue == NULL) {
-					pTemplate[i].ulValueLen = sizeof(CK_ULONG);
-				} else if (pTemplate[i].ulValueLen >= sizeof(CK_ULONG)) {
-					memcpy(pTemplate[i].pValue, &pkey->attrs.key_uid, sizeof(CK_ULONG));
-					pTemplate[i].ulValueLen = sizeof(CK_ULONG);
+					pTemplate[i].ulValueLen = UNIQUE_ID_LEN;
+				} else if (pTemplate[i].ulValueLen >= UNIQUE_ID_LEN) {
+					memcpy(pTemplate[i].pValue, pkey->attrs.obj_uid, UNIQUE_ID_LEN);
+					pTemplate[i].ulValueLen = UNIQUE_ID_LEN;
 				} else {
 					pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
 					buffer_too_small = CK_TRUE;
 				}
 				break;
 			case CKA_ID:
-				{
-					CK_ULONG id_len = 0x3u;
+				if (pkey->attrs.obj_id_len == 0) {
+					pTemplate[i].ulValueLen = 0;
+				} else {
 					if (pTemplate[i].pValue == NULL) {
-						pTemplate[i].ulValueLen = id_len;
-					} else if (pTemplate[i].ulValueLen >= id_len) {
-						uint8_t *byte_value = (uint8_t *)pTemplate[i].pValue;
-						byte_value[0] = (uint8_t)pkey->attrs.key_uid;
-						byte_value[1] = (uint8_t)((pkey->attrs.key_uid) >> 8);
-						byte_value[2] = (uint8_t)((pkey->attrs.key_uid) >> 16);
-						pTemplate[i].ulValueLen = id_len;
+						pTemplate[i].ulValueLen = pkey->attrs.obj_id_len;
+					} else if (pTemplate[i].ulValueLen >= pkey->attrs.obj_id_len) {
+						memcpy(pTemplate[i].pValue, pkey->attrs.obj_id, pkey->attrs.obj_id_len);
+						pTemplate[i].ulValueLen = pkey->attrs.obj_id_len;
 					} else {
 						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
 						buffer_too_small = CK_TRUE;
@@ -1194,8 +1201,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_SetAttributeValue)(
 				break;
 
 			case CKA_ID:
-				/* TODO: check value length */
-				return CKR_ATTRIBUTE_READ_ONLY;
+				if (pTemplate[i].ulValueLen > MAX_KEY_ID_LEN)
+					return CKR_ARGUMENTS_BAD;
 
 			default:
 				if (pTemplate[i].pValue == NULL || pTemplate[i].ulValueLen == 0)
@@ -1215,7 +1222,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_SetAttributeValue)(
 					memcpy(pkey->attrs.key_label, pTemplate[i].pValue, pTemplate[i].ulValueLen);
 				break;
 			case CKA_ID:
-				/* TODO: memcpy value */
+				memset(pkey->attrs.obj_id, 0, MAX_KEY_ID_LEN);
+				if (pTemplate[i].pValue && pTemplate[i].ulValueLen > 0) {
+					memcpy(pkey->attrs.obj_id, pTemplate[i].pValue, pTemplate[i].ulValueLen);
+					pkey->attrs.obj_id_len = pTemplate[i].ulValueLen;
+				} else {
+					pkey->attrs.obj_id_len = 0;
+				}
 				break;
 			default:
 				attr_hdr = get_key_dyn_attr_hdr_handle(pkey->dyn_attrs_handle,
@@ -1320,13 +1333,20 @@ CK_DECLARE_FUNCTION(CK_RV, C_InitToken)(
 	if (gCtx->mtxFns.create) {
 		rv = gCtx->mtxFns.create(&tCtx->tctx_file_mtx);
 		if (rv != CKR_OK) {
-            /* Cleanup keyMtx */
-            if (tCtx->keyMtx && gCtx->mtxFns.destroy)
-                gCtx->mtxFns.destroy(tCtx->keyMtx);
             tCtx->keyMtx = NULL;
             return CKR_FUNCTION_FAILED;
         }
     }
+
+	/* Initialize uid_lock */
+	if (pthread_spin_init(&tCtx->uid_lock, PTHREAD_PROCESS_SHARED) != 0) {
+		tCtx->keyMtx = NULL;
+		tCtx->tctx_file_mtx = NULL;
+		return CKR_FUNCTION_FAILED;
+	}
+
+	/* Initialize unique ID counter to 0 */
+	tCtx->uid_counter = 0;
 
 	/* Mark intl shm as valid */
 	tCtx->loaded = TCTX_LOADED;

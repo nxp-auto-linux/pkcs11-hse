@@ -93,8 +93,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 
 	/* key handles are unique in HSE; use them for UID */
 	key->attrs.key_handle = acquired_handle;
-	key->attrs.key_uid = acquired_handle;
 	key->dyn_attrs_handle = -1;
+
+	rc = generate_unique_id(sCtx->sID, key->attrs.key_class,
+							key->attrs.key_handle, key->attrs.obj_uid);
+	if (rc != CKR_OK) {
+		goto err_free_key_intl;
+	}
 
 	label = (char *)getattr_pval(pPrivateKeyTemplate, CKA_LABEL, ulPrivateKeyAttributeCount);
 	if (label != NULL) {
@@ -373,8 +378,13 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 
 	/* key handles are unique in HSE; use them for UID */
 	key->attrs.key_handle = acquired_handle;
-	key->attrs.key_uid = acquired_handle;
 	key->dyn_attrs_handle = -1;
+
+	rc = generate_unique_id(sCtx->sID, key->attrs.key_class,
+							key->attrs.key_handle, key->attrs.obj_uid);
+	if (rc != CKR_OK) {
+		goto err_free_key_intl;
+	}
 
 	/* key class and key type */
 	if (getattr_pval(pTemplate, CKA_CLASS, ulCount)) {
