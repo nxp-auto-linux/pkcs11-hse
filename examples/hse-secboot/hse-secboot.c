@@ -1205,7 +1205,7 @@ int hse_ecc_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 
 	smr_entry.authKeyHandle = auth_handle;
 	smr_entry.authScheme.sigScheme.signSch = HSE_SIGN_ECDSA;
-	smr_entry.authScheme.sigScheme.sch.ecdsa.hashAlgo = HSE_HASH_ALGO_SHA_1;
+	smr_entry.authScheme.sigScheme.sch.ecdsa.hashAlgo = HSE_HASH_ALGO_SHA2_512;
 	smr_entry.smrDecrypt.decryptKeyHandle = HSE_SMR_DECRYPT_KEY_HANDLE_NOT_USED;
 	smr_entry.versionOffset = BL2_VERSION_OFFSET;
 
@@ -1274,7 +1274,7 @@ int hse_rsa_smr_install(int fd, struct ivt *ivt, struct app_boot_hdr *app_boot,
 	smr_entry.checkPeriod = 0;
 	smr_entry.authKeyHandle = auth_handle;
 	smr_entry.authScheme.sigScheme.signSch = HSE_SIGN_RSASSA_PKCS1_V15;
-	smr_entry.authScheme.sigScheme.sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA_1;
+	smr_entry.authScheme.sigScheme.sch.rsaPkcs1v15.hashAlgo = HSE_HASH_ALGO_SHA2_512;
 	smr_entry.smrDecrypt.decryptKeyHandle = HSE_SMR_DECRYPT_KEY_HANDLE_NOT_USED;
 	smr_entry.versionOffset = BL2_VERSION_OFFSET;
 
