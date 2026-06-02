@@ -268,7 +268,7 @@ struct sessionCtx {
  * @group:           HSE group ID within catalog
  * @total_slots:     Total number of slots in this ring
  * @available_mask:  Bitmask where 1 = available, 0 = acquired
- * @mtx:             Mutex for thread-safe access
+ * @ring_lock:       Spinlock for thread-safe access
  */
 struct key_ring {
 	hseKeyType_t hse_key_type;
