@@ -854,6 +854,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 	CK_BBOOL attr_sensitive = CK_FALSE;
 	CK_BBOOL attr_type_invalid = CK_FALSE;
 	CK_BBOOL buffer_too_small = CK_FALSE;
+	CK_BBOOL ck_true = CK_TRUE;
+	CK_BBOOL ck_false = CK_FALSE;
 
 	if (!gCtx->cryptokiInit)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -944,6 +946,25 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 							pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
 							attr_type_invalid = CK_TRUE;
 						}
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
+					}
+				}
+				break;
+			case CKA_MODULUS_BITS:
+				{
+					CK_ULONG modulus_bits = (CK_ULONG)hse_get_key_bit_length(sCtx->sID, pkey->attrs.key_handle);
+					if (modulus_bits == 0 || pkey->attrs.key_type != CKK_RSA) {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						attr_type_invalid = CK_TRUE;
+						break;
+					}
+					if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = sizeof(CK_ULONG);
+					} else if (pTemplate[i].ulValueLen >= sizeof(CK_ULONG)) {
+						memcpy(pTemplate[i].pValue, &modulus_bits, sizeof(CK_ULONG));
+						pTemplate[i].ulValueLen = sizeof(CK_ULONG);
 					} else {
 						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
 						buffer_too_small = CK_TRUE;
@@ -1046,6 +1067,40 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 					}
 				}
 				break;
+			case CKA_ENCRYPT:
+			case CKA_DECRYPT:
+			case CKA_SIGN:
+			case CKA_VERIFY:
+			case CKA_DERIVE:
+			case CKA_LOCAL:
+				attr_hdr = get_key_dyn_attr_hdr_handle(pkey->dyn_attrs_handle,
+									pTemplate[i].type);
+				if (attr_hdr != NULL) {
+					/* attribute found in dynamic attributes */
+					if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = attr_hdr->ulLen;
+					} else if (pTemplate[i].ulValueLen >= attr_hdr->ulLen) {
+						memcpy(pTemplate[i].pValue,
+							(void *)hse_get_node_mem_addr(attr_hdr->attr_handle, true),
+							attr_hdr->ulLen);
+						pTemplate[i].ulValueLen = attr_hdr->ulLen;
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
+					}
+				} else {
+					/* not found - return CK_FALSE as default */
+					if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = sizeof(CK_BBOOL);
+					} else if (pTemplate[i].ulValueLen >= sizeof(CK_BBOOL)) {
+						memcpy(pTemplate[i].pValue, &ck_false, sizeof(CK_BBOOL));
+						pTemplate[i].ulValueLen = sizeof(CK_BBOOL);
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
+					}
+				}
+				break;
 			/* secret and private key material should never be exported */
 			case CKA_VALUE:
 			case CKA_PRIVATE_EXPONENT:
@@ -1059,6 +1114,49 @@ CK_DECLARE_FUNCTION(CK_RV, C_GetAttributeValue)(
 			case CKA_BASE:
 				pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
 				attr_sensitive = CK_TRUE;
+				break;
+			case CKA_WRAP:
+			case CKA_UNWRAP:
+			case CKA_SIGN_RECOVER:
+			case CKA_VERIFY_RECOVER:
+			case CKA_ALWAYS_AUTHENTICATE:
+			case CKA_EXTRACTABLE:
+				if (pTemplate[i].pValue == NULL) {
+					pTemplate[i].ulValueLen = sizeof(CK_BBOOL);
+				} else if (pTemplate[i].ulValueLen >= sizeof(CK_BBOOL)) {
+					memcpy(pTemplate[i].pValue, &ck_false, sizeof(CK_BBOOL));
+					pTemplate[i].ulValueLen = sizeof(CK_BBOOL);
+				} else {
+					pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+					buffer_too_small = CK_TRUE;
+				}
+				break;
+			case CKA_NEVER_EXTRACTABLE:
+				if (pTemplate[i].pValue == NULL) {
+					pTemplate[i].ulValueLen = sizeof(CK_BBOOL);
+				} else if (pTemplate[i].ulValueLen >= sizeof(CK_BBOOL)) {
+					memcpy(pTemplate[i].pValue, &ck_true, sizeof(CK_BBOOL));
+					pTemplate[i].ulValueLen = sizeof(CK_BBOOL);
+				} else {
+					pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+					buffer_too_small = CK_TRUE;
+				}
+				break;
+			case CKA_SENSITIVE:
+			case CKA_ALWAYS_SENSITIVE:
+				{
+					CK_BBOOL is_sensitive = (pkey->attrs.key_class == CKO_PRIVATE_KEY ||
+					                         pkey->attrs.key_class == CKO_SECRET_KEY) ? CK_TRUE : CK_FALSE;
+					if (pTemplate[i].pValue == NULL) {
+						pTemplate[i].ulValueLen = sizeof(CK_BBOOL);
+					} else if (pTemplate[i].ulValueLen >= sizeof(CK_BBOOL)) {
+						memcpy(pTemplate[i].pValue, &is_sensitive, sizeof(CK_BBOOL));
+						pTemplate[i].ulValueLen = sizeof(CK_BBOOL);
+					} else {
+						pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+						buffer_too_small = CK_TRUE;
+					}
+				}
 				break;
 			default:
 				{

@@ -69,6 +69,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 	CK_ULONG expected_point_len;
 	CK_RV rv = CKR_OK;
 	int err;
+	CK_BBOOL local_attr_val = CK_TRUE;
+	CK_ATTRIBUTE local_attr;
 
 	enum object_domain is_token;
 	hseKeyType_t hse_key_type;
@@ -488,6 +490,18 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 
 	key->dyn_attrs_handle = -1;
 	err = hse_add_dyn_attr_list(key, pTemplate, ulAttributeCount);
+	if (err) {
+		hse_free_dyn_attr_list(key->dyn_attrs_handle);
+		hse_intl_mem_free(key_handle);
+		rv = CKR_FUNCTION_FAILED;
+		goto cleanup;
+	}
+
+	local_attr.type = CKA_LOCAL;
+	local_attr.pValue = &local_attr_val;
+	local_attr.ulValueLen = sizeof(local_attr_val);
+
+	err = hse_add_dyn_attr(key, local_attr);
 	if (err) {
 		hse_free_dyn_attr_list(key->dyn_attrs_handle);
 		hse_intl_mem_free(key_handle);

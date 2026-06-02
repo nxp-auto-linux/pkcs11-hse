@@ -44,6 +44,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 	enum object_domain is_token;
 	CK_BBOOL *token_attr;
 	uint32_t acquired_handle = 0;
+	CK_BBOOL local_attr_val = CK_TRUE;
+	CK_ATTRIBUTE local_attr;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -269,6 +271,14 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 		goto err_free_key_data;
 	}
 
+	local_attr.type = CKA_LOCAL;
+	local_attr.pValue = &local_attr_val;
+	local_attr.ulValueLen = sizeof(local_attr_val);
+
+	rc = hse_add_dyn_attr(key, local_attr);
+	if (rc)
+		goto err_free_key_data;
+
 	/* private and public key are stored in the same slot in HSE */
 	*phPrivateKey = key->attrs.key_handle;
 	*phPublicKey = key->attrs.key_handle;
@@ -316,6 +326,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 	uint32_t acquired_handle = 0;
 	uint32_t tweak_handle = 0;
 	CK_BYTE tweak_handle_bytes[3];
+	CK_BBOOL local_attr_val = CK_TRUE;
+	CK_ATTRIBUTE local_attr;
 
 	if (gCtx->cryptokiInit == CK_FALSE)
 		return CKR_CRYPTOKI_NOT_INITIALIZED;
@@ -512,6 +524,14 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKey)(
 		rc = CKR_FUNCTION_FAILED;
 		goto err_free_key_intl;
 	}
+
+	local_attr.type = CKA_LOCAL;
+	local_attr.pValue = &local_attr_val;
+	local_attr.ulValueLen = sizeof(local_attr_val);
+
+	rc = hse_add_dyn_attr(key, local_attr);
+	if (rc)
+		goto err_free_key_intl;
 
 	*phKey = key->attrs.key_handle;
 
