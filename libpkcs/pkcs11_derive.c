@@ -336,9 +336,11 @@ CK_DECLARE_FUNCTION(CK_RV, C_DeriveKey)(
 			/* KDF */
 			if (ecdh->kdf != CKD_NULL) {
 				switch (ecdh->kdf) {
+#if HSE_FW_VERSION_MAJOR < 2
 				case CKD_SHA1_KDF:
 					hash_algo = HSE_HASH_ALGO_SHA_1;
 					break;
+#endif /* HSE_FW_VERSION_MAJOR < 2 */
 				case CKD_SHA224_KDF:
 					hash_algo = HSE_HASH_ALGO_SHA2_224;
 					break;
