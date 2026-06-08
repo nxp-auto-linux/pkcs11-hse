@@ -45,7 +45,6 @@ typedef struct {
 
 static const kdf_info_t supported_kdfs[] = {
 	{ CKD_NULL,        "CKD_NULL" },
-	{ CKD_SHA1_KDF,    "CKD_SHA1_KDF" },
 	{ CKD_SHA224_KDF,  "CKD_SHA224_KDF" },
 	{ CKD_SHA256_KDF,  "CKD_SHA256_KDF" },
 	{ CKD_SHA384_KDF,  "CKD_SHA384_KDF" },
