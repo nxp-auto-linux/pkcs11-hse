@@ -263,8 +263,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 					key_info.keyFlags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_VERIFY;
 			}
 
-			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_EXTRACTABLE, ulCount)) && (*keyFlag_val))
-				key_info.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
+			/* always allow exporting public key */
+			key_info.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
 
 			break;
 		case CKK_EC:
@@ -344,8 +344,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 					key_info.keyFlags |= HSE_KF_USAGE_VERIFY;
 			}
 
-			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_EXTRACTABLE, ulCount)) && (*keyFlag_val))
-				key_info.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
+			/* always allow exporting public key */
+			key_info.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
 
 			break;
 		case CKK_EC_EDWARDS:
@@ -451,8 +451,8 @@ CK_DECLARE_FUNCTION(CK_RV, C_CreateObject)(
 					key_info.keyFlags |= HSE_KF_USAGE_VERIFY;
 			}
 
-			if ((keyFlag_val = (CK_BBOOL *)getattr_pval(pTemplate, CKA_EXTRACTABLE, ulCount)) && (*keyFlag_val))
-				key_info.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
+			/* always allow exporting public key */
+			key_info.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
 
 			break;
 		/*

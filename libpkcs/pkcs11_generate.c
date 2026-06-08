@@ -180,6 +180,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 			if (keyGenReq->keyInfo.keyFlags == 0)
 				keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN | HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_VERIFY;
 
+			/* always allow exporting public key */
+			keyGenReq->keyInfo.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
+
 			keyGenReq->keyInfo.keyType = HSE_KEY_TYPE_RSA_PAIR;
 			keyGenReq->keyInfo.keyBitLen = *keyBitsLen;
 			keyGenReq->keyInfo.specific.pubExponentSize = pubExpLen;
@@ -213,6 +216,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 			if (keyGenReq->keyInfo.keyFlags == 0)
 				keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
 
+			/* always allow exporting public key */
+			keyGenReq->keyInfo.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
+
 			keyGenReq->keyInfo.keyType = HSE_KEY_TYPE_ECC_PAIR;
 			keyGenReq->keyInfo.specific.eccCurveId = ecparam2curveid((char *)ecc_oid,
 				(uint8_t)getattr_len(pPublicKeyTemplate, CKA_EC_PARAMS, ulPublicKeyAttributeCount));
@@ -242,6 +248,9 @@ CK_DECLARE_FUNCTION(CK_RV, C_GenerateKeyPair)(
 			/* default flags for EdDSA key pair if none specified */
 			if (keyGenReq->keyInfo.keyFlags == 0)
 				keyGenReq->keyInfo.keyFlags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
+
+			/* always allow exporting public key */
+			keyGenReq->keyInfo.keyFlags |= HSE_KF_ACCESS_EXPORTABLE;
 
 			/* EdDSA uses HSE_KEY_TYPE_ECC_PAIR key type */
 			keyGenReq->keyInfo.keyType = HSE_KEY_TYPE_ECC_PAIR;
