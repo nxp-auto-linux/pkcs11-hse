@@ -1598,6 +1598,7 @@ CK_RV generate_unique_id(uint8_t session_id, CK_OBJECT_CLASS obj_class,
 		return CKR_ARGUMENTS_BAD;
 
 	pthread_spin_lock(&tCtx->uid_lock);
+	input_data.counter = ++tCtx->uid_counter;
 	if (tCtx->uid_counter == 0)
 		printf("WARNING: UID counter overflow!\n");
 	pthread_spin_unlock(&tCtx->uid_lock);
