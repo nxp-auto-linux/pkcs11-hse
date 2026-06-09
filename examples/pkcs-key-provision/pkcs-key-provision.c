@@ -358,7 +358,7 @@ int main(int argc, char *argv[])
 		if (!pModulus) {
 			ERROR("Failed to allocate space for RSA Public Key Modulus\n");
 			ret = -ENOMEM;
-			goto err_lib_finalize;
+			goto err_destroy_object;
 		}
 		template[0].pValue = pModulus;
 		/* template[0].ulValueLen was set by C_GetAttributeValue */
@@ -372,7 +372,7 @@ int main(int argc, char *argv[])
 		/* template[1].ulValueLen was set by C_GetAttributeValue */
 	} else {
 		ERROR("Failed to get attribute lengths for the provided template\n");
-		goto err_free_rsa_pub_exponent;
+		goto err_destroy_object;
 	}
 
 	/* second call is needed to retrieve actual attribute values */
@@ -381,7 +381,7 @@ int main(int argc, char *argv[])
 		/* check sizes */
 		if (BN_num_bytes(rsa_bn_modulus) != template[0].ulValueLen) {
 			ERROR("Failed to export RSA Public Key Modulus ... size mismatch\n");
-			goto err_free_rsa_mod;
+			goto err_free_rsa_pub_exp;
 		}
 		if (BN_num_bytes(rsa_bn_pub_exponent) != template[1].ulValueLen) {
 			ERROR("Failed to export RSA Public Key Exponent ... size mismatch\n");
@@ -391,7 +391,7 @@ int main(int argc, char *argv[])
 		ret = memcmp(rsa_modulus, pModulus, template[0].ulValueLen);
 		if (ret) {
 			ERROR("Failed to export RSA Public Key Modulus ... values mismatch\n");
-			goto err_free_rsa_mod;
+			goto err_free_rsa_pub_exp;
 		} else {
 			INFO("RSA Public Key Modulus successfully exported\n");
 		}
@@ -404,22 +404,21 @@ int main(int argc, char *argv[])
 		}
 	} else {
 		ERROR("Failed to export RSA Public Key Modulus and Exponent\n");
-	}
-
-	INFO("Deleting Key Object with handle %06lx\n", key_match);
-
-	ret = util_lib_destroy_object(flist, session, key_match);
-	if (ret) {
-		ERROR("Failed to destroy key object\n");
 		goto err_free_rsa_pub_exp;
 	}
 
-	INFO("Cleaning up and calling C_Finalize...\n");
+	INFO("Deleting Key Object with handle %06lx\n", key_match);
 
 err_free_rsa_pub_exp:
 	free(pExponent);
 err_free_rsa_mod:
 	free(pModulus);
+err_destroy_object:
+	if (util_lib_destroy_object(flist, session, key_match))
+		ERROR("Failed to destroy key object\n");
+
+	INFO("Cleaning up and calling C_Finalize...\n");
+
 err_free_rsa_pub_exponent:
 	free(rsa_pub_exponent);
 err_free_rsa_modulus:
